@@ -1,0 +1,25 @@
+{
+  "description": "Single drug with Poisson-like (linear) heteroscedastic noise — σ²(μ) = a + b·μ. Use to validate that the variance_model='linear' fit recovers the noise polynomial.",
+  "kind": "single_drug",
+  "drug_name": "Heteroscedaztec",
+  "concentration_unit": "µM",
+  "seed": 17,
+  "hill_params": {
+    "c50": 4.0,
+    "hill": 1.4,
+    "effect_0": 1.0,
+    "effect_inf": 0.05
+  },
+  "concentration_series": {
+    "initial_conc": 100.0,
+    "fold_dilutions": 3.0,
+    "length": 9,
+    "has_zero": true
+  },
+  "n_replicates": 6,
+  "noise_model": "gaussian",
+  "noise_var_a": 0.0004,
+  "noise_var_b": 0.04,
+  "noise_var_c": 0.0,
+  "outliers": []
+}

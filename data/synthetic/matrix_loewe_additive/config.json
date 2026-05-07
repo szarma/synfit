@@ -1,0 +1,38 @@
+{
+  "description": "Drug-drug matrix, Loewe additivity (CI = 1). Counterpart to matrix_independent for testing Loewe combination index.",
+  "kind": "matrix",
+  "seed": 42,
+  "reference_model": "loewe",
+  "horizontal_drug": {
+    "name": "Loewium",
+    "unit": "\u00b5M",
+    "c50": 5.0,
+    "hill": 1.0,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 50.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "vertical_drug": {
+    "name": "Additivol",
+    "unit": "\u00b5M",
+    "c50": 8.0,
+    "hill": 1.0,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 80.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "effect_0": 1.0,
+  "effect_inf": 0.02,
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.03,
+  "synergy_factor": 0.0
+}

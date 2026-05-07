@@ -1,0 +1,23 @@
+{
+  "description": "Activation-shaped curve (effect_0 < effect_inf). Same Hill math, opposite asymptotes.",
+  "kind": "single_drug",
+  "drug_name": "Protagonistatin",
+  "concentration_unit": "µM",
+  "seed": 101,
+  "hill_params": {
+    "c50": 2.0,
+    "hill": 1.6,
+    "effect_0": 0.08,
+    "effect_inf": 0.92
+  },
+  "concentration_series": {
+    "initial_conc": 40.0,
+    "fold_dilutions": 3.0,
+    "length": 8,
+    "has_zero": true
+  },
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.05,
+  "outliers": []
+}

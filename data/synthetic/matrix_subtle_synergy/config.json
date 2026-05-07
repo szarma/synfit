@@ -1,0 +1,37 @@
+{
+  "description": "Mild synergy (synergy_factor=0.09). Small but non-zero departure from independence.",
+  "kind": "matrix",
+  "seed": 173,
+  "horizontal_drug": {
+    "name": "Hintazole",
+    "unit": "µM",
+    "c50": 6.0,
+    "hill": 1.4,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 45.0,
+      "fold_dilutions": 2.5,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "vertical_drug": {
+    "name": "Maybebine",
+    "unit": "µM",
+    "c50": 7.0,
+    "hill": 1.35,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 70.0,
+      "fold_dilutions": 2.5,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "effect_0": 1.0,
+  "effect_inf": 0.025,
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.04,
+  "synergy_factor": 0.09
+}

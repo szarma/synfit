@@ -1,0 +1,37 @@
+{
+  "description": "Synergistic matrix with elevated noise (noise_sigma_log=0.18). Demo-friendly: visible synergy with the fit having to actually work through noise.",
+  "kind": "matrix",
+  "seed": 271,
+  "horizontal_drug": {
+    "name": "Synerginator",
+    "unit": "µM",
+    "c50": 5.0,
+    "hill": 1.5,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 50.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "vertical_drug": {
+    "name": "Amplifriend",
+    "unit": "µM",
+    "c50": 8.0,
+    "hill": 1.2,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 80.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "effect_0": 1.0,
+  "effect_inf": 0.02,
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.18,
+  "synergy_factor": 0.4
+}

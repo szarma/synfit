@@ -1,0 +1,23 @@
+{
+  "description": "Single drug, typical noise. Happy-path fit scenario.",
+  "kind": "single_drug",
+  "drug_name": "Synthetinib",
+  "concentration_unit": "µM",
+  "seed": 42,
+  "hill_params": {
+    "c50": 5.0,
+    "hill": 1.8,
+    "effect_0": 1.0,
+    "effect_inf": 0.02
+  },
+  "concentration_series": {
+    "initial_conc": 100.0,
+    "fold_dilutions": 3.0,
+    "length": 8,
+    "has_zero": true
+  },
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.05,
+  "outliers": []
+}

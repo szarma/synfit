@@ -1,0 +1,38 @@
+{
+  "description": "Loewe sham combination — the same drug combined with itself. Loewe CI must read ~1.0 at every valid cell. The strictest correctness check for the combination index: any non-trivial deviation indicates a bug in either the generator or the loewe_ci pipeline. Both axes share identical Hill parameters and direction; hill = 1.0 keeps Loewe rigorously defined (the formula assumes equal slopes for sham combinations).",
+  "kind": "matrix",
+  "seed": 7,
+  "reference_model": "loewe",
+  "horizontal_drug": {
+    "name": "Shamadrug",
+    "unit": "µM",
+    "c50": 4.0,
+    "hill": 1.0,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 40.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "vertical_drug": {
+    "name": "Shamadrug",
+    "unit": "µM",
+    "c50": 4.0,
+    "hill": 1.0,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 40.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "effect_0": 1.0,
+  "effect_inf": 0.02,
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.02,
+  "synergy_factor": 0.0
+}

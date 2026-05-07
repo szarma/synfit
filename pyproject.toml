@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synfit"
+version = "0.1.0"
+description = "Dose-response curve fitting and drug-combination synergy"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Srdjan Sarikas", email = "develop@synfit.app" }]
+keywords = [
+    "pharmacology",
+    "dose-response",
+    "hill-equation",
+    "ic50",
+    "ec50",
+    "synergy",
+    "bliss-independence",
+    "loewe-additivity",
+    "zip-synergy",
+    "curve-fitting",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "matplotlib>=3.9",
+]
+
+[project.urls]
+Homepage = "https://synfit.app"
+Source = "https://github.com/szarma/synfit"
+Issues = "https://github.com/szarma/synfit/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]

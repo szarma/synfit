@@ -1,0 +1,37 @@
+{
+  "description": "Very different single-agent potencies (c50_hor=1.2 vs c50_ver=22) with matched dilution ranges.",
+  "kind": "matrix",
+  "seed": 193,
+  "horizontal_drug": {
+    "name": "Tightbindazole",
+    "unit": "µM",
+    "c50": 1.2,
+    "hill": 1.6,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 15.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "vertical_drug": {
+    "name": "Loosegoosepril",
+    "unit": "µM",
+    "c50": 22.0,
+    "hill": 1.1,
+    "direction": "inhibition",
+    "concentration_series": {
+      "initial_conc": 200.0,
+      "fold_dilutions": 3.0,
+      "length": 6,
+      "has_zero": true
+    }
+  },
+  "effect_0": 1.0,
+  "effect_inf": 0.02,
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.05,
+  "synergy_factor": 0.0
+}
