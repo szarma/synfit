@@ -1,0 +1,23 @@
+{
+  "description": "Example of Elisa-like calibration curve",
+  "kind": "single_drug",
+  "drug_name": "Activarin",
+  "concentration_unit": "µM",
+  "seed": 2,
+  "hill_params": {
+    "c50": 20.0,
+    "hill": 1.1,
+    "effect_0": 654,
+    "effect_inf": 12345.0
+  },
+  "concentration_series": {
+    "initial_conc": 40.0,
+    "fold_dilutions": 4.0,
+    "length": 6,
+    "has_zero": true
+  },
+  "n_replicates": 3,
+  "noise_model": "lognormal",
+  "noise_sigma_log": 0.3,
+  "outliers": []
+}
