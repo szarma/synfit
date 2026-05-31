@@ -7,13 +7,13 @@
   "hill_params": {
     "c50": 20.0,
     "hill": 1.1,
-    "effect_0": 654,
+    "effect_0": 87,
     "effect_inf": 12345.0
   },
   "concentration_series": {
     "initial_conc": 40.0,
     "fold_dilutions": 4.0,
-    "length": 6,
+    "length": 8,
     "has_zero": true
   },
   "n_replicates": 3,
