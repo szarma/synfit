@@ -114,19 +114,39 @@ class FitBase:
         """
         n = len(x_opt)
 
-        def neg_ll(x):
-            return -self._log_prob_data(x, **kwargs)
+        # Probe the Hessian in a *scaled* parameter space so the finite-difference
+        # step is relative to each parameter's magnitude rather than a fixed
+        # absolute ``_HESS_EPS``. Large-magnitude parameters — e.g. ELISA/RFU
+        # asymptotes of order 1e4 — otherwise receive a ~1e-9 *relative* step,
+        # deep in floating-point cancellation noise; the resulting second
+        # derivative comes out with the wrong sign, the inverse Hessian has a
+        # negative diagonal, and the whole covariance is rejected. Flooring the
+        # scale at 1.0 leaves O(1) parameters (log_c50, hill, variance
+        # coefficients) on their original, already-adequate step, so this only
+        # changes behaviour for the ill-scaled case.
+        x_opt = np.asarray(x_opt, dtype=float)
+        scale = np.maximum(np.abs(x_opt), 1.0)
+        z_opt = x_opt / scale
 
-        # Central-difference Hessian
+        def neg_ll_scaled(z):
+            return -self._log_prob_data(z * scale, **kwargs)
+
+        # Hessian in scaled coordinates: H_z[i, j] = scale_i * scale_j * H_x[i, j].
         H = np.zeros((n, n))
         eps = _HESS_EPS
         for i in range(n):
-            def grad_i(x):
-                return approx_fprime(x, neg_ll, eps)[i]
-            H[i, :] = approx_fprime(x_opt, grad_i, eps)
+            def grad_i(z):
+                return approx_fprime(z, neg_ll_scaled, eps)[i]
+            H[i, :] = approx_fprime(z_opt, grad_i, eps)
 
         # Symmetrise
         H = 0.5 * (H + H.T)
+
+        # Back-transform the scaled covariance to original units:
+        # Σ_x = D Σ_z D with D = diag(scale), i.e. Σ_x[i, j] = scale_i scale_j Σ_z[i, j].
+        # Positive scales preserve diagonal signs, so the negative-variance
+        # rejection below is equivalent whether checked before or after.
+        outer_scale = np.outer(scale, scale)
 
         # Identify bound-active parameters. Tolerance scales with bound width so
         # very narrow bounds don't get false positives from finite-difference noise.
@@ -140,7 +160,7 @@ class FitBase:
 
         try:
             if not np.any(active):
-                pcov = np.linalg.inv(H)
+                pcov = np.linalg.inv(H) * outer_scale
                 if np.any(np.diag(pcov) < 0):
                     return None
                 return pcov
@@ -155,6 +175,7 @@ class FitBase:
                 return None
             pcov = np.zeros((n, n))
             pcov[np.ix_(interior, interior)] = pcov_int
+            pcov = pcov * outer_scale
             return pcov
         except np.linalg.LinAlgError:
             return None
