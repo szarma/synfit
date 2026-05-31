@@ -1,7 +1,7 @@
 {
   "description": "Example of Elisa-like calibration curve",
   "kind": "single_drug",
-  "drug_name": "Activarin",
+  "drug_name": "calibratin",
   "concentration_unit": "µM",
   "seed": 2,
   "hill_params": {
