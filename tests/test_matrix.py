@@ -53,7 +53,7 @@ class TestMatrixFitParameterRecovery:
         assert set(d.keys()) == {
             "horizontal", "vertical", "effect_0", "effect_inf",
             "success", "message", "direction_horizontal", "direction_vertical",
-            "sigma",
+            "sigma", "param_cov", "param_names",
         }
         assert "warnings" not in d
         assert set(d["horizontal"].keys()) >= {"ic50", "c50", "hill", "effect_0", "effect_inf", "success"}

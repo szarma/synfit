@@ -15,6 +15,11 @@ import pandas as pd
 
 from synfit.single import SingleDrugFit
 from synfit.data import FitConfig
+from synfit.joint_marginal import JointMarginalFit
+from synfit.matrix import MatrixFit
+from synfit.synthetic import generate_single_drug
+
+from tests.helpers import matrix_from_config
 
 
 def _large_magnitude_activation_data(seed: int = 2) -> pd.DataFrame:
@@ -169,3 +174,94 @@ def test_fit_is_scale_equivariant():
     np.testing.assert_allclose(var(r_up, "log_c50"), var(r1, "log_c50"), rtol=0.1)
     np.testing.assert_allclose(var(r_up, "hill"), var(r1, "hill"), rtol=0.1)
     assert names == r_up.param_names
+
+
+def test_covariance_rejects_non_finite_optimum():
+    """A non-finite optimum yields no covariance (not a NaN-laden one that
+    sneaks past the ``diag < 0`` sign check, since ``NaN < 0`` is False)."""
+    df = _large_magnitude_activation_data()
+    fitter = SingleDrugFit(df, FitConfig(direction="activation", noise="lognormal"))
+    bad = np.array([np.nan, 1.0, 1.0, 1.0])
+    assert fitter._estimate_covariance(bad) is None
+
+
+# --- Shared FitBase path: joint-marginal and matrix fitters ---------------
+#
+# SingleDrugFit, JointMarginalFit and (now) MatrixFit all route through
+# FitBase._run_minimize / _estimate_covariance, so the scale-relative fix must
+# hold for the two-drug fitters too — JointMarginalFit is the *live* matrix path
+# in the app.
+
+def _two_drug_frames(seed_a: int = 11, seed_b: int = 22):
+    def cfg(c50, hill, seed):
+        return {
+            "seed": seed,
+            "hill_params": {"c50": c50, "hill": hill, "effect_0": 1.0, "effect_inf": 0.05},
+            "concentration_series": {
+                "initial_conc": 100.0, "fold_dilutions": 10 ** (2 / 7),
+                "length": 8, "has_zero": False,
+            },
+            "n_replicates": 3,
+            "noise_model": "gaussian", "noise_sigma": 0.02, "noise_sigma_log": 0.02,
+        }
+    return (
+        generate_single_drug(cfg(2.0, 1.5, seed_a)),
+        generate_single_drug(cfg(10.0, 1.0, seed_b)),
+    )
+
+
+def _scale_frame(df: pd.DataFrame, s: float) -> pd.DataFrame:
+    out = df.copy()
+    out["y"] = df["y"] * s
+    return out
+
+
+def test_joint_marginal_fit_is_scale_equivariant():
+    """The live matrix path (JointMarginalFit) keeps a covariance at large
+    magnitude and its shape parameters are scale-invariant."""
+    a, b = _two_drug_frames()
+    r1 = JointMarginalFit(a, b).fit()
+    assert r1.param_cov is not None
+
+    s = 1000.0
+    rs = JointMarginalFit(_scale_frame(a, s), _scale_frame(b, s)).fit()
+    assert rs.param_cov is not None, "covariance lost at large response magnitude"
+    assert np.all(np.diag(rs.param_cov) > 0)
+
+    np.testing.assert_allclose(rs.drug_a.c50, r1.drug_a.c50, rtol=3e-2)
+    np.testing.assert_allclose(rs.drug_b.c50, r1.drug_b.c50, rtol=3e-2)
+    np.testing.assert_allclose(rs.drug_a.hill, r1.drug_a.hill, rtol=3e-2)
+    np.testing.assert_allclose(rs.drug_b.hill, r1.drug_b.hill, rtol=3e-2)
+    np.testing.assert_allclose(rs.top, r1.top * s, rtol=3e-2)
+    np.testing.assert_allclose(rs.bottom, r1.bottom * s, rtol=3e-2)
+
+
+def test_matrix_fit_exposes_covariance_via_fitbase():
+    """MatrixFit now subclasses FitBase: it routes through the shared
+    scale-relative optimiser and, as a result, produces a parameter covariance
+    it never had before.
+
+    NOTE: this pins the covariance/back-transform wiring, not full scale
+    invariance. The 6-parameter Bliss surface is markedly more ill-conditioned
+    than the single-drug / joint-marginal fits, and x0-diagonal preconditioning
+    alone does not make it scale-invariant at large magnitudes — that is tracked
+    as a separate optimiser-preconditioning follow-up.
+    """
+    reps, conc_h, conc_v = matrix_from_config(seed=42, noise_model="lognormal")
+    r = MatrixFit(reps, conc_h, conc_v, error_model="lognormal").fit()
+
+    assert r.success
+    assert r.param_names == [
+        "log_c50_hor", "log_c50_ver", "hill_hor", "hill_ver", "effect_0", "effect_inf",
+    ]
+    assert r.param_cov is not None
+    assert r.param_cov.shape == (6, 6)
+    diag = np.diag(r.param_cov)
+    # Variances finite and non-negative; a bound-active asymptote may be
+    # degenerate (0), but the four interior shape params must be informative.
+    assert np.all(np.isfinite(diag)) and np.all(diag >= 0)
+    assert np.all(diag[:4] > 0)
+    # to_dict surfaces the new covariance for downstream consumers.
+    d = r.to_dict()
+    assert d["param_names"] == r.param_names
+    assert np.asarray(d["param_cov"]).shape == (6, 6)

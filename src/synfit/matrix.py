@@ -2,11 +2,10 @@ import logging
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from scipy.optimize import minimize
 
 from .data import FitConfig, FitResult
 from .bliss import bliss_independence
-from .fitting import PRIOR_PENALTY_WEIGHT
+from .fitting import PRIOR_PENALTY_WEIGHT, FitBase
 from .hill import log_wall
 from .noise import (
     GaussianConstant,
@@ -39,6 +38,10 @@ class MatrixFitResult:
     # model's natural likelihood space. Stamped onto horizontal.sigma and
     # vertical.sigma as well.
     sigma: float | None = None
+    # Parameter covariance (6x6, row/col order = ``MatrixFit._PARAM_NAMES``),
+    # or None when the Hessian was not invertible at the optimum.
+    param_cov: np.ndarray | None = None
+    param_names: list[str] | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -52,12 +55,15 @@ class MatrixFitResult:
             "direction_vertical": self.direction_vertical,
             "sigma": self.sigma,
         }
+        if self.param_cov is not None:
+            d["param_cov"] = np.asarray(self.param_cov).tolist()
+            d["param_names"] = list(self.param_names) if self.param_names else None
         if self.warnings:
             d["warnings"] = self.warnings
         return d
 
 
-class MatrixFit:
+class MatrixFit(FitBase):
     """
     Fit drug-drug interaction matrix data using Bliss independence.
 
@@ -97,6 +103,12 @@ class MatrixFit:
         self.noise = noise_from_dict(noise if noise is not None else (error_model or "gaussian"))
         if not isinstance(self.noise, (GaussianConstant, Lognormal)):
             raise ValueError("MatrixFit currently supports constant gaussian/lognormal noise only.")
+        # FitBase carries the noise spec and supplies the scale-relative
+        # optimiser (_run_minimize) and covariance estimator. The matrix
+        # parameter vector doesn't match the single-drug FitConfig schema, so —
+        # like JointMarginalFit — we pass explicit _x0/_bounds to _run_minimize
+        # and override _log_prob_data / _log_prior_prob below.
+        super().__init__(FitConfig(noise=self.noise))
         self.direction_horizontal = direction_horizontal
         self.direction_vertical = direction_vertical
 
@@ -184,7 +196,7 @@ class MatrixFit:
                 out[name] = v
         return out
 
-    def _log_prob_data(self, x: np.ndarray, **kwargs_unused) -> float:
+    def _log_prob_data(self, x: np.ndarray, **kwargs) -> float:
         p = self._unpack_x(x)
         bliss = bliss_independence(
             self.conc_horizontal, self.conc_vertical,
@@ -220,11 +232,8 @@ class MatrixFit:
                 f"got {n_data}."
             )
 
-        def objective(x):
-            return -(self._log_prob_data(x) + self._log_prior_prob(x))
-
-        res = minimize(objective, self._x0, bounds=self._bounds, method="L-BFGS-B")
-        p = self._unpack_x(res.x)
+        x_opt, success, message, pcov = self._run_minimize(self._x0, self._bounds)
+        p = self._unpack_x(x_opt)
 
         # Pool residuals across all replicates and matrix cells to estimate σ̂
         # in the error model's natural space. Same scale used for both edges
@@ -249,14 +258,14 @@ class MatrixFit:
         hor_result = FitResult(
             c50=p["c50_hor"], log_c50=np.log10(p["c50_hor"]),
             hill=p["hill_hor"], effect_0=p["effect_0"], effect_inf=p["effect_inf"],
-            success=res.success, n_valid=len(self._hor_df), n_total=len(self._hor_df),
+            success=success, n_valid=len(self._hor_df), n_total=len(self._hor_df),
             direction=self.direction_horizontal,
             error_model=em_str, sigma=sigma_hat,
         )
         ver_result = FitResult(
             c50=p["c50_ver"], log_c50=np.log10(p["c50_ver"]),
             hill=p["hill_ver"], effect_0=p["effect_0"], effect_inf=p["effect_inf"],
-            success=res.success, n_valid=len(self._ver_df), n_total=len(self._ver_df),
+            success=success, n_valid=len(self._ver_df), n_total=len(self._ver_df),
             direction=self.direction_vertical,
             error_model=em_str, sigma=sigma_hat,
         )
@@ -272,11 +281,13 @@ class MatrixFit:
             vertical=ver_result,
             effect_0=p["effect_0"],
             effect_inf=p["effect_inf"],
-            success=res.success,
-            message=str(res.message),
+            success=success,
+            message=str(message),
             warnings=warnings or None,
             direction_horizontal=self.direction_horizontal,
             direction_vertical=self.direction_vertical,
             sigma=sigma_hat,
+            param_cov=pcov,
+            param_names=list(self._PARAM_NAMES),
         )
 

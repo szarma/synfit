@@ -7,7 +7,9 @@ from .hill import log_wall
 # Large multiplier so soft-boundary violations dominate the objective
 PRIOR_PENALTY_WEIGHT = 1000
 
-# Step size for numerical Hessian (central differences)
+# Step size for the numerical Hessian. The Hessian is built from forward
+# finite differences of a forward-difference gradient (``approx_fprime`` twice),
+# taken in scale-relative coordinates (see ``_estimate_covariance``).
 _HESS_EPS = 1e-5
 
 
@@ -143,6 +145,8 @@ class FitBase:
         # coefficients) on their original, already-adequate step, so this only
         # changes behaviour for the ill-scaled case.
         x_opt = np.asarray(x_opt, dtype=float)
+        if not np.all(np.isfinite(x_opt)):
+            return None
         scale = np.maximum(np.abs(x_opt), 1.0)
         z_opt = x_opt / scale
 
@@ -179,7 +183,9 @@ class FitBase:
         try:
             if not np.any(active):
                 pcov = np.linalg.inv(H) * outer_scale
-                if np.any(np.diag(pcov) < 0):
+                # NaN/inf must be rejected explicitly: ``NaN < 0`` is False, so a
+                # non-finite covariance would otherwise slip past the sign check.
+                if not np.all(np.isfinite(pcov)) or np.any(np.diag(pcov) < 0):
                     return None
                 return pcov
 
@@ -189,7 +195,7 @@ class FitBase:
                 return None
             H_int = H[np.ix_(interior, interior)]
             pcov_int = np.linalg.inv(H_int)
-            if np.any(np.diag(pcov_int) < 0):
+            if not np.all(np.isfinite(pcov_int)) or np.any(np.diag(pcov_int) < 0):
                 return None
             pcov = np.zeros((n, n))
             pcov[np.ix_(interior, interior)] = pcov_int
