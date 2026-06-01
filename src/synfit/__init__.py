@@ -1,3 +1,10 @@
+from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PackageNotFoundError
+
+try:
+    __version__ = _pkg_version("synfit")
+except _PackageNotFoundError:  # pragma: no cover - source tree without installed metadata
+    __version__ = "0.0.0+unknown"
+
 from .hill import hill_curve, log_wall, calculate_concentration_series
 from .bliss import bliss_independence, bliss_reference, hsa_reference
 from .loewe import loewe_ci, loewe_reference
