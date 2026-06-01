@@ -322,3 +322,50 @@ def test_matrix_fit_is_scale_equivariant():
     d = r1.to_dict()
     assert d["param_names"] == r1.param_names
     assert np.asarray(d["param_cov"]).shape == (6, 6)
+
+
+def test_small_c50_with_wide_log_bounds_keeps_covariance():
+    """A legitimately small EC50 must not be over-preconditioned from bounds.
+
+    Regression for the first cut of #14: the bound-magnitude fallback in
+    ``parameter_scale`` fired on *every* parameter whose ``|x0|`` was small
+    relative to its bounds — including ``log_c50``. With the default seed
+    (``log_c50 = 0``) and the wide ``(-5, 5)`` log-decade bounds, ``|0|`` is
+    below the threshold, so the optimiser scale for ``log_c50`` was inflated to
+    the bound magnitude (5). One optimiser step then spanned ~5 decades of
+    EC50, sending the heteroscedastic ``gaussian_linear`` fit to a spurious
+    optimum (EC50 ≈ 15 against a true 5) with a non-invertible Hessian, so the
+    covariance was discarded. This is exactly the downstream
+    ``gaussian_linear`` CI-band fixture that broke; pinning it here keeps the
+    failure inside synfit's own suite.
+
+    The fix restricts the fallback to the magnitude-bearing asymptotes, so
+    ``log_c50`` keeps its O(1) scale and the fit recovers both the EC50 and a
+    finite covariance.
+    """
+    from synfit.noise import GaussianLinear
+
+    cfg = {
+        "seed": 42,
+        "hill_params": {"c50": 5.0, "hill": 1.5, "effect_0": 1.0, "effect_inf": 0.02},
+        "concentration_series": {
+            "initial_conc": 100.0,
+            "fold_dilutions": 3.0,
+            "length": 8,
+            "has_zero": False,
+        },
+        "n_replicates": 3,
+    }
+    df = generate_single_drug(
+        {**cfg, "noise_model": "gaussian", "noise_var_a": 0.001, "noise_var_b": 0.05},
+        rng=np.random.default_rng(42),
+    )
+    result = SingleDrugFit(
+        df, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05))
+    ).fit()
+
+    assert result.param_cov is not None, "covariance must survive (was None pre-fix)"
+    assert np.all(np.diag(result.param_cov) >= 0)
+    # True EC50 is 5.0; the regression landed it near 15. A 30% tolerance both
+    # absorbs noise and stays well clear of the spurious optimum.
+    np.testing.assert_allclose(result.c50, 5.0, rtol=0.3)
