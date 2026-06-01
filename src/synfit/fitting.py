@@ -13,6 +13,32 @@ PRIOR_PENALTY_WEIGHT = 1000
 _HESS_EPS = 1e-5
 
 
+def parameter_scale(
+    x0: np.ndarray | list[float],
+    bounds: list[tuple[float, float]] | None = None,
+    *,
+    bound_scale_threshold: float = 0.25,
+) -> np.ndarray:
+    """Per-parameter optimiser / Hessian scale from x0 and bounds.
+
+    When ``|x0|`` is small relative to the feasible range, uses the bound
+    magnitude so a hand-crafted ``x0`` is still preconditioned. If ``|x0|`` is
+    already comparable to the bounds (built-in data-seeded configs), bounds are
+    ignored and ``max(|x0|, 1)`` is used alone.
+    """
+    x0 = np.asarray(x0, dtype=float)
+    scale = np.maximum(np.abs(x0), 1.0)
+    if bounds is None:
+        return scale
+    for i, (lo, hi) in enumerate(bounds):
+        lo_f, hi_f = float(lo), float(hi)
+        width = max(hi_f - lo_f, 0.0)
+        bound_mag = max(abs(lo_f), abs(hi_f), width * 0.5)
+        if abs(x0[i]) < bound_scale_threshold * bound_mag:
+            scale[i] = max(scale[i], bound_mag, 1.0)
+    return scale
+
+
 class FitBase:
     """
     Base class for scipy-minimize fitting.
@@ -94,7 +120,11 @@ class FitBase:
         # which makes the result depend on the absolute scale of the data.
         # Flooring the scale at 1.0 leaves already-O(1) parameters unchanged.
         x0 = np.asarray(x0, dtype=float)
-        scale = np.maximum(np.abs(x0), 1.0)
+        scale = parameter_scale(x0, bounds)
+        if hasattr(self, "config") and hasattr(self.config, "fitting_parameters"):
+            for i, name in enumerate(self.config.fitting_parameters):
+                if name in self._VARIANCE_PARAM_NAMES:
+                    scale[i] = max(abs(x0[i]), 1.0)
         z0 = x0 / scale
         z_bounds = (
             [(lo / sc, hi / sc) for (lo, hi), sc in zip(bounds, scale)]
@@ -147,7 +177,11 @@ class FitBase:
         x_opt = np.asarray(x_opt, dtype=float)
         if not np.all(np.isfinite(x_opt)):
             return None
-        scale = np.maximum(np.abs(x_opt), 1.0)
+        scale = parameter_scale(x_opt, bounds)
+        if hasattr(self, "config") and hasattr(self.config, "fitting_parameters"):
+            for i, name in enumerate(self.config.fitting_parameters):
+                if name in self._VARIANCE_PARAM_NAMES:
+                    scale[i] = max(abs(x_opt[i]), 1.0)
         z_opt = x_opt / scale
 
         def neg_ll_scaled(z):

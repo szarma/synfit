@@ -13,7 +13,7 @@ covariance matrix)". Probing in scale-relative coordinates fixes it.
 import numpy as np
 import pandas as pd
 
-from synfit.single import SingleDrugFit
+from synfit.single import SingleDrugFit, _init_config_from_data
 from synfit.data import FitConfig
 from synfit.joint_marginal import JointMarginalFit
 from synfit.matrix import MatrixFit
@@ -236,32 +236,89 @@ def test_joint_marginal_fit_is_scale_equivariant():
     np.testing.assert_allclose(rs.bottom, r1.bottom * s, rtol=3e-2)
 
 
-def test_matrix_fit_exposes_covariance_via_fitbase():
-    """MatrixFit now subclasses FitBase: it routes through the shared
-    scale-relative optimiser and, as a result, produces a parameter covariance
-    it never had before.
+def test_custom_x0_is_scale_invariant_with_data_bounds():
+    """A hand-crafted x0 that does not match the response magnitude still fits
+    scale-invariantly when bounds are derived from the data at each scale."""
+    base = _saturating_activation_data()
 
-    NOTE: this pins the covariance/back-transform wiring, not full scale
-    invariance. The 6-parameter Bliss surface is markedly more ill-conditioned
-    than the single-drug / joint-marginal fits, and x0-diagonal preconditioning
-    alone does not make it scale-invariant at large magnitudes — that is tracked
-    as a separate optimiser-preconditioning follow-up.
-    """
+    def fit_bad_x0(df: pd.DataFrame):
+        auto = _init_config_from_data(
+            df, direction="activation", noise=FitConfig(noise="lognormal").noise,
+        )
+        cfg = FitConfig(
+            direction="activation",
+            noise="lognormal",
+            log_c50=0.0,
+            hill=1.0,
+            effect_0=1.0,
+            effect_inf=1.0,
+            bounds=auto.bounds,
+        )
+        return SingleDrugFit(df, cfg).fit()
+
+    r1 = fit_bad_x0(base)
+    assert r1.param_cov is not None
+
+    def var(result, name):
+        i = result.param_names.index(name)
+        return result.param_cov[i, i]
+
+    for s in (1000.0, 0.001):
+        rs = fit_bad_x0(_scale_frame(base, s))
+        assert rs.param_cov is not None, f"covariance lost at scale {s}"
+        np.testing.assert_allclose(rs.c50, r1.c50, rtol=2e-2)
+        np.testing.assert_allclose(rs.hill, r1.hill, rtol=2e-2)
+        np.testing.assert_allclose(rs.effect_0, r1.effect_0 * s, rtol=2e-2)
+        np.testing.assert_allclose(rs.effect_inf, r1.effect_inf * s, rtol=2e-2)
+
+    r_up = fit_bad_x0(_scale_frame(base, 1000.0))
+    np.testing.assert_allclose(
+        var(r_up, "effect_inf"), var(r1, "effect_inf") * 1000.0 ** 2, rtol=0.1
+    )
+    np.testing.assert_allclose(var(r_up, "log_c50"), var(r1, "log_c50"), rtol=0.1)
+    np.testing.assert_allclose(var(r_up, "hill"), var(r1, "hill"), rtol=0.1)
+
+
+def _fit_matrix_scaled(reps, conc_h, conc_v, s: float):
+    scaled = [r * s for r in reps]
+    return MatrixFit(scaled, conc_h, conc_v, error_model="lognormal").fit()
+
+
+def test_matrix_fit_is_scale_equivariant():
+    """The 6-parameter Bliss matrix fit is invariant to response rescaling."""
     reps, conc_h, conc_v = matrix_from_config(seed=42, noise_model="lognormal")
-    r = MatrixFit(reps, conc_h, conc_v, error_model="lognormal").fit()
-
-    assert r.success
-    assert r.param_names == [
+    r1 = _fit_matrix_scaled(reps, conc_h, conc_v, 1.0)
+    assert r1.success
+    assert r1.param_names == [
         "log_c50_hor", "log_c50_ver", "hill_hor", "hill_ver", "effect_0", "effect_inf",
     ]
-    assert r.param_cov is not None
-    assert r.param_cov.shape == (6, 6)
-    diag = np.diag(r.param_cov)
-    # Variances finite and non-negative; a bound-active asymptote may be
-    # degenerate (0), but the four interior shape params must be informative.
-    assert np.all(np.isfinite(diag)) and np.all(diag >= 0)
-    assert np.all(diag[:4] > 0)
-    # to_dict surfaces the new covariance for downstream consumers.
-    d = r.to_dict()
-    assert d["param_names"] == r.param_names
+    assert r1.param_cov is not None
+    assert np.all(np.diag(r1.param_cov)[:4] > 0)
+
+    def var(result, name):
+        i = result.param_names.index(name)
+        return result.param_cov[i, i]
+
+    for s in (1000.0, 0.01):
+        rs = _fit_matrix_scaled(reps, conc_h, conc_v, s)
+        assert rs.param_cov is not None, f"covariance lost at scale {s}"
+
+        np.testing.assert_allclose(rs.horizontal.c50, r1.horizontal.c50, rtol=3e-2)
+        np.testing.assert_allclose(rs.vertical.c50, r1.vertical.c50, rtol=5e-2)
+        np.testing.assert_allclose(rs.horizontal.hill, r1.horizontal.hill, rtol=3e-2)
+        np.testing.assert_allclose(rs.vertical.hill, r1.vertical.hill, rtol=3e-2)
+        np.testing.assert_allclose(rs.effect_0, r1.effect_0 * s, rtol=3e-2)
+        np.testing.assert_allclose(rs.effect_inf, r1.effect_inf * s, rtol=3e-2)
+
+    r_up = _fit_matrix_scaled(reps, conc_h, conc_v, 1000.0)
+    np.testing.assert_allclose(
+        var(r_up, "effect_inf"), var(r1, "effect_inf") * 1000.0 ** 2, rtol=0.15
+    )
+    np.testing.assert_allclose(
+        var(r_up, "log_c50_hor"), var(r1, "log_c50_hor"), rtol=0.15
+    )
+    np.testing.assert_allclose(var(r_up, "hill_hor"), var(r1, "hill_hor"), rtol=0.15)
+
+    d = r1.to_dict()
+    assert d["param_names"] == r1.param_names
     assert np.asarray(d["param_cov"]).shape == (6, 6)
