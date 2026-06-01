@@ -17,10 +17,12 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 `FitBase` owns `_run_minimize` and `_estimate_covariance`.
 
 - Both run in **scale-relative coordinates** (`z = x / scale`,
-  `scale = max(|x0|, 1)`) and back-transform (`Σ_x = D Σ_z D`). This is what
-  makes fits scale-invariant and keeps covariances valid for large-magnitude
-  (ELISA/RFU) data. **Never reintroduce a raw `minimize()` or an absolute-step
-  Hessian in a fitter** — that was the 0.2.0 bug.
+  `scale = parameter_scale(x0, bounds)` — uses bound magnitude only when
+  ``|x0|`` is small vs the feasible range; variance coeffs use ``|x0|`` only)
+  and back-transform (`Σ_x = D Σ_z D`). This is what makes fits
+  scale-invariant and keeps covariances valid for large-magnitude (ELISA/RFU)
+  data. **Never reintroduce a raw `minimize()` or an absolute-step Hessian in a
+  fitter** — that was the 0.2.0 bug.
 - Multi-parameter fitters (`JointMarginalFit`, `MatrixFit`) don't match the
   single-drug `FitConfig` / `FitBounds` schema, so they pass explicit
   `self._x0` / `self._bounds` to `_run_minimize` and override `_log_prior_prob`,
@@ -31,13 +33,12 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 1. `param_cov` can be `None` (singular / ill-conditioned / non-finite Hessian),
    and bound-active parameters get a degenerate (0) row/col. Never assume a CI
    exists.
-2. `MatrixFit` (6-param Bliss surface) is **not** scale-invariant — drifts ~10×,
-   collapses ~100× ([#14](https://github.com/szarma/synfit/issues/14)). It's a
-   diagnostic null model; the default matrix path is `JointMarginalFit`, which
-   *is* scale-invariant.
-3. Optimiser scale is derived from `x0`. Built-in configs seed asymptote `x0`
-   from the data, so they're fine; a hand-crafted `FitConfig` with an
-   unrepresentative `x0` is not preconditioned (#14).
+2. `MatrixFit` (6-param Bliss surface) is a diagnostic null model; the default
+   matrix path is `JointMarginalFit`. Both are scale-invariant when edge /
+   asymptote bounds match the data magnitude.
+3. Preconditioning uses `parameter_scale(x0, bounds)` — unrepresentative `x0`
+   with bounds that do not span the true parameter scale can still break
+   invariance.
 4. Lognormal noise needs strictly-positive predictions (lower asymptote bound
    floored at `1e-6`) and supports constant variance only.
 5. Parameters are direction-neutral: `effect_0` / `effect_inf` are the low- /
