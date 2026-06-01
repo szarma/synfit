@@ -15,6 +15,12 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-01
+
+**Fitted values change** for `MatrixFit` (edge pre-fit bounds now data-derived),
+hence the MINOR bump. Single-drug / joint-marginal fits with data-appropriate
+configs are unaffected.
+
 ### Changed
 - **Full optimiser scale-invariance ([#14](https://github.com/szarma/synfit/issues/14)).**
   Preconditioning scale is now ``max(|x0|, bound magnitude, 1)`` per parameter,
@@ -22,7 +28,7 @@ tagged `[X.Y.Z]` heading.
   data-appropriate bounds fits the same at any response magnitude. ``MatrixFit``
   edge pre-fits now derive initials and bounds from data (as the joint-marginal
   path already did), and the 6-parameter Bliss surface is scale-equivariant
-  across 0.001×–1000× rescaling.
+  across 0.01×–1000× rescaling (single-drug fits hold to 0.001×).
 
 ## [0.2.0] — 2026-06-01
 
