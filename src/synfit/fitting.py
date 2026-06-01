@@ -13,6 +13,61 @@ PRIOR_PENALTY_WEIGHT = 1000
 _HESS_EPS = 1e-5
 
 
+# Magnitude-bearing parameters whose true value tracks the response scale.
+# Only these are eligible for the bound-magnitude preconditioning fallback
+# below — see ``parameter_scale``. Single-drug / matrix fits name their
+# asymptotes ``effect_0`` / ``effect_inf``; the joint-marginal fit shares them
+# as ``top`` / ``bottom``.
+_ASYMPTOTE_PARAM_NAMES = ("effect_0", "effect_inf", "top", "bottom")
+
+
+def parameter_scale(
+    x0: np.ndarray | list[float],
+    bounds: list[tuple[float, float]] | None = None,
+    names: list[str] | None = None,
+    *,
+    bound_scale_threshold: float = 0.25,
+) -> np.ndarray:
+    """Per-parameter optimiser / Hessian scale from x0 and bounds.
+
+    The base scale is ``max(|x0|, 1)``, which leaves already-O(1) parameters
+    unchanged. For the magnitude-bearing asymptotes (``effect_0`` /
+    ``effect_inf``) *only*, when ``|x0|`` is small relative to the feasible
+    range the bound magnitude is used instead. This preconditions a
+    hand-crafted ``x0`` that does not reflect the response magnitude — e.g. a
+    fixed ``effect_inf=1`` fitted against ELISA-scale data, where the true
+    asymptote is order 1e4 and the data-derived bounds are correspondingly
+    wide.
+
+    The fallback deliberately never touches log-domain location parameters
+    (``log_c50``…) or dimensionless shape exponents (``hill``…,
+    ``asymmetry``): their bounds describe a log / shape range, not the data
+    range, so inflating their scale by the bound magnitude destroys the
+    optimiser conditioning — a single step in ``log_c50`` would span the whole
+    feasible decade range, sending the fit to a spurious optimum with a
+    non-invertible Hessian (the regression that #14's first cut introduced).
+    Variance polynomial coefficients (``var_a``…) are likewise left on
+    ``max(|x0|, 1)``.
+
+    ``names`` aligns with ``x0`` / ``bounds`` and selects which parameters are
+    asymptotes. When omitted (no name information available) the fallback
+    applies to every parameter, preserving the original behaviour.
+    """
+    x0 = np.asarray(x0, dtype=float)
+    scale = np.maximum(np.abs(x0), 1.0)
+    if bounds is None:
+        return scale
+    for i, (lo, hi) in enumerate(bounds):
+        if names is not None and names[i] not in _ASYMPTOTE_PARAM_NAMES:
+            continue
+        lo_f, hi_f = float(lo), float(hi)
+        width = max(hi_f - lo_f, 0.0)
+        bound_mag = max(abs(lo_f), abs(hi_f), width * 0.5)
+        if abs(x0[i]) < bound_scale_threshold * bound_mag:
+            scale[i] = max(scale[i], bound_mag, 1.0)
+    return scale
+
+
 class FitBase:
     """
     Base class for scipy-minimize fitting.
@@ -85,6 +140,27 @@ class FitBase:
         bounds = [getattr(self.config.bounds, par) for par in self.config.fitting_parameters]
         return x0, bounds
 
+    def _scale_param_names(self) -> list[str] | None:
+        """Ordered fitting-parameter names aligned with x0/bounds, if known.
+
+        Lets ``parameter_scale`` tell shape/log parameters from
+        magnitude-bearing asymptotes. Subclasses that pass their own x0/bounds
+        to the optimiser expose the aligned names in one of two ways:
+        ``MatrixFit`` via a ``_PARAM_NAMES`` class attribute, ``JointMarginalFit``
+        via a ``_param_names`` instance list set in ``fit()``. Everything else
+        uses the config's ``fitting_parameters``. Returns ``None`` when no names
+        are available (the scale fallback then applies to every parameter).
+        """
+        names = getattr(self, "_PARAM_NAMES", None)
+        if names is None:
+            existing = getattr(self, "_param_names", None)
+            if isinstance(existing, (list, tuple)):
+                names = existing
+        if names is None:
+            config = getattr(self, "config", None)
+            names = getattr(config, "fitting_parameters", None)
+        return list(names) if names is not None else None
+
     def _run_minimize(self, x0, bounds, **kwargs) -> tuple[np.ndarray, bool, str, np.ndarray | None]:
         # Optimise in scale-relative coordinates z = x / scale so L-BFGS-B sees
         # O(1) variables regardless of the response magnitude. With raw
@@ -94,7 +170,7 @@ class FitBase:
         # which makes the result depend on the absolute scale of the data.
         # Flooring the scale at 1.0 leaves already-O(1) parameters unchanged.
         x0 = np.asarray(x0, dtype=float)
-        scale = np.maximum(np.abs(x0), 1.0)
+        scale = parameter_scale(x0, bounds, self._scale_param_names())
         z0 = x0 / scale
         z_bounds = (
             [(lo / sc, hi / sc) for (lo, hi), sc in zip(bounds, scale)]
@@ -147,7 +223,7 @@ class FitBase:
         x_opt = np.asarray(x_opt, dtype=float)
         if not np.all(np.isfinite(x_opt)):
             return None
-        scale = np.maximum(np.abs(x_opt), 1.0)
+        scale = parameter_scale(x_opt, bounds, self._scale_param_names())
         z_opt = x_opt / scale
 
         def neg_ll_scaled(z):

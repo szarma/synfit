@@ -77,14 +77,17 @@ def _init_config_from_data(
             effect_0=(b_lo, b_hi),
             effect_inf=(b_lo, b_hi),
         )
-        return FitConfig(
-            log_c50=log_ic50_init,
-            hill=1.0,
-            effect_0=ymin,
-            effect_inf=ymax,
-            bounds=bounds,
-            direction=direction,
-        )
+        cfg_kwargs: dict = {
+            "log_c50": log_ic50_init,
+            "hill": 1.0,
+            "effect_0": ymin,
+            "effect_inf": ymax,
+            "bounds": bounds,
+            "direction": direction,
+        }
+        if noise is not None:
+            cfg_kwargs["noise"] = noise
+        return FitConfig(**cfg_kwargs)
 
     bounds = FitBounds(
         log_c50=(log_ic50_lo, log_ic50_hi),
@@ -93,14 +96,17 @@ def _init_config_from_data(
         effect_inf=(b_lo, b_hi),
     )
 
-    return FitConfig(
-        log_c50=log_ic50_init,
-        hill=1.0,
-        effect_0=ymax,
-        effect_inf=ymin,
-        bounds=bounds,
-        direction=direction,
-    )
+    cfg_kwargs = {
+        "log_c50": log_ic50_init,
+        "hill": 1.0,
+        "effect_0": ymax,
+        "effect_inf": ymin,
+        "bounds": bounds,
+        "direction": direction,
+    }
+    if noise is not None:
+        cfg_kwargs["noise"] = noise
+    return FitConfig(**cfg_kwargs)
 
 
 def _predict(conc: np.ndarray, result: FitResult) -> np.ndarray:
