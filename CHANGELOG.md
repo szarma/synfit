@@ -15,7 +15,7 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
-## [0.2.0] — unreleased
+## [0.2.0] — 2026-06-01
 
 First version intended for public release. **Fitted values change** vs 0.1.0
 for ill-scaled data (see below), hence the MINOR bump.
