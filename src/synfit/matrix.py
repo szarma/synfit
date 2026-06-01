@@ -55,9 +55,10 @@ class MatrixFitResult:
             "direction_vertical": self.direction_vertical,
             "sigma": self.sigma,
         }
+        if self.param_names is not None:
+            d["param_names"] = list(self.param_names)
         if self.param_cov is not None:
             d["param_cov"] = np.asarray(self.param_cov).tolist()
-            d["param_names"] = list(self.param_names) if self.param_names else None
         if self.warnings:
             d["warnings"] = self.warnings
         return d

@@ -200,6 +200,8 @@ class FitBase:
             pcov = np.zeros((n, n))
             pcov[np.ix_(interior, interior)] = pcov_int
             pcov = pcov * outer_scale
+            if not np.all(np.isfinite(pcov)):
+                return None
             return pcov
         except np.linalg.LinAlgError:
             return None
