@@ -23,12 +23,29 @@ configs are unaffected.
 
 ### Changed
 - **Full optimiser scale-invariance ([#14](https://github.com/szarma/synfit/issues/14)).**
-  Preconditioning scale is now ``max(|x0|, bound magnitude, 1)`` per parameter,
-  so a hand-crafted ``FitConfig`` with an unrepresentative ``x0`` but
-  data-appropriate bounds fits the same at any response magnitude. ``MatrixFit``
-  edge pre-fits now derive initials and bounds from data (as the joint-marginal
-  path already did), and the 6-parameter Bliss surface is scale-equivariant
-  across 0.01×–1000× rescaling (single-drug fits hold to 0.001×).
+  The per-parameter preconditioning scale is ``max(|x0|, 1)``, with a
+  bound-magnitude fallback (``max(|x0|, bound magnitude, 1)``) applied **only to
+  the magnitude-bearing asymptotes** (``effect_0`` / ``effect_inf`` /
+  ``top`` / ``bottom``). A hand-crafted ``FitConfig`` with an unrepresentative
+  ``x0`` but data-appropriate bounds then fits the same at any response
+  magnitude. The fallback deliberately never touches log-domain location
+  parameters (``log_c50``…) or dimensionless shape exponents (``hill``…,
+  ``asymmetry``): their bounds describe a log / shape range, so scaling them by
+  the bound magnitude would wreck the optimiser conditioning. ``MatrixFit`` edge
+  pre-fits now derive initials and bounds from data (as the joint-marginal path
+  already did), and the 6-parameter Bliss surface is scale-equivariant across
+  0.01×–1000× rescaling (single-drug fits hold to 0.001×).
+
+### Fixed
+- **Small EC₅₀ no longer over-preconditioned.** The first cut of #14 applied the
+  bound-magnitude fallback to *every* parameter, including ``log_c50``. With the
+  default seed (``log_c50 = 0``) against wide ``(-5, 5)`` log-decade bounds, that
+  inflated the ``log_c50`` scale to the bound magnitude, so one optimiser step
+  spanned ~5 decades of EC₅₀ — sending the heteroscedastic ``gaussian_linear``
+  fit to a spurious optimum (EC₅₀ ≈ 15 vs a true 5) with a non-invertible Hessian
+  and a discarded covariance. Restricting the fallback to the asymptotes restores
+  both the EC₅₀ recovery and the covariance. Guarded by
+  ``test_small_c50_with_wide_log_bounds_keeps_covariance``.
 
 ## [0.2.0] — 2026-06-01
 
