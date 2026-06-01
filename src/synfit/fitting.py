@@ -84,11 +84,29 @@ class FitBase:
         return x0, bounds
 
     def _run_minimize(self, x0, bounds, **kwargs) -> tuple[np.ndarray, bool, str, np.ndarray | None]:
-        def objective(x):
-            return self._objective(x, **kwargs)
-        res = minimize(objective, x0, bounds=bounds, method="L-BFGS-B")
-        pcov = self._estimate_covariance(res.x, bounds, **kwargs)
-        return res.x, res.success, res.message, pcov
+        # Optimise in scale-relative coordinates z = x / scale so L-BFGS-B sees
+        # O(1) variables regardless of the response magnitude. With raw
+        # parameters, a large-magnitude asymptote (e.g. effect_inf ~ 1e5) carries
+        # a correspondingly tiny gradient, so the projected-gradient stopping
+        # criterion (pgtol) is met prematurely and the fit under-converges —
+        # which makes the result depend on the absolute scale of the data.
+        # Flooring the scale at 1.0 leaves already-O(1) parameters unchanged.
+        x0 = np.asarray(x0, dtype=float)
+        scale = np.maximum(np.abs(x0), 1.0)
+        z0 = x0 / scale
+        z_bounds = (
+            [(lo / sc, hi / sc) for (lo, hi), sc in zip(bounds, scale)]
+            if bounds is not None
+            else None
+        )
+
+        def objective_z(z):
+            return self._objective(z * scale, **kwargs)
+
+        res = minimize(objective_z, z0, bounds=z_bounds, method="L-BFGS-B")
+        x_opt = res.x * scale
+        pcov = self._estimate_covariance(x_opt, bounds, **kwargs)
+        return x_opt, res.success, res.message, pcov
 
     def _estimate_covariance(
         self,
