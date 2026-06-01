@@ -16,7 +16,7 @@ from .noise import (
     from_dict as noise_from_dict,
     log_prob as noise_log_prob,
 )
-from .single import SingleDrugFit
+from .single import SingleDrugFit, _init_config_from_data
 
 logger = logging.getLogger(__name__)
 
@@ -135,11 +135,19 @@ class MatrixFit(FitBase):
 
         self.synfit_hor = SingleDrugFit(
             self._hor_df,
-            config=FitConfig(direction=direction_horizontal, noise=self.noise),
+            config=_init_config_from_data(
+                self._hor_df,
+                direction=direction_horizontal,
+                noise=self.noise,
+            ),
         )
         self.synfit_ver = SingleDrugFit(
             self._ver_df,
-            config=FitConfig(direction=direction_vertical, noise=self.noise),
+            config=_init_config_from_data(
+                self._ver_df,
+                direction=direction_vertical,
+                noise=self.noise,
+            ),
         )
 
         # pre-fit edge drugs independently
