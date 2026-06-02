@@ -20,16 +20,21 @@ tagged `[X.Y.Z]` heading.
   data-driven default derivation (initials + asymptote/log-c50 bounds, noise-
   aware) that `SingleDrugFit` already used internally. Lets consumers that
   surface *editable* bounds (e.g. the app's analysis modals) source their
-  defaults from one place instead of re-deriving them.
+  defaults from one place instead of re-deriving them. ``noise`` accepts a
+  ``NoiseSpec``, a tagged dict, or a kind string (a ``"lognormal"`` string /
+  dict now applies the positive-floor like a ``Lognormal()`` instance).
 
 ### Changed
 - **Bounds are honoured literally; absent bounds are derived from data.**
   `SingleDrugFit` no longer uses the all-or-nothing equality override
-  (`config.bounds == FitBounds()` → swap in data-derived). Instead, a config
-  whose bounds were *not supplied* gets data-driven bounds (and its still-at-
-  default initials seeded from data), while *explicitly-supplied* bounds are
-  used verbatim. **Fitted values change** for the previously-unhandled case of
-  a bare `FitConfig()` against non-normalised data (e.g. `direction="inhibition"`
+  (`config.bounds == FitBounds()` → swap in data-derived). Instead,
+  `FitConfig.bounds` defaults to ``None`` meaning "derive from data at fit
+  time"; a config whose bounds were *not supplied* gets data-driven bounds (and
+  its still-at-default initials seeded from data), while *explicitly-supplied*
+  bounds are used verbatim. Storing ``None`` (rather than a derived-then-flagged
+  value) keeps the semantic correct across `dataclasses.replace` / `asdict`
+  round-trips. **Fitted values change** for the previously-unhandled case of a
+  bare `FitConfig()` against non-normalised data (e.g. `direction="inhibition"`
   with default `[0, 2]` asymptote bounds no longer clamps large-magnitude
   responses) — hence a MINOR bump. Explicit-bounds and `config=None` paths are
   unchanged.

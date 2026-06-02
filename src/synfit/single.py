@@ -13,6 +13,7 @@ from .noise import (
     error_model_name,
     fit_noise_scale,
     free_coefficients,
+    from_dict as noise_from_dict,
     log_prob as noise_log_prob,
     variance_model_name,
 )
@@ -109,10 +110,23 @@ def _init_config_from_data(
     return FitConfig(**cfg_kwargs)
 
 
+def _coerce_noise(noise: NoiseSpec | dict | str | None) -> NoiseSpec | None:
+    """Accept a NoiseSpec, a tagged dict, or a kind string at the public API.
+
+    Without this, the ``isinstance(noise, Lognormal)`` floor in
+    ``_init_config_from_data`` only fires for a ``Lognormal`` *instance* — a
+    ``"lognormal"`` string or ``{"kind": "lognormal"}`` dict would silently
+    skip the positive lower-bound floor.
+    """
+    if noise is None or isinstance(noise, NoiseSpec):
+        return noise
+    return noise_from_dict(noise)
+
+
 def default_fit_config(
     data: pd.DataFrame,
     direction: str = "inhibition",
-    noise: NoiseSpec | None = None,
+    noise: NoiseSpec | dict | str | None = None,
 ) -> FitConfig:
     """Data-driven default fit configuration (initials + bounds) for ``data``.
 
@@ -120,20 +134,23 @@ def default_fit_config(
     config — or no bounds — is supplied: initials seeded from the response and
     concentration ranges, and asymptote bounds that extend half a dynamic range
     past the observed extremes (lognormal floors the lower bound strictly
-    positive). Consumers that surface *editable* bounds in a UI should source
-    their defaults here rather than re-deriving them, so the derivation has a
-    single source of truth.
+    positive). ``noise`` accepts a :data:`NoiseSpec`, a tagged dict, or a kind
+    string. Consumers that surface *editable* bounds in a UI should source their
+    defaults here rather than re-deriving them, so the derivation has a single
+    source of truth.
     """
-    return _init_config_from_data(data, direction=direction, noise=noise)
+    return _init_config_from_data(data, direction=direction, noise=_coerce_noise(noise))
 
 
 def default_bounds(
     data: pd.DataFrame,
     direction: str = "inhibition",
-    noise: NoiseSpec | None = None,
+    noise: NoiseSpec | dict | str | None = None,
 ) -> FitBounds:
     """Data-driven default :class:`FitBounds` for ``data`` (see :func:`default_fit_config`)."""
-    return _init_config_from_data(data, direction=direction, noise=noise).bounds
+    return _init_config_from_data(
+        data, direction=direction, noise=_coerce_noise(noise)
+    ).bounds
 
 
 def _predict(conc: np.ndarray, result: FitResult) -> np.ndarray:
@@ -170,7 +187,7 @@ class SingleDrugFit(FitBase):
             # zero-point initials can otherwise strand the optimiser in a poor
             # basin. Explicitly-supplied bounds are always honoured literally
             # (no equality-based override).
-            if config.direction != "inhibition" or not config.bounds_are_explicit:
+            if config.direction != "inhibition" or config.bounds is None:
                 auto = _init_config_from_data(
                     data, direction=config.direction, noise=config.noise,
                 )
@@ -179,7 +196,7 @@ class SingleDrugFit(FitBase):
                 if config.effect_0 == 1.0 and config.effect_inf == 0.0:
                     config.effect_0 = auto.effect_0
                     config.effect_inf = auto.effect_inf
-                if not config.bounds_are_explicit:
+                if config.bounds is None:
                     config.bounds = auto.bounds
         super().__init__(config)
 

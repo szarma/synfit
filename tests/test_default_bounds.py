@@ -49,11 +49,37 @@ def test_default_bounds_lognormal_floors_lower_positive():
     assert b.effect_inf[0] > 0.0
 
 
-def test_default_fit_config_returns_explicit_bounds():
+def test_default_fit_config_returns_concrete_bounds():
     df = _elisa_activation()
     cfg = default_fit_config(df, direction="activation", noise=GaussianConstant())
     assert isinstance(cfg, FitConfig)
-    assert cfg.bounds_are_explicit  # derived bounds are concrete, honoured literally
+    assert cfg.bounds is not None  # derived bounds are concrete, honoured literally
+
+
+def test_string_and_dict_lognormal_floor_positive():
+    """Public helpers accept a kind string / tagged dict, not just a Lognormal()."""
+    df = _elisa_activation()
+    for noise in ("lognormal", {"kind": "lognormal"}, Lognormal()):
+        b = default_bounds(df, direction="activation", noise=noise)
+        assert b.effect_0[0] > 0.0, f"lower bound not floored for noise={noise!r}"
+        assert b.effect_inf[0] > 0.0, f"lower bound not floored for noise={noise!r}"
+
+
+def test_bounds_none_survives_dataclass_replace_and_asdict():
+    """bounds=None must persist through dataclasses.replace / asdict so the
+    derive-vs-literal semantic can't be corrupted into a spurious clamp."""
+    import dataclasses
+
+    df = _elisa_activation()
+    base = FitConfig(direction="activation")  # no bounds → derive
+    assert base.bounds is None
+    # replace() must not resurrect concrete (explicit) bounds.
+    replaced = dataclasses.replace(base, direction="activation")
+    assert replaced.bounds is None
+    r = SingleDrugFit(df, replaced).fit()
+    assert r.effect_inf > 1_000, "replace() must not reintroduce the [0,2] clamp"
+    # asdict round-trip preserves the None signal.
+    assert dataclasses.asdict(base)["bounds"] is None
 
 
 def test_unspecified_bounds_are_derived_not_clamped():

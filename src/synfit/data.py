@@ -44,7 +44,9 @@ class FitConfig:
     fitting_parameters: list = field(
         default_factory=lambda: ["log_c50", "hill", "effect_0", "effect_inf"]
     )
-    bounds: FitBounds = field(default_factory=FitBounds)
+    # ``None`` means "derive from data at fit time" (see ``SingleDrugFit``);
+    # a concrete ``FitBounds`` is honoured literally.
+    bounds: FitBounds | None = None
     noise: NoiseSpec | dict | str = field(default_factory=lambda: default_for_kind("gaussian_constant"))
     # Initial value for the asymmetry parameter (5p model only)
     asymmetry: float = 1.0
@@ -82,12 +84,14 @@ class FitConfig:
             if fitting_parameters is not None
             else ["log_c50", "hill", "effect_0", "effect_inf"]
         )
-        # Track whether the caller supplied bounds. ``SingleDrugFit`` derives
-        # data-driven bounds when they were *not* supplied (so a bare
-        # ``FitConfig()`` still fits any-magnitude data), but honours supplied
-        # bounds literally — no silent equality-based override.
-        self.bounds_are_explicit = bounds is not None
-        self.bounds = bounds if bounds is not None else FitBounds()
+        # ``bounds is None`` is the persistent signal for "derive from data":
+        # ``SingleDrugFit`` fills data-driven bounds when none were supplied (so
+        # a bare ``FitConfig()`` fits any-magnitude data), and honours supplied
+        # bounds literally — no equality-based override. Storing ``None`` (rather
+        # than a flag) keeps the semantic correct across ``dataclasses.replace``
+        # / ``asdict`` round-trips, which would otherwise re-pass resolved bounds
+        # and mark them explicit.
+        self.bounds = bounds
         self.noise = (
             noise
             if noise is not None
