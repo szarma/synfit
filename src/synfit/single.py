@@ -357,6 +357,12 @@ class SingleDrugFitWithError(FitBase):
             raise ValueError("data must have columns: concentration, y, y_err")
         self.data = data
         cfg = config or _init_config_from_data(data)
+        # Honour the bounds=None "derive from data" signal (FitBase readers
+        # dereference config.bounds.<param>, so it must be concrete by fit time).
+        if cfg.bounds is None:
+            cfg.bounds = _init_config_from_data(
+                data, direction=cfg.direction, noise=cfg.noise,
+            ).bounds
         # Per-point user errors and a fitted σ²(μ) polynomial are mutually
         # exclusive — log_prob enforces it, but rejecting at construction time
         # gives a clearer message.
