@@ -24,9 +24,11 @@ def parameter_scale(
     """Per-parameter optimiser / Hessian scale from x0 and bounds.
 
     The base scale is ``max(|x0|, 1)``, which leaves already-O(1) parameters
-    unchanged. For the magnitude-bearing asymptotes (``effect_0`` /
-    ``effect_inf``) *only*, when ``|x0|`` is small relative to the feasible
-    range the bound magnitude is used instead. This preconditions a
+    unchanged. For the magnitude-bearing asymptotes *only* (``effect_0`` /
+    ``effect_inf`` for single-drug & matrix fits, ``top`` / ``bottom`` for the
+    joint-marginal fit — see :func:`param_roles.is_asymptote_param`), when
+    ``|x0|`` is small relative to the feasible range the bound magnitude is used
+    instead. This preconditions a
     hand-crafted ``x0`` that does not reflect the response magnitude — e.g. a
     fixed ``effect_inf=1`` fitted against ELISA-scale data, where the true
     asymptote is order 1e4 and the data-derived bounds are correspondingly
