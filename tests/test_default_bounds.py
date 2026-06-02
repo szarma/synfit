@@ -1,0 +1,86 @@
+"""Default bounds derivation: the single source of truth, and literal honouring.
+
+``SingleDrugFit`` derives data-driven bounds when the caller does not supply
+them (so a bare ``FitConfig`` fits any-magnitude data), and honours supplied
+bounds literally (no equality-based override). ``default_fit_config`` /
+``default_bounds`` expose the same derivation for UIs to consume.
+"""
+import numpy as np
+import pandas as pd
+
+from synfit import default_bounds, default_fit_config
+from synfit.data import FitConfig, FitBounds
+from synfit.noise import GaussianConstant, Lognormal
+from synfit.single import SingleDrugFit
+
+
+def _elisa_activation(seed: int = 3) -> pd.DataFrame:
+    """Large-magnitude (RFU-scale) activation curve: top ~1.1e4, bottom ~7."""
+    rng = np.random.default_rng(seed)
+    c50, hill, e0, einf = 20.0, 1.1, 7.0, 11000.0
+    conc = np.array([0.0098, 0.039, 0.156, 0.625, 2.5, 10.0, 40.0, 160.0])
+    frac = conc ** hill / (conc ** hill + c50 ** hill)
+    y = e0 + (einf - e0) * frac
+    return pd.concat(
+        [
+            pd.DataFrame(
+                {"concentration": conc, "y": y * np.exp(rng.normal(0, 0.05, conc.shape)), "replicate": r}
+            )
+            for r in ("A", "B", "C")
+        ],
+        ignore_index=True,
+    )
+
+
+def test_default_bounds_track_data_magnitude():
+    df = _elisa_activation()
+    b = default_bounds(df, direction="activation", noise=GaussianConstant())
+    # Asymptote upper bound must be able to reach the ~1.1e4 top, not stuck at 2.
+    assert b.effect_inf[1] > 11_000
+    assert b.effect_0[1] > 11_000
+    # log_c50 bounds are data-derived, not the hardcoded (-5, 5).
+    assert b.log_c50 != (-5.0, 5.0)
+
+
+def test_default_bounds_lognormal_floors_lower_positive():
+    df = _elisa_activation()
+    b = default_bounds(df, direction="activation", noise=Lognormal())
+    assert b.effect_0[0] > 0.0
+    assert b.effect_inf[0] > 0.0
+
+
+def test_default_fit_config_returns_explicit_bounds():
+    df = _elisa_activation()
+    cfg = default_fit_config(df, direction="activation", noise=GaussianConstant())
+    assert isinstance(cfg, FitConfig)
+    assert cfg.bounds_are_explicit  # derived bounds are concrete, honoured literally
+
+
+def test_unspecified_bounds_are_derived_not_clamped():
+    """A FitConfig with no bounds must not clamp a large-magnitude fit to [0, 2]."""
+    df = _elisa_activation()
+    result = SingleDrugFit(df, FitConfig(direction="activation")).fit()
+    assert result.effect_inf > 1_000, "top must reach the data, not the old [0,2] default"
+    assert result.param_cov is not None
+
+
+def test_explicit_bounds_are_honoured_literally():
+    """Explicitly-supplied bounds are used as-is — no silent data-derived override."""
+    df = _elisa_activation()
+    # Deliberately absurd tight asymptote bounds: a literal fit must respect them.
+    result = SingleDrugFit(
+        df,
+        FitConfig(
+            direction="activation",
+            effect_0=7.0,
+            effect_inf=11000.0,
+            bounds=FitBounds(
+                log_c50=(-5.0, 5.0),
+                hill=(0.1, 4.0),
+                effect_0=(0.0, 2.0),
+                effect_inf=(0.0, 2.0),
+            ),
+        ),
+    ).fit()
+    # Clamped to the literal upper bound of 2 — proves bounds are not overridden.
+    assert result.effect_inf <= 2.0 + 1e-6

@@ -15,6 +15,25 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Added
+- **`default_fit_config` / `default_bounds`** — public entry points to the
+  data-driven default derivation (initials + asymptote/log-c50 bounds, noise-
+  aware) that `SingleDrugFit` already used internally. Lets consumers that
+  surface *editable* bounds (e.g. the app's analysis modals) source their
+  defaults from one place instead of re-deriving them.
+
+### Changed
+- **Bounds are honoured literally; absent bounds are derived from data.**
+  `SingleDrugFit` no longer uses the all-or-nothing equality override
+  (`config.bounds == FitBounds()` → swap in data-derived). Instead, a config
+  whose bounds were *not supplied* gets data-driven bounds (and its still-at-
+  default initials seeded from data), while *explicitly-supplied* bounds are
+  used verbatim. **Fitted values change** for the previously-unhandled case of
+  a bare `FitConfig()` against non-normalised data (e.g. `direction="inhibition"`
+  with default `[0, 2]` asymptote bounds no longer clamps large-magnitude
+  responses) — hence a MINOR bump. Explicit-bounds and `config=None` paths are
+  unchanged.
+
 ## [0.3.0] — 2026-06-01
 
 **Fitted values change** for `MatrixFit` (edge pre-fit bounds now data-derived),

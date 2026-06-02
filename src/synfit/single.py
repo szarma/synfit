@@ -109,6 +109,33 @@ def _init_config_from_data(
     return FitConfig(**cfg_kwargs)
 
 
+def default_fit_config(
+    data: pd.DataFrame,
+    direction: str = "inhibition",
+    noise: NoiseSpec | None = None,
+) -> FitConfig:
+    """Data-driven default fit configuration (initials + bounds) for ``data``.
+
+    Public entry point to the same derivation ``SingleDrugFit`` applies when no
+    config — or no bounds — is supplied: initials seeded from the response and
+    concentration ranges, and asymptote bounds that extend half a dynamic range
+    past the observed extremes (lognormal floors the lower bound strictly
+    positive). Consumers that surface *editable* bounds in a UI should source
+    their defaults here rather than re-deriving them, so the derivation has a
+    single source of truth.
+    """
+    return _init_config_from_data(data, direction=direction, noise=noise)
+
+
+def default_bounds(
+    data: pd.DataFrame,
+    direction: str = "inhibition",
+    noise: NoiseSpec | None = None,
+) -> FitBounds:
+    """Data-driven default :class:`FitBounds` for ``data`` (see :func:`default_fit_config`)."""
+    return _init_config_from_data(data, direction=direction, noise=noise).bounds
+
+
 def _predict(conc: np.ndarray, result: FitResult) -> np.ndarray:
     """Compute model predictions from a FitResult."""
     return hill_curve(
@@ -132,22 +159,28 @@ class SingleDrugFit(FitBase):
         self.data = data
         if config is None:
             config = _init_config_from_data(data)
-        elif config.direction != "inhibition":
-            # User supplied a config with direction but no custom initials —
-            # re-derive initials from data with the correct direction heuristics
-            # and the same noise model (so lognormal forces positive bounds),
-            # then overlay the user's explicit values.
-            auto = _init_config_from_data(
-                data, direction=config.direction, noise=config.noise,
-            )
-            # Only override the fields the user left at their defaults
-            if config.log_c50 == 0.0:
-                config.log_c50 = auto.log_c50
-            if config.effect_0 == 1.0 and config.effect_inf == 0.0:
-                config.effect_0 = auto.effect_0
-                config.effect_inf = auto.effect_inf
-            if config.bounds == FitBounds():
-                config.bounds = auto.bounds
+        else:
+            # Re-derive data-driven defaults for anything the caller left
+            # unspecified, using the config's direction heuristics and noise
+            # model (so lognormal forces positive bounds). We derive when the
+            # direction is non-default (initials need the activation heuristics)
+            # or when bounds were not supplied at all. In either case the
+            # still-at-default initials are seeded from data alongside the
+            # derived bounds — deriving bounds while leaving the historical
+            # zero-point initials can otherwise strand the optimiser in a poor
+            # basin. Explicitly-supplied bounds are always honoured literally
+            # (no equality-based override).
+            if config.direction != "inhibition" or not config.bounds_are_explicit:
+                auto = _init_config_from_data(
+                    data, direction=config.direction, noise=config.noise,
+                )
+                if config.log_c50 == 0.0:
+                    config.log_c50 = auto.log_c50
+                if config.effect_0 == 1.0 and config.effect_inf == 0.0:
+                    config.effect_0 = auto.effect_0
+                    config.effect_inf = auto.effect_inf
+                if not config.bounds_are_explicit:
+                    config.bounds = auto.bounds
         super().__init__(config)
 
     def _curve(self, conc: np.ndarray, kwargs: dict) -> np.ndarray:
