@@ -82,7 +82,12 @@ class FitConfig:
             if fitting_parameters is not None
             else ["log_c50", "hill", "effect_0", "effect_inf"]
         )
-        self.bounds = bounds or FitBounds()
+        # Track whether the caller supplied bounds. ``SingleDrugFit`` derives
+        # data-driven bounds when they were *not* supplied (so a bare
+        # ``FitConfig()`` still fits any-magnitude data), but honours supplied
+        # bounds literally — no silent equality-based override.
+        self.bounds_are_explicit = bounds is not None
+        self.bounds = bounds if bounds is not None else FitBounds()
         self.noise = (
             noise
             if noise is not None

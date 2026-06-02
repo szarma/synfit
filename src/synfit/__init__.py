@@ -11,5 +11,10 @@ from .loewe import loewe_ci, loewe_reference
 from .zip import zip_delta, zip_reference
 from .data import FitConfig, FitBounds, FitResult
 from .noise import NoiseSpec, log_prob as noise_log_prob
-from .single import SingleDrugFit, SingleDrugFitWithError
+from .single import (
+    SingleDrugFit,
+    SingleDrugFitWithError,
+    default_bounds,
+    default_fit_config,
+)
 from .matrix import MatrixFit
