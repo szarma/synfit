@@ -15,6 +15,15 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Internal
+- **Parameter-role taxonomy centralised** (`synfit/param_roles.py`). The
+  classification of fitting parameters — log-domain locations, variance
+  coefficients, magnitude-bearing asymptotes — was previously re-derived in
+  several places (`fitting.parameter_scale`, `FitBase._x_to_kwargs`,
+  `MatrixFit._unpack_x`, plus per-class name tuples). It now lives behind
+  `is_log_param` / `is_variance_param` / `is_asymptote_param` so the role tests
+  cannot drift apart. No change to fitted values.
+
 ## [0.3.0] — 2026-06-01
 
 **Fitted values change** for `MatrixFit` (edge pre-fit bounds now data-derived),
