@@ -3,6 +3,7 @@ from scipy.optimize import minimize, approx_fprime
 
 from .data import FitConfig
 from .hill import log_wall
+from .param_roles import is_asymptote_param, is_log_param, is_variance_param
 
 # Large multiplier so soft-boundary violations dominate the objective
 PRIOR_PENALTY_WEIGHT = 1000
@@ -11,14 +12,6 @@ PRIOR_PENALTY_WEIGHT = 1000
 # finite differences of a forward-difference gradient (``approx_fprime`` twice),
 # taken in scale-relative coordinates (see ``_estimate_covariance``).
 _HESS_EPS = 1e-5
-
-
-# Magnitude-bearing parameters whose true value tracks the response scale.
-# Only these are eligible for the bound-magnitude preconditioning fallback
-# below — see ``parameter_scale``. Single-drug / matrix fits name their
-# asymptotes ``effect_0`` / ``effect_inf``; the joint-marginal fit shares them
-# as ``top`` / ``bottom``.
-_ASYMPTOTE_PARAM_NAMES = ("effect_0", "effect_inf", "top", "bottom")
 
 
 def parameter_scale(
@@ -58,7 +51,7 @@ def parameter_scale(
     if bounds is None:
         return scale
     for i, (lo, hi) in enumerate(bounds):
-        if names is not None and names[i] not in _ASYMPTOTE_PARAM_NAMES:
+        if names is not None and not is_asymptote_param(names[i]):
             continue
         lo_f, hi_f = float(lo), float(hi)
         width = max(hi_f - lo_f, 0.0)
@@ -78,11 +71,6 @@ class FitBase:
     def __init__(self, config: FitConfig | None = None):
         self.config = config or FitConfig()
 
-    # Names of variance polynomial coefficients that may appear in the
-    # optimiser parameter list. Stripped out of the curve kwargs so they
-    # don't get passed into hill_curve.
-    _VARIANCE_PARAM_NAMES = ("var_a", "var_b", "var_c")
-
     def _x_to_kwargs(self, x: np.ndarray) -> dict:
         """Convert parameter array to hill_curve kwargs (un-logs log_ params).
 
@@ -91,9 +79,9 @@ class FitBase:
         """
         out = {}
         for par, v in zip(self.config.fitting_parameters, x):
-            if par in self._VARIANCE_PARAM_NAMES:
+            if is_variance_param(par):
                 continue
-            if par.startswith("log_"):
+            if is_log_param(par):
                 out[par[4:]] = 10**v
             else:
                 out[par] = v
@@ -116,7 +104,7 @@ class FitBase:
             "var_c": float(self.config.var_c),
         }
         for par, v in zip(self.config.fitting_parameters, x):
-            if par in self._VARIANCE_PARAM_NAMES:
+            if is_variance_param(par):
                 defaults[par] = float(v)
         return defaults["var_a"], defaults["var_b"], defaults["var_c"]
 
