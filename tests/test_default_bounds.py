@@ -65,6 +65,18 @@ def test_string_and_dict_lognormal_floor_positive():
         assert b.effect_inf[0] > 0.0, f"lower bound not floored for noise={noise!r}"
 
 
+def test_single_drug_with_error_resolves_none_bounds():
+    """Regression: SingleDrugFitWithError(FitConfig()) (bounds=None) must derive
+    bounds, not dereference None in FitBase._get_x0_and_bounds."""
+    from synfit.single import SingleDrugFitWithError
+
+    df = _elisa_activation()  # concentration, y, replicate
+    df = df.assign(y_err=(df["y"].abs() * 0.05 + 1.0))  # WithError needs y_err
+    result = SingleDrugFitWithError(df, FitConfig(direction="activation")).fit()
+    assert result is not None
+    assert result.effect_inf > 1_000  # derived bounds reached the data
+
+
 def test_bounds_none_survives_dataclass_replace_and_asdict():
     """bounds=None must persist through dataclasses.replace / asdict so the
     derive-vs-literal semantic can't be corrupted into a spurious clamp."""
