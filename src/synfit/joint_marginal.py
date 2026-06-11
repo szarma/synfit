@@ -33,7 +33,7 @@ from .noise import (
     log_prob as noise_log_prob,
     variance_model_name,
 )
-from .single import _init_config_from_data
+from .single import _coerce_noise, _init_config_from_data
 
 
 @dataclass
@@ -596,3 +596,77 @@ def fit_joint_marginal_auto(
     if g_aic is None or l_aic is None:
         return results["gaussian"]
     return results["gaussian"] if g_aic <= l_aic else results["lognormal"]
+
+
+def default_joint_marginal_config(
+    data_a: pd.DataFrame,
+    data_b: pd.DataFrame,
+    *,
+    model_a: str = "4p",
+    model_b: str = "4p",
+    direction_a: str = "inhibition",
+    direction_b: str = "inhibition",
+    noise: "NoiseSpec | dict | str | None" = None,
+) -> dict[str, dict[str, float]]:
+    """Data-driven default initials and bounds for a joint marginal fit.
+
+    Public entry point to the same derivation :class:`JointMarginalFit` applies
+    when no ``param_config`` is supplied: initials seeded from each drug's
+    response and concentration ranges, asymptote bounds that extend half a
+    dynamic range past each drug's observed extremes, then merged across the two
+    drugs (union of the per-drug bound intervals). Noise-aware: lognormal floors
+    all asymptote lower bounds strictly positive (> 0).
+
+    Parameters
+    ----------
+    data_a, data_b:
+        Per-drug replicate DataFrames with columns ``concentration``, ``y``,
+        ``replicate``.  ``data_a`` maps to the horizontal drug (drug_a /
+        ``_a`` suffixed params); ``data_b`` to the vertical (``_b``).
+    model_a, model_b:
+        ``"4p"`` (default) or ``"5p"``.  5p adds an asymmetry parameter per
+        drug.  Asymmetry entries are present in the returned dict *only* when
+        the corresponding model is ``"5p"``.
+    direction_a, direction_b:
+        ``"inhibition"`` or ``"activation"`` per drug.
+    noise:
+        Accepts a :class:`NoiseSpec`, a tagged dict (``{"kind": "lognormal"}``),
+        or a kind string (``"lognormal"`` / ``"gaussian"``).  Lognormal forces
+        the asymptote lower bounds positive; the same coercion
+        :class:`JointMarginalFit` applies.
+
+    Returns
+    -------
+    dict
+        Flat mapping from joint parameter name to ``{"init": float, "lo":
+        float, "hi": float}``.  Always includes ``top``, ``bottom``,
+        ``log_c50_a``, ``hill_a``, ``log_c50_b``, ``hill_b``.  Includes
+        ``asymmetry_a`` only when ``model_a == "5p"``; ``asymmetry_b`` only
+        when ``model_b == "5p"``.
+
+    Consumers that surface editable bounds in a UI should source their defaults
+    here rather than re-deriving them, so the derivation has a single source of
+    truth — identical to what the fitter sees when no overrides are supplied.
+    """
+    if model_a not in ("4p", "5p") or model_b not in ("4p", "5p"):
+        raise ValueError("model_a and model_b must be '4p' or '5p'")
+
+    coerced = _coerce_noise(noise)
+    cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=coerced)
+    cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=coerced)
+    defaults, bounds = JointMarginalFit._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
+
+    include = ["top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"]
+    if model_a == "5p":
+        include.append("asymmetry_a")
+    if model_b == "5p":
+        include.append("asymmetry_b")
+
+    return {
+        name: {
+            "init": float(defaults[name]),
+            "lo": float(bounds[name][0]),
+            "hi": float(bounds[name][1]),
+        }
+        for name in include
+    }
