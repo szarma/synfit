@@ -15,6 +15,8 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-11
+
 ### Added
 - **`default_fit_config` / `default_bounds`** — public entry points to the
   data-driven default derivation (initials + asymptote/log-c50 bounds, noise-
@@ -23,6 +25,13 @@ tagged `[X.Y.Z]` heading.
   defaults from one place instead of re-deriving them. ``noise`` accepts a
   ``NoiseSpec``, a tagged dict, or a kind string (a ``"lognormal"`` string /
   dict now applies the positive-floor like a ``Lognormal()`` instance).
+- **`default_joint_marginal_config`** — the joint-marginal counterpart of
+  `default_fit_config`: data-derived initials + bounds for the shared
+  ``top``/``bottom`` asymptotes and each drug's ``log_c50``/``hill`` (and
+  ``asymmetry`` for 5p), matching what `JointMarginalFit` derives when no
+  ``param_config`` overrides are supplied. Lets the app's matrix modal surface
+  editable bounds from the same single source of truth. Noise-aware; asymmetry
+  keys present only for 5p drugs.
 
 ### Changed
 - **Bounds are honoured literally; absent bounds are derived from data.**
