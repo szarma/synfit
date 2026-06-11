@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from synfit.joint_marginal import JointMarginalFit, fit_joint_marginal_auto
+from synfit.joint_marginal import JointMarginalFit, fit_joint_marginal_auto, default_joint_marginal_config
 from synfit.synthetic import generate_single_drug
 
 
@@ -390,3 +390,113 @@ def test_joint_fit_to_dict_serialises_variance_fields():
     assert d["variance_model"] == "linear"
     assert d["variance_params"]["b"] == pytest.approx(result.variance_params["b"])
     assert d["sigma"] is None
+
+
+# ---------------------------------------------------------------------------
+# default_joint_marginal_config — public helper that mirrors what the fitter
+# uses when no param_config overrides are provided.
+# ---------------------------------------------------------------------------
+
+def _large_magnitude_data(seed_a=50, seed_b=60):
+    """Two synthetic curves with asymptotes around 5000/50 (large-magnitude)."""
+    def cfg(seed):
+        return {
+            "seed": seed,
+            "hill_params": {"c50": 5.0, "hill": 1.5, "effect_0": 5000.0, "effect_inf": 50.0},
+            "concentration_series": {
+                "initial_conc": 100.0,
+                "fold_dilutions": 10 ** (2 / 7),
+                "length": 8,
+                "has_zero": False,
+            },
+            "n_replicates": 3,
+            "noise_model": "gaussian",
+            "noise_sigma": 10.0,
+        }
+    return generate_single_drug(cfg(seed_a)), generate_single_drug(cfg(seed_b))
+
+
+def test_default_joint_marginal_config_large_magnitude_bounds():
+    """Asymptote bounds must track data scale, not be pinned near [0, 2]."""
+    data_a, data_b = _large_magnitude_data()
+    result = default_joint_marginal_config(data_a, data_b)
+    # top/bottom bounds must be able to reach the ~5000 scale
+    assert result["top"]["hi"] > 4000
+    assert result["bottom"]["hi"] > 4000
+
+
+def test_default_joint_marginal_config_lognormal_floors_positive():
+    """Lognormal noise must floor top/bottom lo strictly > 0."""
+    data_a, data_b = _large_magnitude_data()
+    result = default_joint_marginal_config(data_a, data_b, noise="lognormal")
+    assert result["top"]["lo"] > 0.0
+    assert result["bottom"]["lo"] > 0.0
+
+
+def test_default_joint_marginal_config_4p_omits_asymmetry():
+    """4p models must not include asymmetry keys."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, model_a="4p", model_b="4p")
+    assert "asymmetry_a" not in result
+    assert "asymmetry_b" not in result
+    # Core keys are always present.
+    for key in ("top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"):
+        assert key in result
+
+
+def test_default_joint_marginal_config_5p_includes_asymmetry():
+    """5p models must include asymmetry keys."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, model_a="5p", model_b="5p")
+    assert "asymmetry_a" in result
+    assert "asymmetry_b" in result
+
+
+def test_default_joint_marginal_config_mixed_models():
+    """model_a=5p, model_b=4p → asymmetry_a present, asymmetry_b absent."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, model_a="5p", model_b="4p")
+    assert "asymmetry_a" in result
+    assert "asymmetry_b" not in result
+
+
+def test_default_joint_marginal_config_mixed_directions():
+    """Mixed inhibition/activation pair must not crash and returns all core keys."""
+    # Inhibitor: effect_0 = TOP, effect_inf = BOTTOM
+    data_a = generate_single_drug({
+        "seed": 71,
+        "hill_params": {"c50": 3.0, "hill": 1.5, "effect_0": TOP, "effect_inf": BOTTOM},
+        "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 10 ** (2 / 7), "length": 8, "has_zero": False},
+        "n_replicates": 3,
+        "noise_model": "gaussian", "noise_sigma": 0.02,
+    })
+    # Activator: effect_0 = BOTTOM, effect_inf = TOP
+    data_b = generate_single_drug({
+        "seed": 81,
+        "hill_params": {"c50": 8.0, "hill": 1.0, "effect_0": BOTTOM, "effect_inf": TOP},
+        "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 10 ** (2 / 7), "length": 8, "has_zero": False},
+        "n_replicates": 3,
+        "noise_model": "gaussian", "noise_sigma": 0.02,
+    })
+    result = default_joint_marginal_config(
+        data_a, data_b,
+        direction_a="inhibition", direction_b="activation",
+    )
+    for key in ("top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"):
+        assert key in result
+
+
+def test_default_joint_marginal_config_entry_shape():
+    """Every returned entry must have exactly init/lo/hi and lo <= hi."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, model_a="5p", model_b="5p")
+    for name, entry in result.items():
+        assert set(entry.keys()) == {"init", "lo", "hi"}, f"bad keys for {name}"
+        assert entry["lo"] <= entry["hi"], f"lo > hi for {name}"
+
+
+def test_default_joint_marginal_config_invalid_model():
+    """Invalid model strings must raise ValueError."""
+    data_a, data_b = _two_drug_data()
+    with pytest.raises(ValueError, match="4p.*5p|5p.*4p"):
+        default_joint_marginal_config(data_a, data_b, model_a="3p")
