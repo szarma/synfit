@@ -35,9 +35,15 @@ def _elisa_activation(seed: int = 3) -> pd.DataFrame:
 def test_default_bounds_track_data_magnitude():
     df = _elisa_activation()
     b = default_bounds(df, direction="activation", noise=GaussianConstant())
-    # Asymptote upper bound must be able to reach the ~1.1e4 top, not stuck at 2.
+    # Top asymptote (effect_inf for activation) reaches the ~1.1e4 top.
     assert b.effect_inf[1] > 11_000
-    assert b.effect_0[1] > 11_000
+    # Bottom and top no longer share one wide range: each is its own bound and
+    # they meet at the midpoint. The bottom's upper bound tracks the data scale
+    # (far above the old [0, 2] clamp) but is capped at the midpoint, below the
+    # top — and the bottom's ceiling equals the top's floor.
+    assert b.effect_0[1] > 2.0
+    assert b.effect_0[1] < b.effect_inf[1]
+    assert b.effect_0[1] == b.effect_inf[0]
     # log_c50 bounds are data-derived, not the hardcoded (-5, 5).
     assert b.log_c50 != (-5.0, 5.0)
 
