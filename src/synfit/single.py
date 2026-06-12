@@ -1,3 +1,4 @@
+import math
 import warnings
 
 import numpy as np
@@ -26,16 +27,68 @@ from .noise import (
 _MIN_POINTS_FOR_DEFAULTS = 5
 
 
-def _round_sig(values: tuple[float, float], sig: int = 2) -> tuple[float, float]:
-    """Round a (lo, hi) bound pair to ``sig`` significant figures.
+def _sig_quantum(value: float, sig: int) -> float:
+    """Place value of the last retained significant digit."""
+    if value == 0.0:
+        return math.inf
+    return 10.0 ** (math.floor(math.log10(abs(value))) - sig + 1)
 
-    The data-derived bounds carry float noise (``0.21593148226201883``); the UI
-    surfaces them editable, so present clean numbers (``0.22``). ``float(format)``
-    rather than ``eval("%.2g" % x)`` — no parser invocation, and it handles the
-    exponent / inf forms ``%g`` can emit.
+
+def _clean_float(value: float) -> float:
+    """Strip arithmetic noise; hierarchy checks retain raw values if needed."""
+    return float(f"{value:.15g}")
+
+
+def _round_bound(value: float, scale: float, *, lower: bool, sig: int = 2) -> float:
+    """Round one bound outward without losing resolution relative to the data.
+
+    Plain two-significant-figure rounding is too coarse for a narrow response
+    range on a large offset (e.g. 1000.0..1000.5): both endpoints become 1000.
+    Use the finer of the value's and the dynamic range's significant-digit
+    quanta, then floor lower bounds and ceil upper bounds.
     """
-    lo, hi = values
-    return (float(f"{lo:.{sig}g}"), float(f"{hi:.{sig}g}"))
+    quantum = min(_sig_quantum(value, sig), _sig_quantum(scale, sig))
+    scaled = value / quantum
+    # Tolerate division noise when the value is already on the quantum grid.
+    units = math.floor(scaled + 1e-12) if lower else math.ceil(scaled - 1e-12)
+    rounded = _clean_float(units * quantum)
+    if lower and rounded > value:
+        return value
+    if not lower and rounded < value:
+        return value
+    return rounded
+
+
+def _round_asymptote_bounds(
+    bottom: tuple[float, float],
+    top: tuple[float, float],
+    scale: float,
+    sig: int = 2,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    """Round bottom/top bounds while preserving their shared hierarchy.
+
+    The raw intervals meet at one midpoint. Their inner edges cannot both be
+    rounded outward independently without crossing, so round that split once
+    and reuse it as ``bottom.hi == top.lo``. Increase its precision as needed
+    until ``bottom.lo < split < top.hi`` remains strict.
+    """
+    bottom_lo = _round_bound(bottom[0], scale, lower=True, sig=sig)
+    top_hi = _round_bound(top[1], scale, lower=False, sig=sig)
+    split = 0.5 * (bottom[1] + top[0])
+    quantum = min(_sig_quantum(split, sig), _sig_quantum(scale, sig))
+
+    rounded_split = split
+    for _ in range(14):
+        candidate = _clean_float(round(split / quantum) * quantum)
+        if bottom_lo < candidate < top_hi:
+            rounded_split = candidate
+            break
+        quantum /= 10.0
+
+    if not bottom_lo < rounded_split < top_hi:
+        raise ValueError("Could not derive ordered asymptote bounds.")
+
+    return (bottom_lo, rounded_split), (rounded_split, top_hi)
 
 
 def _init_config_from_data(
@@ -68,7 +121,9 @@ def _init_config_from_data(
     ymax = float(np.partition(y, -2)[-2])
     dy = ymax - ymin
     if dy == 0.0:
-        raise ValueError("All response values too close together; fitting is not possible.")
+        raise ValueError(
+            "All response values too close together; fitting is not possible."
+        )
 
     if isinstance(noise, Lognormal):
         # Feasibility is about the *actual* responses, not the robust extreme:
@@ -76,19 +131,24 @@ def _init_config_from_data(
         # true minimum (not the second-smallest ``ymin`` used for the bounds).
         if float(y.min()) <= 0:
             raise ValueError("Cannot fit lognormal with non-positive responses.")
-        bottom_lo = ymin/100
-        top_hi = ymax*10
-    else: # gaussian
-        bottom_lo = ymin-dy/2
+        bottom_lo = ymin / 100
+        top_hi = ymax * 10
+    else:  # gaussian
+        bottom_lo = ymin - dy / 2
         # The top is far less constrained from above than the bottom is from
         # below — the response space is more unbounded upward — so give the top
         # asymptote extra headroom (2·dy above the observed top vs. dy/2 below
         # the bottom).
-        top_hi = ymax+2*dy
-    bottom_hi = ymin + dy/2
-    top_lo = ymax - dy/2
+        top_hi = ymax + 2 * dy
+    bottom_hi = ymin + dy / 2
+    top_lo = ymax - dy / 2
+    bottom_bounds, top_bounds = _round_asymptote_bounds(
+        (bottom_lo, bottom_hi),
+        (top_lo, top_hi),
+        dy,
+    )
 
-    ym = ymin + dy/2
+    ym = ymin + dy / 2
 
     # find concentration closest to midpoint response
     idx = (data["y"] - ym).abs().sort_values().index[0]
@@ -102,14 +162,14 @@ def _init_config_from_data(
     )
     log_c50_init = np.log10(ic50_init)
 
-    def _make_config(effect_0_init, effect_inf_init, effect_0_bounds, effect_inf_bounds) -> FitConfig:
+    def _make_config(
+        effect_0_init, effect_inf_init, effect_0_bounds, effect_inf_bounds
+    ) -> FitConfig:
         bounds = FitBounds(
-            # log_c50 bounds are already whole decades (floor/ceil); only the
-            # asymptote bounds carry float noise worth rounding away.
             log_c50=log_c50_bounds,
             hill=(0.1, 4.0),
-            effect_0=_round_sig(effect_0_bounds),
-            effect_inf=_round_sig(effect_inf_bounds),
+            effect_0=effect_0_bounds,
+            effect_inf=effect_inf_bounds,
         )
         # Rounding a bound inward can leave the data-seeded initial just outside
         # its [lo, hi]; clamp the asymptote initials back into the rounded bounds.
@@ -130,14 +190,18 @@ def _init_config_from_data(
     if direction == "activation":
         # effect_0 = bottom (low-conc), effect_inf = top (high-conc)
         return _make_config(
-            effect_0_init=ymin, effect_inf_init=ymax,
-            effect_0_bounds=(bottom_lo, bottom_hi), effect_inf_bounds=(top_lo, top_hi),
+            effect_0_init=ymin,
+            effect_inf_init=ymax,
+            effect_0_bounds=bottom_bounds,
+            effect_inf_bounds=top_bounds,
         )
-    else: # inhibition
+    else:  # inhibition
         # effect_0 = top (low-conc), effect_inf = bottom (high-conc)
         return _make_config(
-            effect_0_init=ymax, effect_inf_init=ymin,
-            effect_0_bounds=(top_lo, top_hi), effect_inf_bounds=(bottom_lo, bottom_hi),
+            effect_0_init=ymax,
+            effect_inf_init=ymin,
+            effect_0_bounds=top_bounds,
+            effect_inf_bounds=bottom_bounds,
         )
 
 

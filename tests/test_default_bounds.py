@@ -11,7 +11,7 @@ import pandas as pd
 from synfit import default_bounds, default_fit_config
 from synfit.data import FitConfig, FitBounds
 from synfit.noise import GaussianConstant, Lognormal
-from synfit.single import SingleDrugFit
+from synfit.single import SingleDrugFit, _round_asymptote_bounds
 
 
 def _elisa_activation(seed: int = 3) -> pd.DataFrame:
@@ -53,6 +53,61 @@ def test_default_bounds_lognormal_floors_lower_positive():
     b = default_bounds(df, direction="activation", noise=Lognormal())
     assert b.effect_0[0] > 0.0
     assert b.effect_inf[0] > 0.0
+
+
+def test_outward_rounding_preserves_narrow_high_offset_bound_hierarchy():
+    """Rounding must not collapse a narrow response range on a large offset."""
+    df = pd.DataFrame(
+        {
+            "concentration": [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0],
+            "y": [1000.0, 1000.1, 1000.2, 1000.3, 1000.4, 1000.5],
+            "replicate": ["A"] * 6,
+        }
+    )
+
+    activation = default_bounds(df, direction="activation", noise=GaussianConstant())
+    bottom = activation.effect_0
+    top = activation.effect_inf
+    assert bottom[0] < bottom[1] == top[0] < top[1]
+    # Outermost edges are rounded away from the raw feasible interval.
+    assert bottom[0] <= 999.95
+    assert top[1] >= 1001.0
+
+    inhibition = default_bounds(df, direction="inhibition", noise=GaussianConstant())
+    assert inhibition.effect_inf == bottom
+    assert inhibition.effect_0 == top
+
+
+def test_outward_rounding_keeps_lognormal_lower_bound_positive():
+    """Outward rounding must not turn a small positive lognormal floor into zero."""
+    df = pd.DataFrame(
+        {
+            "concentration": [0.01, 0.1, 1.0, 10.0, 100.0],
+            "y": [0.01, 0.2, 0.5, 0.8, 1.0],
+            "replicate": ["A"] * 5,
+        }
+    )
+    b = default_bounds(df, direction="activation", noise=Lognormal())
+    assert 0.0 < b.effect_0[0] < b.effect_0[1] == b.effect_inf[0] < b.effect_inf[1]
+
+
+def test_outward_rounding_preserves_float_resolution_at_extreme_offset():
+    """Cleanup must not merge bounds separated by only a few float units."""
+    bottom = (-81228082.64515305, -81228082.64515302)
+    top = (-81228082.64515302, -81228082.64515294)
+    rounded_bottom, rounded_top = _round_asymptote_bounds(
+        bottom,
+        top,
+        scale=2.493817517783659e-08,
+    )
+    assert rounded_bottom[0] <= bottom[0]
+    assert rounded_top[1] >= top[1]
+    assert (
+        rounded_bottom[0]
+        < rounded_bottom[1]
+        == rounded_top[0]
+        < rounded_top[1]
+    )
 
 
 def test_default_fit_config_returns_concrete_bounds():

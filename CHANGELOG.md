@@ -15,6 +15,13 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Changed
+- **Data-derived asymptote bounds are rounded outward without collapsing narrow
+  high-offset ranges.** The bottom ceiling and top floor retain one shared split,
+  preserving `bottom.lo < bottom.hi == top.lo < top.hi`; rounding precision also
+  follows the observed dynamic range so small positive lognormal floors remain
+  positive.
+
 ## [0.4.0] — 2026-06-11
 
 ### Added
