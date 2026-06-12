@@ -113,6 +113,23 @@ class MatrixFit(FitBase):
         self.direction_horizontal = direction_horizontal
         self.direction_vertical = direction_vertical
 
+        # The Bliss surface is built from a single shared (effect_0, effect_inf)
+        # asymptote pair applied to BOTH marginals (see bliss_independence), so
+        # both drugs must move the response the same way. A mixed plate — one
+        # drug activating, the other inhibiting — has no single zero-/saturating-
+        # dose pair that represents both, and the shared-bound merge below would
+        # silently combine one drug's top with the other's bottom. Reject it
+        # explicitly; fit such plates with JointMarginalFit, whose per-drug
+        # top/bottom remapping handles mixed directions.
+        if direction_horizontal != direction_vertical:
+            raise ValueError(
+                "MatrixFit (Bliss independence) requires both drugs to share a "
+                f"direction; got horizontal={direction_horizontal!r}, "
+                f"vertical={direction_vertical!r}. The model uses one shared "
+                "(effect_0, effect_inf) pair for both marginals, which cannot "
+                "represent opposite directions. Use JointMarginalFit instead."
+            )
+
         if self.conc_horizontal.size == 0 or self.conc_vertical.size == 0:
             raise ValueError("Concentration arrays must be non-empty")
 
