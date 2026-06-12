@@ -26,6 +26,18 @@ from .noise import (
 _MIN_POINTS_FOR_DEFAULTS = 5
 
 
+def _round_sig(values: tuple[float, float], sig: int = 2) -> tuple[float, float]:
+    """Round a (lo, hi) bound pair to ``sig`` significant figures.
+
+    The data-derived bounds carry float noise (``0.21593148226201883``); the UI
+    surfaces them editable, so present clean numbers (``0.22``). ``float(format)``
+    rather than ``eval("%.2g" % x)`` — no parser invocation, and it handles the
+    exponent / inf forms ``%g`` can emit.
+    """
+    lo, hi = values
+    return (float(f"{lo:.{sig}g}"), float(f"{hi:.{sig}g}"))
+
+
 def _init_config_from_data(
     data: pd.DataFrame,
     direction: str = "inhibition",
@@ -92,16 +104,22 @@ def _init_config_from_data(
 
     def _make_config(effect_0_init, effect_inf_init, effect_0_bounds, effect_inf_bounds) -> FitConfig:
         bounds = FitBounds(
+            # log_c50 bounds are already whole decades (floor/ceil); only the
+            # asymptote bounds carry float noise worth rounding away.
             log_c50=log_c50_bounds,
             hill=(0.1, 4.0),
-            effect_0=effect_0_bounds,
-            effect_inf=effect_inf_bounds,
+            effect_0=_round_sig(effect_0_bounds),
+            effect_inf=_round_sig(effect_inf_bounds),
         )
+        # Rounding a bound inward can leave the data-seeded initial just outside
+        # its [lo, hi]; clamp the asymptote initials back into the rounded bounds.
+        e0 = min(max(effect_0_init, bounds.effect_0[0]), bounds.effect_0[1])
+        einf = min(max(effect_inf_init, bounds.effect_inf[0]), bounds.effect_inf[1])
         kwargs: dict = {
             "log_c50": log_c50_init,
             "hill": 1.0,
-            "effect_0": effect_0_init,
-            "effect_inf": effect_inf_init,
+            "effect_0": e0,
+            "effect_inf": einf,
             "bounds": bounds,
             "direction": direction,
         }
