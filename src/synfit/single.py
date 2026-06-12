@@ -106,19 +106,22 @@ def _init_config_from_data(
             f"Need at least 2 non-NaN response values to derive fit defaults; got {n}."
         )
 
-    # Robust extremes: drop the single most-extreme point at each end so a lone
-    # outlier doesn't set an asymptote bound — but only when there are points to
-    # spare. Below four points trimming collapses or crosses the range (the
-    # second-smallest meets or passes the second-largest), so for small samples
-    # fall back to the true min/max instead of rejecting the fit. Cast to float —
-    # numpy scalars otherwise leak into the config and break JSON-serialisability.
+    # Prefer robust extremes (second-smallest / second-largest) when trimming
+    # still leaves a range. Otherwise use the true min/max; this naturally covers
+    # two/three-point inputs and sparse plateaus where trimming would collapse
+    # the usable dynamic range. Cast to float — numpy scalars otherwise leak
+    # into the config and break JSON-serialisability.
     y_sorted = np.sort(y.to_numpy())
-    if n >= 4:
-        ymin = float(y_sorted[1])
-        ymax = float(y_sorted[-2])
+    true_ymin = float(y_sorted[0])
+    true_ymax = float(y_sorted[-1])
+    trimmed_ymin = float(y_sorted[1])
+    trimmed_ymax = float(y_sorted[-2])
+    if trimmed_ymin < trimmed_ymax:
+        ymin = trimmed_ymin
+        ymax = trimmed_ymax
     else:
-        ymin = float(y_sorted[0])
-        ymax = float(y_sorted[-1])
+        ymin = true_ymin
+        ymax = true_ymax
     dy = ymax - ymin
     if dy == 0.0:
         raise ValueError(
@@ -227,12 +230,12 @@ def default_fit_config(
 
     Public entry point to the same derivation ``SingleDrugFit`` applies when no
     config — or no bounds — is supplied: initials seeded from the response and
-    concentration ranges, and asymptote bounds that extend half a dynamic range
-    past the observed extremes (lognormal floors the lower bound strictly
-    positive). ``noise`` accepts a :data:`NoiseSpec`, a tagged dict, or a kind
-    string. Consumers that surface *editable* bounds in a UI should source their
-    defaults here rather than re-deriving them, so the derivation has a single
-    source of truth.
+    concentration ranges, with per-asymptote bounds that meet at the response
+    midpoint. Gaussian top bounds get extra upward headroom; lognormal lower
+    bounds are floored strictly positive. ``noise`` accepts a
+    :data:`NoiseSpec`, a tagged dict, or a kind string. Consumers that surface
+    *editable* bounds in a UI should source their defaults here rather than
+    re-deriving them, so the derivation has a single source of truth.
     """
     return _init_config_from_data(data, direction=direction, noise=_coerce_noise(noise))
 

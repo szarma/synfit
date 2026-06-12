@@ -207,8 +207,7 @@ def test_default_bounds_small_samples_do_not_raise():
 
 
 def test_default_bounds_small_sample_skips_outlier_trim():
-    """Below four points there is no slack to drop an extreme, so the range
-    must span the true min/max — not collapse to a trimmed interior."""
+    """When the trimmed range collapses, bounds fall back to the true min/max."""
     df = _small_curve(3)
     b = default_bounds(df)
     ys = df["y"].to_numpy()
@@ -218,6 +217,23 @@ def test_default_bounds_small_sample_skips_outlier_trim():
     assert b.effect_0[1] > b.effect_inf[1]  # top sits above bottom
     assert float(ys.min()) <= b.effect_inf[1]  # bottom bound informed by true min
     assert float(ys.max()) >= b.effect_0[0]    # top bound informed by true max
+
+
+def test_default_bounds_falls_back_when_trimmed_extrema_collapse():
+    """Four-point sparse curves can have one plateau represented by a single
+    point. Trimming both ends would collapse the remaining dynamic range even
+    though the true min/max are usable."""
+    df = pd.DataFrame(
+        {
+            "concentration": [0.01, 0.1, 1.0, 10.0],
+            "y": [0.9, 0.9, 0.9, 0.05],
+            "replicate": ["A"] * 4,
+        }
+    )
+    b = default_bounds(df)
+    assert b.effect_inf[0] < b.effect_inf[1] == b.effect_0[0] < b.effect_0[1]
+    assert b.effect_inf[1] > 0.05
+    assert b.effect_0[0] < 0.9
 
 
 def test_default_bounds_single_point_still_raises():
