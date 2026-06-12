@@ -18,6 +18,13 @@ from .noise import (
     variance_model_name,
 )
 
+# Minimum number of non-NaN response points required to derive data-driven
+# defaults. The robust extremes below discard the single most-extreme point at
+# each end, so fewer than a handful of points leaves too little to characterise
+# the dynamic range — and np.partition(y, 1) is undefined below two points.
+# Bump this if you want a stricter floor.
+_MIN_POINTS_FOR_DEFAULTS = 5
+
 
 def _init_config_from_data(
     data: pd.DataFrame,
@@ -35,29 +42,41 @@ def _init_config_from_data(
     y = data["y"].dropna()
     conc_nonzero = data.query("concentration > 0")["concentration"]
 
-    ymin, ymax = float(y.min()), float(y.max())
+    if len(y) < _MIN_POINTS_FOR_DEFAULTS:
+        raise ValueError(
+            f"Need at least {_MIN_POINTS_FOR_DEFAULTS} non-NaN response values to derive "
+            f"fit defaults; got {len(y)}."
+        )
+
+    # Robust extremes: the second-smallest / second-largest response, so a lone
+    # outlier at either end doesn't set an asymptote bound. Cast to float —
+    # np.partition returns a numpy scalar — so the derived config stays plain
+    # float / JSON-serialisable.
+    ymin = float(np.partition(y, 1)[1])
+    ymax = float(np.partition(y, -2)[-2])
     dy = ymax - ymin
     if dy == 0.0:
-        raise ValueError("All response values are identical; fitting is not possible.")
-    ym = ymax - dy / 2
+        raise ValueError("All response values too close together; fitting is not possible.")
 
-    # Asymptote bounds extend half a dynamic-range past the observed extremes
-    # so the fitter can find true asymptotes that lie below ymin or above
-    # ymax (common when the curve hasn't fully plateaued in the tested range,
-    # or noise nudges the extremes inward). The earlier multiplicative
-    # ``min(ymin,ymax) * 1.5`` only loosened correctly when the data crossed
-    # zero; for all-positive normalized data it tightened the lower bound and
-    # pinned effect_0 above truth.
-    b_lo = ymin - 0.5 * dy
-    b_hi = ymax + 0.5 * dy
-
-    # Lognormal noise requires strictly-positive predictions everywhere; the
-    # asymptotes are part of the curve, so a negative bound would let the
-    # optimiser explore parameter regions where the model dips below zero
-    # and the likelihood degenerates. Floor the lower bound at a small
-    # positive value in that case. Gaussian has no such constraint.
     if isinstance(noise, Lognormal):
-        b_lo = max(b_lo, 1e-6)
+        # Feasibility is about the *actual* responses, not the robust extreme:
+        # a single non-positive y breaks the lognormal likelihood, so check the
+        # true minimum (not the second-smallest ``ymin`` used for the bounds).
+        if float(y.min()) <= 0:
+            raise ValueError("Cannot fit lognormal with non-positive responses.")
+        bottom_lo = ymin/100
+        top_hi = ymax*10
+    else: # gaussian
+        bottom_lo = ymin-dy/2
+        # The top is far less constrained from above than the bottom is from
+        # below — the response space is more unbounded upward — so give the top
+        # asymptote extra headroom (2·dy above the observed top vs. dy/2 below
+        # the bottom).
+        top_hi = ymax+2*dy
+    bottom_hi = ymin + dy/2
+    top_lo = ymax - dy/2
+
+    ym = ymin + dy/2
 
     # find concentration closest to midpoint response
     idx = (data["y"] - ym).abs().sort_values().index[0]
@@ -65,49 +84,43 @@ def _init_config_from_data(
     if ic50_init <= 0:
         ic50_init = float(conc_nonzero.median())
 
-    log_ic50_init = np.log10(ic50_init)
-    log_ic50_lo = float(np.log10(conc_nonzero.min()))
-    log_ic50_hi = float(np.log10(conc_nonzero.max())) + 1.0
+    log_c50_bounds = (
+        float(np.floor(np.log10(conc_nonzero.min()))),
+        float(np.ceil(np.log10(conc_nonzero.max()))) + 1.0,
+    )
+    log_c50_init = np.log10(ic50_init)
 
-    if direction == "activation":
-        # Activation: response rises with dose.
-        # effect_0 is the low-conc asymptote, effect_inf is the high-conc asymptote.
+    def _make_config(effect_0_init, effect_inf_init, effect_0_bounds, effect_inf_bounds) -> FitConfig:
         bounds = FitBounds(
-            log_c50=(log_ic50_lo, log_ic50_hi),
+            log_c50=log_c50_bounds,
             hill=(0.1, 4.0),
-            effect_0=(b_lo, b_hi),
-            effect_inf=(b_lo, b_hi),
+            effect_0=effect_0_bounds,
+            effect_inf=effect_inf_bounds,
         )
-        cfg_kwargs: dict = {
-            "log_c50": log_ic50_init,
+        kwargs: dict = {
+            "log_c50": log_c50_init,
             "hill": 1.0,
-            "effect_0": ymin,
-            "effect_inf": ymax,
+            "effect_0": effect_0_init,
+            "effect_inf": effect_inf_init,
             "bounds": bounds,
             "direction": direction,
         }
         if noise is not None:
-            cfg_kwargs["noise"] = noise
-        return FitConfig(**cfg_kwargs)
+            kwargs["noise"] = noise
+        return FitConfig(**kwargs)
 
-    bounds = FitBounds(
-        log_c50=(log_ic50_lo, log_ic50_hi),
-        hill=(0.1, 4.0),
-        effect_0=(b_lo, b_hi),
-        effect_inf=(b_lo, b_hi),
-    )
-
-    cfg_kwargs = {
-        "log_c50": log_ic50_init,
-        "hill": 1.0,
-        "effect_0": ymax,
-        "effect_inf": ymin,
-        "bounds": bounds,
-        "direction": direction,
-    }
-    if noise is not None:
-        cfg_kwargs["noise"] = noise
-    return FitConfig(**cfg_kwargs)
+    if direction == "activation":
+        # effect_0 = bottom (low-conc), effect_inf = top (high-conc)
+        return _make_config(
+            effect_0_init=ymin, effect_inf_init=ymax,
+            effect_0_bounds=(bottom_lo, bottom_hi), effect_inf_bounds=(top_lo, top_hi),
+        )
+    else: # inhibition
+        # effect_0 = top (low-conc), effect_inf = bottom (high-conc)
+        return _make_config(
+            effect_0_init=ymax, effect_inf_init=ymin,
+            effect_0_bounds=(top_lo, top_hi), effect_inf_bounds=(bottom_lo, bottom_hi),
+        )
 
 
 def _coerce_noise(noise: NoiseSpec | dict | str | None) -> NoiseSpec | None:

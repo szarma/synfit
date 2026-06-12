@@ -420,9 +420,12 @@ def test_default_joint_marginal_config_large_magnitude_bounds():
     """Asymptote bounds must track data scale, not be pinned near [0, 2]."""
     data_a, data_b = _large_magnitude_data()
     result = default_joint_marginal_config(data_a, data_b)
-    # top/bottom bounds must be able to reach the ~5000 scale
+    # Top reaches the ~5000 scale. Top and bottom no longer share one wide
+    # range — the bottom's upper bound is capped near the per-curve midpoint, so
+    # it tracks the data scale (≫ the old [0, 2]) without climbing to the top.
     assert result["top"]["hi"] > 4000
-    assert result["bottom"]["hi"] > 4000
+    assert result["bottom"]["hi"] > 1000
+    assert result["bottom"]["hi"] < result["top"]["hi"]
 
 
 def test_default_joint_marginal_config_lognormal_floors_positive():

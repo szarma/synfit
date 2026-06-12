@@ -11,12 +11,12 @@ from synfit.synthetic import generate_single_drug
 
 def _synthetic_data(c50=1.0, hill=1.5, effect_0=0.9, effect_inf=0.05,
                     noise_model="gaussian", noise_sigma=0.02, noise_sigma_log=0.02,
-                    seed=42):
+                    seed=42, length=8):
     """Generate synthetic dose-response data via the canonical generator."""
     config = {
         "seed": seed,
         "hill_params": {"c50": c50, "hill": hill, "effect_0": effect_0, "effect_inf": effect_inf},
-        "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 10**(2/7), "length": 8, "has_zero": False},
+        "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 10**(2/7), "length": length, "has_zero": False},
         "n_replicates": 3,
         "noise_model": noise_model,
         "noise_sigma": noise_sigma,
@@ -74,7 +74,13 @@ def test_single_drug_fit_invalid_columns():
 
 
 def test_single_drug_fit_with_error():
-    data = _synthetic_data(c50=1.5)
+    # length=10 extends the dilution series two steps lower so the curve
+    # actually reaches its top plateau (~0.90). With the default 8-point series
+    # the response tops out at ~0.61, leaving the top asymptote unobserved — the
+    # fit is then free to extrapolate the plateau within the (deliberately
+    # generous) upper bound and c50 is not identifiable. This test is about
+    # recovering c50, so it needs data that constrains the curve.
+    data = _synthetic_data(c50=1.5, length=10)
     # add synthetic error bars
     df = data.groupby("concentration")["y"].agg(["mean", "std"]).reset_index()
     df.columns = ["concentration", "y", "y_err"]
