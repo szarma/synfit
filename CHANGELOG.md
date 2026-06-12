@@ -47,6 +47,16 @@ tagged `[X.Y.Z]` heading.
   *Moves fitted values* for Bliss matrix fits.
 
 ### Fixed
+- **`FitBase` rejects an unresolved `bounds=None` at fit time with an actionable
+  error.** `FitConfig.bounds=None` means "derive from data" — a contract the
+  data-bearing subclasses resolve before fitting. The base optimiser readers
+  (`_get_x0_and_bounds` / `_log_prior_prob`) now route through a `_require_bounds`
+  guard, so a future subclass that forgets to resolve gets a clear message
+  ("bounds is None at fit time… derive from data") instead of an opaque
+  `AttributeError: 'NoneType' object has no attribute 'effect_0'`. No behavioural
+  change for the existing fits (all resolve bounds first); the guard deliberately
+  does not invent a neutral `FitBounds()` default, which would silently fit
+  against the wrong bracket the data-derived scheme replaced.
 - **Lognormal feasibility is checked against the true minimum response, not the
   trimmed robust extreme.** A single non-positive `y` breaks the lognormal
   likelihood, so a dataset containing one is now rejected up front (previously a
