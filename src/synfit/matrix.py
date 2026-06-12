@@ -154,9 +154,35 @@ class MatrixFit(FitBase):
         self._hor_result = self.synfit_hor.fit()
         self._ver_result = self.synfit_ver.fit()
 
-        # shared effect_0/effect_inf initialised from edge pre-fits
-        effect_0_init = max(self._hor_result.effect_0, self._ver_result.effect_0)
-        effect_inf_init = min(self._hor_result.effect_inf, self._ver_result.effect_inf)
+        # Shared asymptote bounds come from the same data-derived derivation the
+        # edge pre-fits already use (`_init_config_from_data`), not a fresh
+        # ±(0.5–2)× envelope around the pre-fit results. `effect_0` (zero-dose)
+        # and `effect_inf` (saturating-dose) share the Hill convention with the
+        # single-drug config, so we merge each edge's same-named bound directly:
+        # `(min lo, max hi)` across the two edges — mirroring JointMarginalFit.
+        # This carries the per-asymptote midpoint scheme, the outward rounding,
+        # and (crucially) the lognormal positive floor onto the combination fit,
+        # closing the gap where `effect_inf`'s lower bound was hardcoded to 0.0.
+        def _merge(a: tuple[float, float], b: tuple[float, float]) -> tuple[float, float]:
+            return (min(a[0], b[0]), max(a[1], b[1]))
+
+        effect_0_bounds = _merge(
+            self.synfit_hor.config.bounds.effect_0,
+            self.synfit_ver.config.bounds.effect_0,
+        )
+        effect_inf_bounds = _merge(
+            self.synfit_hor.config.bounds.effect_inf,
+            self.synfit_ver.config.bounds.effect_inf,
+        )
+
+        # shared effect_0/effect_inf initialised from edge pre-fits, clamped into
+        # the merged bounds (the data-seeded inits are normally inside already).
+        effect_0_init = float(np.clip(
+            max(self._hor_result.effect_0, self._ver_result.effect_0), *effect_0_bounds
+        ))
+        effect_inf_init = float(np.clip(
+            min(self._hor_result.effect_inf, self._ver_result.effect_inf), *effect_inf_bounds
+        ))
 
         # 6 parameters: log_c50_hor, log_c50_ver, hill_hor, hill_ver, effect_0, effect_inf
         self._x0 = [
@@ -172,8 +198,8 @@ class MatrixFit(FitBase):
             self.synfit_ver.config.bounds.log_c50,
             (0.1, 4.0),
             (0.1, 4.0),
-            (effect_0_init * 0.5, effect_0_init * 2),
-            (0.0, effect_inf_init * 2 + 1e-6),
+            effect_0_bounds,
+            effect_inf_bounds,
         ]
 
     def _edge_slice(self, axis: str) -> pd.DataFrame:

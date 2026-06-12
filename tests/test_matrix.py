@@ -90,3 +90,42 @@ class TestMatrixFitEdgeCases:
         assert any("zero-concentration" in w.lower() for w in result.warnings)
         d = result.to_dict()
         assert "warnings" in d
+
+
+class TestMatrixSharedAsymptoteBounds:
+    """The shared effect_0/effect_inf bounds come from the data-derived
+    single-drug derivation (per-asymptote, rounded, lognormal-floored), not a
+    fresh ±(0.5–2)x envelope around the pre-fit results."""
+
+    def test_lognormal_effect_inf_lower_bound_is_strictly_positive(self):
+        """Regression: under lognormal noise the bottom asymptote bound must be
+        floored strictly positive (the old code hardcoded it to 0.0, which let
+        the Bliss surface bottom out at zero and break the likelihood)."""
+        replicates, conc_hor, conc_ver = matrix_from_config(noise_model="lognormal")
+        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
+        effect_inf_bounds = fitter._bounds[5]
+        assert effect_inf_bounds[0] > 0.0
+
+    def test_gaussian_allows_nonpositive_bottom_bound(self):
+        """Gaussian noise has no positivity constraint, so the bottom bound may
+        extend at or below zero — proving the floor is lognormal-specific, not a
+        blanket clamp."""
+        replicates, conc_hor, conc_ver = matrix_from_config(noise_model="gaussian")
+        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="gaussian")
+        effect_inf_bounds = fitter._bounds[5]
+        assert effect_inf_bounds[0] <= 0.0
+
+    def test_shared_bounds_match_merged_edge_config_bounds(self):
+        """Each shared asymptote bound is the (min lo, max hi) merge of the two
+        edge configs' same-named bound — the JointMarginalFit-style derivation."""
+        replicates, conc_hor, conc_ver = matrix_from_config(noise_model="lognormal")
+        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
+        hor, ver = fitter.synfit_hor.config.bounds, fitter.synfit_ver.config.bounds
+        assert fitter._bounds[4] == (
+            min(hor.effect_0[0], ver.effect_0[0]),
+            max(hor.effect_0[1], ver.effect_0[1]),
+        )
+        assert fitter._bounds[5] == (
+            min(hor.effect_inf[0], ver.effect_inf[0]),
+            max(hor.effect_inf[1], ver.effect_inf[1]),
+        )

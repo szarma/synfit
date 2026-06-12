@@ -35,6 +35,14 @@ tagged `[X.Y.Z]` heading.
   below that the true min/max are used, and only `n < 2` is rejected. The
   previous hard five-point minimum 500'd the matrix-defaults endpoint on 2×2
   plates and refused legitimate four-point single-drug curves.
+- **`MatrixFit` (Bliss) shares the single-drug asymptote-bound derivation.** Its
+  shared `effect_0` / `effect_inf` bounds are now the `(min lo, max hi)` merge of
+  the two edge configs' data-derived bounds — same as `JointMarginalFit` — rather
+  than a fresh `(0.5–2)×` envelope around the pre-fit results. This carries the
+  per-asymptote midpoint scheme and outward rounding onto the combination fit and
+  floors the lognormal bottom bound strictly positive (it was hardcoded to `0.0`,
+  which let the Bliss surface bottom out at zero and break the likelihood).
+  *Moves fitted values* for Bliss matrix fits.
 
 ### Fixed
 - **Lognormal feasibility is checked against the true minimum response, not the
