@@ -16,11 +16,32 @@ tagged `[X.Y.Z]` heading.
 ## [Unreleased]
 
 ### Changed
+- **Per-asymptote default bounds that meet at the response midpoint.** The two
+  asymptotes no longer share one wide symmetric bracket. Each gets its own
+  `(lo, hi)`: the bottom is bounded `[…, m]` and the top `[m, …]` at the
+  midpoint `m = ½(y_min + y_max)`, so `bottom.lo < bottom.hi == top.lo <
+  top.hi`. The gaussian top gets extra headroom (`y_max + 2·Δy`, vs. `y_min −
+  ½·Δy` below the bottom) because the response is far less constrained from
+  above. *Moves fitted values* — a near-zero bottom asymptote can land on the
+  opposite side of zero from the old symmetric scheme.
 - **Data-derived asymptote bounds are rounded outward without collapsing narrow
   high-offset ranges.** The bottom ceiling and top floor retain one shared split,
   preserving `bottom.lo < bottom.hi == top.lo < top.hi`; rounding precision also
   follows the observed dynamic range so small positive lognormal floors remain
   positive.
+- **Adaptive extrema for small samples instead of a blanket minimum.** The
+  robust extremes (second-smallest / second-largest response, which discard a
+  lone outlier at each end) are used only when there are at least four points;
+  below that the true min/max are used, and only `n < 2` is rejected. The
+  previous hard five-point minimum 500'd the matrix-defaults endpoint on 2×2
+  plates and refused legitimate four-point single-drug curves.
+
+### Fixed
+- **Lognormal feasibility is checked against the true minimum response, not the
+  trimmed robust extreme.** A single non-positive `y` breaks the lognormal
+  likelihood, so a dataset containing one is now rejected up front (previously a
+  negative point hidden behind the second-smallest value slipped through). The
+  lognormal asymptote lower bound floors at `y_min/100`, strictly positive.
 
 ## [0.4.0] — 2026-06-11
 

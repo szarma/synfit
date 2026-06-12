@@ -19,13 +19,6 @@ from .noise import (
     variance_model_name,
 )
 
-# Minimum number of non-NaN response points required to derive data-driven
-# defaults. The robust extremes below discard the single most-extreme point at
-# each end, so fewer than a handful of points leaves too little to characterise
-# the dynamic range — and np.partition(y, 1) is undefined below two points.
-# Bump this if you want a stricter floor.
-_MIN_POINTS_FOR_DEFAULTS = 5
-
 
 def _sig_quantum(value: float, sig: int) -> float:
     """Place value of the last retained significant digit."""
@@ -107,18 +100,25 @@ def _init_config_from_data(
     y = data["y"].dropna()
     conc_nonzero = data.query("concentration > 0")["concentration"]
 
-    if len(y) < _MIN_POINTS_FOR_DEFAULTS:
+    n = len(y)
+    if n < 2:
         raise ValueError(
-            f"Need at least {_MIN_POINTS_FOR_DEFAULTS} non-NaN response values to derive "
-            f"fit defaults; got {len(y)}."
+            f"Need at least 2 non-NaN response values to derive fit defaults; got {n}."
         )
 
-    # Robust extremes: the second-smallest / second-largest response, so a lone
-    # outlier at either end doesn't set an asymptote bound. Cast to float —
-    # np.partition returns a numpy scalar — so the derived config stays plain
-    # float / JSON-serialisable.
-    ymin = float(np.partition(y, 1)[1])
-    ymax = float(np.partition(y, -2)[-2])
+    # Robust extremes: drop the single most-extreme point at each end so a lone
+    # outlier doesn't set an asymptote bound — but only when there are points to
+    # spare. Below four points trimming collapses or crosses the range (the
+    # second-smallest meets or passes the second-largest), so for small samples
+    # fall back to the true min/max instead of rejecting the fit. Cast to float —
+    # numpy scalars otherwise leak into the config and break JSON-serialisability.
+    y_sorted = np.sort(y.to_numpy())
+    if n >= 4:
+        ymin = float(y_sorted[1])
+        ymax = float(y_sorted[-2])
+    else:
+        ymin = float(y_sorted[0])
+        ymax = float(y_sorted[-1])
     dy = ymax - ymin
     if dy == 0.0:
         raise ValueError(
