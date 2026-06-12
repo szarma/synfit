@@ -120,8 +120,37 @@ class FitBase:
                 defaults[par] = float(v)
         return defaults["var_a"], defaults["var_b"], defaults["var_c"]
 
+    def _require_bounds(self):
+        """Return concrete ``config.bounds``, or raise if still unresolved.
+
+        ``FitConfig.bounds`` defaults to ``None``, meaning "derive from data at
+        fit time" — a signal only a *data-bearing* subclass can honour (it sets
+        ``config.bounds`` to a concrete ``FitBounds`` before fitting, as
+        ``SingleDrugFit`` / ``SingleDrugFitWithError`` do; ``JointMarginalFit`` /
+        ``MatrixFit`` instead override the readers below and supply their own
+        x0/bounds). The base optimiser path dereferences ``bounds.<param>``, so
+        a ``None`` here is a programming error in a subclass that forgot to
+        resolve it. Raise an actionable message instead of an opaque
+        ``AttributeError: 'NoneType' object has no attribute 'effect_0'``. The
+        base class deliberately does not invent a default: with no data it could
+        only fall back to the neutral ``FitBounds()`` the data-derived scheme
+        replaced, silently fitting against the wrong bracket.
+        """
+        bounds = self.config.bounds
+        if bounds is None:
+            raise ValueError(
+                "FitConfig.bounds is None at fit time. bounds=None means "
+                "'derive from data', which only a data-bearing FitBase subclass "
+                "can do — it must resolve config.bounds to a concrete FitBounds "
+                "before fitting (see SingleDrugFit), or the subclass must supply "
+                "its own x0/bounds and override _log_prior_prob (see "
+                "JointMarginalFit / MatrixFit). Otherwise pass an explicit "
+                "FitBounds in the FitConfig."
+            )
+        return bounds
+
     def _log_prior_prob(self, x: np.ndarray) -> float:
-        bounds_obj = self.config.bounds
+        bounds_obj = self._require_bounds()
         penalty = 0.0
         for par, v in zip(self.config.fitting_parameters, x):
             bounds = getattr(bounds_obj, par)
@@ -136,8 +165,9 @@ class FitBase:
 
     def _get_x0_and_bounds(self):
         """Build initial values and bounds arrays from config."""
+        bounds_obj = self._require_bounds()
         x0 = [getattr(self.config, par) for par in self.config.fitting_parameters]
-        bounds = [getattr(self.config.bounds, par) for par in self.config.fitting_parameters]
+        bounds = [getattr(bounds_obj, par) for par in self.config.fitting_parameters]
         return x0, bounds
 
     def _scale_param_names(self) -> list[str] | None:

@@ -73,6 +73,31 @@ def test_single_drug_fit_invalid_columns():
         SingleDrugFit(bad_data)
 
 
+def test_fitbase_unresolved_bounds_raises_clear_error():
+    """A FitBase whose config.bounds is still None at fit time must raise an
+    actionable ValueError, not an opaque AttributeError on NoneType. bounds=None
+    means "derive from data" — an invariant the data-bearing subclasses resolve;
+    this guard keeps it enforced in the base class for any future subclass."""
+    from synfit.fitting import FitBase
+
+    base = FitBase(FitConfig())  # bare config → bounds defaults to None
+    assert base.config.bounds is None
+
+    with pytest.raises(ValueError, match="bounds is None"):
+        base._get_x0_and_bounds()
+    with pytest.raises(ValueError, match="derive from data"):
+        base._log_prior_prob(np.zeros(len(base.config.fitting_parameters)))
+
+
+def test_fitbase_concrete_bounds_pass_the_guard():
+    """The guard only trips on None — an explicit FitBounds resolves cleanly."""
+    from synfit.fitting import FitBase
+
+    base = FitBase(FitConfig(bounds=FitBounds()))
+    x0, bounds = base._get_x0_and_bounds()
+    assert len(bounds) == len(base.config.fitting_parameters)
+
+
 def test_single_drug_fit_with_error():
     # length=10 extends the dilution series two steps lower so the curve
     # actually reaches its top plateau (~0.90). With the default 8-point series
