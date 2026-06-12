@@ -113,8 +113,8 @@ def _init_config_from_data(
         )
         # Rounding a bound inward can leave the data-seeded initial just outside
         # its [lo, hi]; clamp the asymptote initials back into the rounded bounds.
-        e0 = min(max(effect_0_init, bounds.effect_0[0]), bounds.effect_0[1])
-        einf = min(max(effect_inf_init, bounds.effect_inf[0]), bounds.effect_inf[1])
+        e0 = float(np.clip(effect_0_init, *bounds.effect_0))
+        einf = float(np.clip(effect_inf_init, *bounds.effect_inf))
         kwargs: dict = {
             "log_c50": log_c50_init,
             "hill": 1.0,
