@@ -31,10 +31,12 @@ tagged `[X.Y.Z]` heading.
   positive.
 - **Adaptive extrema for small samples instead of a blanket minimum.** The
   robust extremes (second-smallest / second-largest response, which discard a
-  lone outlier at each end) are used only when there are at least four points;
-  below that the true min/max are used, and only `n < 2` is rejected. The
-  previous hard five-point minimum 500'd the matrix-defaults endpoint on 2×2
-  plates and refused legitimate four-point single-drug curves.
+  lone outlier at each end) are used whenever trimming leaves a positive
+  dynamic range; otherwise the true min/max are used. This naturally covers
+  two- or three-point inputs and sparse plateaus where trimming would collapse
+  the usable range. Only `n < 2` is rejected. The previous hard five-point
+  minimum 500'd the matrix-defaults endpoint on 2×2 plates and refused
+  legitimate four-point single-drug curves.
 - **`MatrixFit` (Bliss) shares the single-drug asymptote-bound derivation.** Its
   shared `effect_0` / `effect_inf` bounds are now the `(min lo, max hi)` merge of
   the two edge configs' data-derived bounds — same as `JointMarginalFit` — rather
