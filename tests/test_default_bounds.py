@@ -183,3 +183,46 @@ def test_explicit_bounds_are_honoured_literally():
     ).fit()
     # Clamped to the literal upper bound of 2 — proves bounds are not overridden.
     assert result.effect_inf <= 2.0 + 1e-6
+
+
+def _small_curve(n: int) -> pd.DataFrame:
+    """A clean n-point inhibition curve (single replicate) for small-sample tests."""
+    conc = np.logspace(-2, 2, n)
+    frac = conc ** 1.2 / (conc ** 1.2 + 5.0 ** 1.2)
+    y = 0.9 - 0.85 * frac
+    return pd.DataFrame({"concentration": conc, "y": y, "replicate": "A"})
+
+
+def test_default_bounds_small_samples_do_not_raise():
+    """Adaptive extrema: 2–4 point datasets derive bounds instead of being
+    rejected. The old blanket ``_MIN_POINTS_FOR_DEFAULTS = 5`` guard 500'd the
+    matrix-defaults endpoint on 2x2 plates and refused four-point single curves.
+    """
+    for n in (2, 3, 4, 5, 8):
+        b = default_bounds(_small_curve(n))
+        lo, hi = b.effect_inf
+        assert hi > lo, f"degenerate asymptote bound at n={n}: {b.effect_inf}"
+        # log_c50 spans the concentration decades, never the hardcoded fallback.
+        assert b.log_c50 != (-5.0, 5.0)
+
+
+def test_default_bounds_small_sample_skips_outlier_trim():
+    """Below four points there is no slack to drop an extreme, so the range
+    must span the true min/max — not collapse to a trimmed interior."""
+    df = _small_curve(3)
+    b = default_bounds(df)
+    ys = df["y"].to_numpy()
+    # effect_0 (top, low-conc) upper bound must reach toward the true max; the
+    # bottom floor must reach toward the true min. With trimming on n=3 these
+    # would collapse to the single middle point.
+    assert b.effect_0[1] > b.effect_inf[1]  # top sits above bottom
+    assert float(ys.min()) <= b.effect_inf[1]  # bottom bound informed by true min
+    assert float(ys.max()) >= b.effect_0[0]    # top bound informed by true max
+
+
+def test_default_bounds_single_point_still_raises():
+    """One point can't define a dynamic range; the guard must still fire."""
+    import pytest
+
+    with pytest.raises(ValueError, match="at least 2"):
+        default_bounds(_small_curve(1))
