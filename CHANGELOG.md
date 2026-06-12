@@ -52,6 +52,13 @@ tagged `[X.Y.Z]` heading.
   likelihood, so a dataset containing one is now rejected up front (previously a
   negative point hidden behind the second-smallest value slipped through). The
   lognormal asymptote lower bound floors at `y_min/100`, strictly positive.
+- **`MatrixFit` rejects mixed-direction plates up front.** The Bliss surface
+  applies one shared `(effect_0, effect_inf)` pair to both marginals, so it
+  cannot represent one drug activating while the other inhibits — the shared-
+  bound merge would otherwise combine one drug's top with the other's bottom.
+  A plate with `direction_horizontal != direction_vertical` now raises with a
+  pointer to `JointMarginalFit` (whose per-drug top/bottom remapping handles
+  mixed directions). Same-direction plates are unaffected.
 
 ## [0.4.0] — 2026-06-11
 

@@ -129,3 +129,34 @@ class TestMatrixSharedAsymptoteBounds:
             min(hor.effect_inf[0], ver.effect_inf[0]),
             max(hor.effect_inf[1], ver.effect_inf[1]),
         )
+
+
+class TestMatrixMixedDirectionGuard:
+    """The Bliss surface uses one shared (effect_0, effect_inf) pair for both
+    marginals, so it cannot represent one drug activating while the other
+    inhibits. Such plates are rejected up front (use JointMarginalFit instead),
+    rather than silently merging one drug's top bound with the other's bottom."""
+
+    @pytest.mark.parametrize("dir_h,dir_v", [
+        ("inhibition", "activation"),
+        ("activation", "inhibition"),
+    ])
+    def test_mixed_directions_rejected(self, dir_h, dir_v):
+        replicates, conc_hor, conc_ver = matrix_from_config()
+        with pytest.raises(ValueError, match="share a direction"):
+            MatrixFit(
+                replicates, conc_hor, conc_ver,
+                direction_horizontal=dir_h, direction_vertical=dir_v,
+            )
+
+    @pytest.mark.parametrize("direction", ["inhibition", "activation"])
+    def test_matching_directions_allowed(self, direction):
+        # Same direction on both axes constructs fine (the well-defined case).
+        replicates, conc_hor, conc_ver = matrix_from_config(
+            noise_model="gaussian" if direction == "activation" else "lognormal",
+        )
+        fitter = MatrixFit(
+            replicates, conc_hor, conc_ver,
+            direction_horizontal=direction, direction_vertical=direction,
+        )
+        assert fitter.direction_horizontal == fitter.direction_vertical == direction
