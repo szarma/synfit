@@ -4,7 +4,11 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .data import FitConfig, FitBounds, FitResult, validate_direction
+from .data import (
+    FitConfig, FitBounds, FitResult, validate_direction,
+    apply_variance_coefficient_domain,
+    variance_anchor_from_asymptotes,
+)
 from .fitting import FitBase
 from .hill import hill_curve
 from .noise import (
@@ -15,7 +19,11 @@ from .noise import (
     fit_noise_scale,
     free_coefficients,
     from_dict as noise_from_dict,
+    is_heteroscedastic_gaussian,
     log_prob as noise_log_prob,
+    noise_spec_with_variance_initials,
+    scaled_variance_coefficient_defaults,
+    variance_initials_for_noise,
     variance_model_name,
 )
 
@@ -84,6 +92,28 @@ def _round_asymptote_bounds(
     return (bottom_lo, rounded_split), (rounded_split, top_hi)
 
 
+def _robust_response_extrema(y: np.ndarray) -> tuple[float, float]:
+    """Robust (ymin, ymax) used for asymptote bounds and the variance scale.
+
+    Prefer the second-smallest / second-largest when trimming still leaves a
+    range; otherwise use the true min/max. Same rule ``_init_config_from_data``
+    uses for the response dynamic range.
+    """
+    y_sorted = np.sort(np.asarray(y, dtype=float))
+    true_ymin = float(y_sorted[0])
+    true_ymax = float(y_sorted[-1])
+    trimmed_ymin = float(y_sorted[1])
+    trimmed_ymax = float(y_sorted[-2])
+    if trimmed_ymin < trimmed_ymax:
+        return trimmed_ymin, trimmed_ymax
+    return true_ymin, true_ymax
+
+
+def _robust_response_range(y: np.ndarray) -> float:
+    ymin, ymax = _robust_response_extrema(y)
+    return ymax - ymin
+
+
 def _init_config_from_data(
     data: pd.DataFrame,
     direction: str = "inhibition",
@@ -112,17 +142,7 @@ def _init_config_from_data(
     # two/three-point inputs and sparse plateaus where trimming would collapse
     # the usable dynamic range. Cast to float — numpy scalars otherwise leak
     # into the config and break JSON-serialisability.
-    y_sorted = np.sort(y.to_numpy())
-    true_ymin = float(y_sorted[0])
-    true_ymax = float(y_sorted[-1])
-    trimmed_ymin = float(y_sorted[1])
-    trimmed_ymax = float(y_sorted[-2])
-    if trimmed_ymin < trimmed_ymax:
-        ymin = trimmed_ymin
-        ymax = trimmed_ymax
-    else:
-        ymin = true_ymin
-        ymax = true_ymax
+    ymin, ymax = _robust_response_extrema(y.to_numpy())
     dy = ymax - ymin
     if dy == 0.0:
         raise ValueError(
@@ -169,12 +189,21 @@ def _init_config_from_data(
     def _make_config(
         effect_0_init, effect_inf_init, effect_0_bounds, effect_inf_bounds
     ) -> FitConfig:
-        bounds = FitBounds(
-            log_c50=log_c50_bounds,
-            hill=(0.1, 4.0),
-            effect_0=effect_0_bounds,
-            effect_inf=effect_inf_bounds,
-        )
+        bounds_kwargs: dict = {
+            "log_c50": log_c50_bounds,
+            "hill": (0.1, 4.0),
+            "effect_0": effect_0_bounds,
+            "effect_inf": effect_inf_bounds,
+        }
+        noise_out = noise
+        if is_heteroscedastic_gaussian(noise):
+            var_inits = variance_initials_for_noise(noise, dy)
+            _, var_bounds = scaled_variance_coefficient_defaults(dy)
+            bounds_kwargs["var_a"] = var_bounds["var_a"]
+            bounds_kwargs["var_b"] = var_bounds["var_b"]
+            bounds_kwargs["var_c"] = var_bounds["var_c"]
+            noise_out = noise_spec_with_variance_initials(noise, var_inits)
+        bounds = FitBounds(**bounds_kwargs)
         # Rounding a bound inward can leave the data-seeded initial just outside
         # its [lo, hi]; clamp the asymptote initials back into the rounded bounds.
         e0 = float(np.clip(effect_0_init, *bounds.effect_0))
@@ -187,8 +216,8 @@ def _init_config_from_data(
             "bounds": bounds,
             "direction": direction,
         }
-        if noise is not None:
-            kwargs["noise"] = noise
+        if noise_out is not None:
+            kwargs["noise"] = noise_out
         return FitConfig(**kwargs)
 
     if direction == "activation":
@@ -297,7 +326,12 @@ class SingleDrugFit(FitBase):
                     config.effect_inf = auto.effect_inf
                 if config.bounds is None:
                     config.bounds = auto.bounds
+                    # Data-derived variance bounds/initials (user-given
+                    # a_init/b_init/c_init are already overlaid in auto.noise).
+                    config.noise = auto.noise
         validate_direction(config.direction)
+        apply_variance_coefficient_domain(config)
+        self._response_scale = _robust_response_range(data["y"].dropna().to_numpy())
         super().__init__(config)
 
     def _curve(self, conc: np.ndarray, kwargs: dict) -> np.ndarray:
@@ -315,6 +349,7 @@ class SingleDrugFit(FitBase):
             self.config.noise,
             mask=valids,
             variance_params=var_params,
+            variance_anchor=self._variance_anchor(x),
         )
 
     def predict(self, result: FitResult) -> np.ndarray:
@@ -350,6 +385,9 @@ class SingleDrugFit(FitBase):
             self.config.noise,
             mask=valids,
             variance_params=var_tuple,
+            variance_anchor=variance_anchor_from_asymptotes(
+                result.effect_0, result.effect_inf,
+            ),
         )
         n = int(valids.sum())
         k = len(self.config.fitting_parameters)
