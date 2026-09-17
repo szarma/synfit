@@ -618,3 +618,54 @@ def test_gaussian_hetero_spec_serde_round_trip(spec):
         assert encoded["a_init"] == spec.a_init
     assert from_dict(encoded) == spec
     assert from_dict({"kind": spec.kind}).a_init is None
+
+
+@pytest.mark.parametrize("e0, einf", [(1.2, -0.3), (-0.3, 1.2)])
+def test_single_drug_likelihood_passes_lower_asymptote_anchor(e0, einf, monkeypatch):
+    """The likelihood receives min(effect_0, effect_inf) of the trial point as the anchor.
+
+    Variance-function comparisons cannot detect a wrong-but-fixed anchor for
+    quadratic noise (a/b/c can absorb it), so assert the call path directly.
+    """
+    import synfit.single as single_mod
+
+    seen: list = []
+    real = single_mod.noise_log_prob
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("variance_anchor"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(single_mod, "noise_log_prob", spy)
+    fitter = SingleDrugFit(_hetero_curve(c=0.03), FitConfig(variance_model="quadratic"))
+    x0, _ = fitter._get_x0_and_bounds()
+    names = list(fitter.config.fitting_parameters)
+    x = np.array(x0, dtype=float)
+    x[names.index("effect_0")] = e0
+    x[names.index("effect_inf")] = einf
+    fitter._log_prob_data(x)
+    assert seen and seen[-1] == pytest.approx(min(e0, einf))
+
+
+@pytest.mark.parametrize("top, bottom", [(0.9, 0.2), (0.2, 0.9)])
+def test_joint_marginal_likelihood_passes_lower_asymptote_anchor(top, bottom, monkeypatch):
+    """Both marginal likelihood terms receive min(top, bottom) of the trial point."""
+    import synfit.joint_marginal as jm_mod
+
+    seen: list = []
+    real = jm_mod.noise_log_prob
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("variance_anchor"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(jm_mod, "noise_log_prob", spy)
+    data_a, data_b = _two_drug_frames()
+    fitter = JointMarginalFit(data_a, data_b, noise=GaussianQuadratic())
+    x = np.array(fitter._x0, dtype=float)
+    x[fitter._param_names.index("top")] = top
+    x[fitter._param_names.index("bottom")] = bottom
+    seen.clear()
+    fitter._log_prob_data(x)
+    assert len(seen) == 2
+    assert all(a == pytest.approx(min(top, bottom)) for a in seen)
