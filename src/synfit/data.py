@@ -20,6 +20,7 @@ from .noise import (
     variance_at,
     variance_model_name,
 )
+from .param_roles import VARIANCE_PARAM_NAMES, is_variance_param
 
 
 ALLOWED_DIRECTIONS = ("inhibition", "activation")
@@ -216,7 +217,7 @@ def clamp_fit_bounds_variance(
     Raises ``ValueError`` if clamping empties any interval. Does not invent
     new upper bounds.
     """
-    for name in ("var_a", "var_b", "var_c"):
+    for name in VARIANCE_PARAM_NAMES:
         lo, hi = getattr(bounds, name)
         lo, hi, _ = apply_variance_param_domain(
             name, lo, hi, response_scale=response_scale,
@@ -325,7 +326,7 @@ class FitResult:
             # Variance polynomial coefficients live on ``variance_params``,
             # not as direct attributes — pull them from there so their CIs
             # show up alongside the curve params.
-            if name.startswith("var_") and len(name) == 5:
+            if is_variance_param(name):
                 val = var_short.get(name[4:])
             else:
                 val = getattr(self, name, None)

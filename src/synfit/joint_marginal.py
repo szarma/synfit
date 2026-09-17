@@ -19,6 +19,7 @@ import pandas as pd
 from .data import FitConfig, FitResult, validate_direction, variance_anchor_from_asymptotes
 from .fitting import FitBase, PRIOR_PENALTY_WEIGHT
 from .hill import hill_curve, log_wall
+from .param_roles import is_variance_param
 from .noise import (
     GaussianConstant,
     GaussianLinear,
@@ -320,7 +321,7 @@ class JointMarginalFit(FitBase):
             lo = float(entry.get("lo", bounds[name][0]))
             hi = float(entry.get("hi", bounds[name][1]))
             fit_flag = bool(entry.get("fit", True))
-            if name in ("var_a", "var_b", "var_c"):
+            if is_variance_param(name):
                 lo, hi, clamped_init = apply_variance_param_domain(
                     name, lo, hi, init,
                     response_scale=self._response_scale,
