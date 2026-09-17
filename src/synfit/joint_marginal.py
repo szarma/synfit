@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .data import FitBounds, FitConfig, FitResult
+from .data import FitBounds, FitConfig, FitResult, validate_direction
 from .fitting import FitBase, PRIOR_PENALTY_WEIGHT
 from .hill import hill_curve, log_wall
 from .noise import (
@@ -237,6 +237,8 @@ class JointMarginalFit(FitBase):
                 raise ValueError(f"{name} must have columns: concentration, y, replicate")
         if model_a not in ("4p", "5p") or model_b not in ("4p", "5p"):
             raise ValueError("model_a and model_b must be '4p' or '5p'")
+        validate_direction(direction_a, name="direction_a")
+        validate_direction(direction_b, name="direction_b")
 
         self.data_a = data_a
         self.data_b = data_b
@@ -261,15 +263,11 @@ class JointMarginalFit(FitBase):
         defaults, bounds = self._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
 
         full_names = self._full_param_names(model_a, model_b)
-        # Append variance polynomial coefficients to the parameter list when
-        # the variance model needs them. Defaults / bounds from FitConfig +
-        # FitBounds (single source of truth, same values single.py uses).
-        var_defaults_cfg = FitConfig(noise=self.noise)
-        var_bounds_cfg = FitBounds()
-        for name in free_coefficients(self.noise):
+        var_defaults, var_bounds = _variance_coefficient_defaults(self.noise)
+        for name in var_defaults:
             full_names.append(name)
-            defaults[name] = float(getattr(var_defaults_cfg, name))
-            bounds[name] = tuple(getattr(var_bounds_cfg, name))
+            defaults[name] = var_defaults[name]
+            bounds[name] = var_bounds[name]
 
         cfg = param_config or {}
 
@@ -598,6 +596,26 @@ def fit_joint_marginal_auto(
     return results["gaussian"] if g_aic <= l_aic else results["lognormal"]
 
 
+def _variance_coefficient_defaults(
+    noise: NoiseSpec,
+) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """Init and bounds for free variance coefficients.
+
+    Same source :class:`JointMarginalFit` uses when no ``param_config`` is
+    supplied: ``FitConfig(noise=...)`` initials and ``FitBounds()`` bounds.
+    Shared with :func:`default_joint_marginal_config` so the public helper
+    cannot drift from the fitter.
+    """
+    var_defaults_cfg = FitConfig(noise=noise)
+    var_bounds_cfg = FitBounds()
+    defaults: dict[str, float] = {}
+    bounds: dict[str, tuple[float, float]] = {}
+    for name in free_coefficients(noise):
+        defaults[name] = float(getattr(var_defaults_cfg, name))
+        bounds[name] = tuple(getattr(var_bounds_cfg, name))
+    return defaults, bounds
+
+
 def default_joint_marginal_config(
     data_a: pd.DataFrame,
     data_b: pd.DataFrame,
@@ -642,7 +660,12 @@ def default_joint_marginal_config(
         float, "hi": float}``.  Always includes ``top``, ``bottom``,
         ``log_c50_a``, ``hill_a``, ``log_c50_b``, ``hill_b``.  Includes
         ``asymmetry_a`` only when ``model_a == "5p"``; ``asymmetry_b`` only
-        when ``model_b == "5p"``.
+        when ``model_b == "5p"``.  For heteroscedastic Gaussian noise
+        (``gaussian_linear`` / ``gaussian_quadratic``) also includes the free
+        variance coefficients (``var_a``, ``var_b``, and ``var_c`` for
+        quadratic) with the same initials and bounds
+        :class:`JointMarginalFit` uses when no ``param_config`` is supplied.
+        Constant Gaussian and lognormal return no ``var_*`` entries.
 
     Consumers that surface editable bounds in a UI should source their defaults
     here rather than re-deriving them, so the derivation has a single source of
@@ -650,6 +673,8 @@ def default_joint_marginal_config(
     """
     if model_a not in ("4p", "5p") or model_b not in ("4p", "5p"):
         raise ValueError("model_a and model_b must be '4p' or '5p'")
+    validate_direction(direction_a, name="direction_a")
+    validate_direction(direction_b, name="direction_b")
 
     coerced = _coerce_noise(noise)
     cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=coerced)
@@ -661,6 +686,12 @@ def default_joint_marginal_config(
         include.append("asymmetry_a")
     if model_b == "5p":
         include.append("asymmetry_b")
+
+    if coerced is not None:
+        var_defaults, var_bounds = _variance_coefficient_defaults(coerced)
+        defaults.update(var_defaults)
+        bounds.update(var_bounds)
+        include.extend(var_defaults)
 
     return {
         name: {

@@ -15,6 +15,9 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Added
+- **`default_joint_marginal_config` includes variance coefficients for heteroscedastic Gaussian noise.** Linear and quadratic Gaussian noise now return `var_*` entries (`init` / `lo` / `hi`) matching `JointMarginalFit` when no `param_config` is supplied. Constant Gaussian and lognormal are unchanged (no `var_*` keys).
+
 ### Changed
 - **Per-asymptote default bounds that meet at the response midpoint.** The two
   asymptotes no longer share one wide symmetric bracket. Each gets its own
