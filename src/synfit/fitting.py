@@ -3,6 +3,7 @@ from scipy.optimize import minimize, approx_fprime
 
 from .data import FitConfig
 from .hill import log_wall
+from .param_roles import VARIANCE_PARAM_NAMES, is_asymptote_param, is_log_param, is_variance_param
 from .noise import (
     _DEFAULT_VAR_A_INIT,
     is_heteroscedastic_gaussian,
@@ -17,18 +18,6 @@ PRIOR_PENALTY_WEIGHT = 1000
 _HESS_EPS = 1e-5
 
 
-# Magnitude-bearing parameters whose true value tracks the response scale.
-# Only these are eligible for the bound-magnitude preconditioning fallback
-# below — see ``parameter_scale``. Single-drug / matrix fits name their
-# asymptotes ``effect_0`` / ``effect_inf``; the joint-marginal fit shares them
-# as ``top`` / ``bottom``.
-_ASYMPTOTE_PARAM_NAMES = ("effect_0", "effect_inf", "top", "bottom")
-
-# Heteroscedastic variance coefficients. Their data-derived bounds already
-# track the response (a ~ s², b ~ s, c dimensionless), so the optimiser
-# scale must not floor at 1 — that freezes tiny ``var_a`` at s=1e-3.
-_VARIANCE_PARAM_NAMES = ("var_a", "var_b", "var_c")
-
 
 def parameter_scale(
     x0: np.ndarray | list[float],
@@ -41,9 +30,11 @@ def parameter_scale(
     """Per-parameter optimiser / Hessian scale from x0 and bounds.
 
     The base scale is ``max(|x0|, 1)``, which leaves already-O(1) parameters
-    unchanged. For the magnitude-bearing asymptotes (``effect_0`` /
-    ``effect_inf``) *only*, when ``|x0|`` is small relative to the feasible
-    range the bound magnitude is used instead. This preconditions a
+    unchanged. For the magnitude-bearing asymptotes *only* (``effect_0`` /
+    ``effect_inf`` for single-drug & matrix fits, ``top`` / ``bottom`` for the
+    joint-marginal fit — see :func:`param_roles.is_asymptote_param`), when
+    ``|x0|`` is small relative to the feasible range the bound magnitude is used
+    instead. This preconditions a
     hand-crafted ``x0`` that does not reflect the response magnitude — e.g. a
     fixed ``effect_inf=1`` fitted against ELISA-scale data, where the true
     asymptote is order 1e4 and the data-derived bounds are correspondingly
@@ -81,7 +72,7 @@ def parameter_scale(
     if bounds is None and response_scale is None:
         return scale
     for i in range(len(x0)):
-        if names is not None and names[i] in _VARIANCE_PARAM_NAMES:
+        if names is not None and is_variance_param(names[i]):
             s = response_scale
             if s is not None and np.isfinite(s) and s > 0:
                 if names[i] == "var_a":
@@ -95,7 +86,7 @@ def parameter_scale(
         if bounds is None:
             continue
         lo, hi = bounds[i]
-        if names is not None and names[i] not in _ASYMPTOTE_PARAM_NAMES:
+        if names is not None and not is_asymptote_param(names[i]):
             continue
         lo_f, hi_f = float(lo), float(hi)
         width = max(hi_f - lo_f, 0.0)
@@ -122,13 +113,11 @@ class FitBase:
     Child classes implement _log_prob_data(x, **kwargs).
     """
 
+    # Backwards compatibility: exposed callers may reference this.
+    _VARIANCE_PARAM_NAMES = tuple(VARIANCE_PARAM_NAMES)
+
     def __init__(self, config: FitConfig | None = None):
         self.config = config or FitConfig()
-
-    # Names of variance polynomial coefficients that may appear in the
-    # optimiser parameter list. Stripped out of the curve kwargs so they
-    # don't get passed into hill_curve.
-    _VARIANCE_PARAM_NAMES = _VARIANCE_PARAM_NAMES
 
     def _x_to_kwargs(self, x: np.ndarray) -> dict:
         """Convert parameter array to hill_curve kwargs (un-logs log_ params).
@@ -138,9 +127,9 @@ class FitBase:
         """
         out = {}
         for par, v in zip(self.config.fitting_parameters, x):
-            if par in self._VARIANCE_PARAM_NAMES:
+            if is_variance_param(par):
                 continue
-            if par.startswith("log_"):
+            if is_log_param(par):
                 out[par[4:]] = 10**v
             else:
                 out[par] = v
@@ -163,7 +152,7 @@ class FitBase:
             "var_c": float(self.config.var_c),
         }
         for par, v in zip(self.config.fitting_parameters, x):
-            if par in self._VARIANCE_PARAM_NAMES:
+            if is_variance_param(par):
                 defaults[par] = float(v)
         return defaults["var_a"], defaults["var_b"], defaults["var_c"]
 

@@ -19,6 +19,15 @@ tagged `[X.Y.Z]` heading.
 - **`default_joint_marginal_config` includes variance coefficients for heteroscedastic Gaussian noise.** Linear and quadratic Gaussian noise now return `var_*` entries (`init` / `lo` / `hi`) matching `JointMarginalFit` when no `param_config` is supplied. Constant Gaussian and lognormal are unchanged (no `var_*` keys).
 
 ### Changed
+- **Parameter-role taxonomy centralised** (`synfit/param_roles.py`). The
+  classification of fitting parameters — log-domain locations, variance
+  coefficients, magnitude-bearing asymptotes — was previously re-derived in
+  several places (`fitting.parameter_scale`, `FitBase._x_to_kwargs`,
+  `MatrixFit._unpack_x`, plus per-class name tuples). It now lives behind
+  `is_log_param` / `is_variance_param` / `is_asymptote_param` so the role tests
+  cannot drift apart. No change to fitted values. `FitResult.param_ci()` now
+  recognises exactly `var_a` / `var_b` / `var_c` as variance coefficients (it
+  previously matched any five-character `var_*` name; no fitter emits others).
 - **Heteroscedastic Gaussian variance is anchored at the lower asymptote.** Linear and quadratic models now use σ² = a + b·d + c·d² with d = μ − m and m = min(effect_0, effect_inf) of the current trial (joint-marginal: m = min(top, bottom)). Hill predictions sit between the asymptotes, so σ² ≥ a > 0 by construction and a baseline shift no longer drives the polynomial negative. Constant Gaussian, lognormal, compound, and user-supplied `y_err` paths are unchanged. Synthetic data generation still uses the true-μ polynomial. *Heteroscedastic fitted values can change slightly vs earlier 0.4.0 builds and stay close to 0.3.0.*
 - **`var_a` / `var_b` / `var_c` domain is `a > 0`, `b ≥ 0`, `c ≥ 0`.** Default `FitBounds` lower bounds match that. Explicit negative lower bounds (legacy stored configs sent `var_b` (−1e4, 1e4)) and negative initials are clamped to the domain floor at fitter construction — `1e-12` for `var_a`, or `1e-12·s²` when a response scale exists, and 0 for `var_b` / `var_c`. After clamping, an empty interval (`lo > hi`) raises `ValueError` naming the parameter, the given bounds, and the domain rule, in both single-drug and joint-marginal paths.
 - **Omitted heteroscedastic initials are `None`, not class-default numbers.** `GaussianLinear` / `GaussianQuadratic` `a_init` / `b_init` / `c_init` default to `None` meaning data-derived `1e-3·s²` / `0` / `0`. An explicit value, including `a_init=0.001`, is kept after the domain clamp. `to_dict` omits unset fields; `from_dict` without the key yields `None`. Callers without a data scale (`FitConfig` with no data) fall back to the historical `1e-3` / `0` / `0`.

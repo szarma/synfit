@@ -99,6 +99,15 @@ def test_reproduction_linear_variance_matches_core_0_3_0():
     assert result.c50 == pytest.approx(4.674, rel=0.01)
 
 
+def _variance_curve(result, lo, hi, n=25):
+    """σ²(μ) on a grid spanning the fitted asymptotes.
+
+    Quadratic a/b/c trade off against each other (weakly identifiable), so
+    tests compare the identifiable variance function, not each coefficient.
+    """
+    mu = np.linspace(lo, hi, n)
+    return mu, np.asarray(result.predict_variance(mu), dtype=float)
+
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])
 def test_heteroscedastic_shift_invariance(variance_model):
     data = _hetero_curve(c=0.03 if variance_model == "quadratic" else 0.0)
@@ -116,8 +125,14 @@ def test_heteroscedastic_shift_invariance(variance_model):
         np.testing.assert_allclose(rs.c50, r0.c50, rtol=1e-3)
         np.testing.assert_allclose(rs.effect_0, r0.effect_0 + offset, atol=1e-3)
         np.testing.assert_allclose(rs.effect_inf, r0.effect_inf + offset, atol=1e-3)
-        for key in vp0:
-            np.testing.assert_allclose(rs.variance_params[key], vp0[key], rtol=5e-3)
+        if variance_model == "linear":
+            for key in vp0:
+                np.testing.assert_allclose(rs.variance_params[key], vp0[key], rtol=5e-3)
+        else:
+            lo0, hi0 = sorted((r0.effect_0, r0.effect_inf))
+            _, v0 = _variance_curve(r0, lo0, hi0)
+            _, vs = _variance_curve(rs, lo0 + offset, hi0 + offset)
+            np.testing.assert_allclose(vs, v0, rtol=2e-2)
 
 
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])
@@ -137,10 +152,14 @@ def test_heteroscedastic_scale_equivariance(variance_model):
         np.testing.assert_allclose(rs.c50, r1.c50, rtol=1e-3)
         np.testing.assert_allclose(rs.effect_0, r1.effect_0 * s, rtol=1e-3)
         np.testing.assert_allclose(rs.effect_inf, r1.effect_inf * s, rtol=1e-3)
-        np.testing.assert_allclose(rs.variance_params["a"], vp1["a"] * s * s, rtol=1e-3)
-        np.testing.assert_allclose(rs.variance_params["b"], vp1["b"] * s, rtol=1e-3)
-        if variance_model == "quadratic":
-            np.testing.assert_allclose(rs.variance_params["c"], vp1["c"], rtol=1e-3)
+        if variance_model == "linear":
+            np.testing.assert_allclose(rs.variance_params["a"], vp1["a"] * s * s, rtol=1e-3)
+            np.testing.assert_allclose(rs.variance_params["b"], vp1["b"] * s, rtol=1e-3)
+        else:
+            lo1, hi1 = sorted((r1.effect_0, r1.effect_inf))
+            _, v1 = _variance_curve(r1, lo1, hi1)
+            _, vs = _variance_curve(rs, lo1 * s, hi1 * s)
+            np.testing.assert_allclose(vs, v1 * s * s, rtol=2e-2)
 
 
 def test_swapped_asymptotes_finite_likelihood_single():
@@ -404,8 +423,14 @@ def test_joint_marginal_heteroscedastic_shift_invariance(variance_model):
         np.testing.assert_allclose(rs.drug_b.hill, r0.drug_b.hill, rtol=1e-3)
         np.testing.assert_allclose(rs.top, r0.top + offset, atol=1e-3)
         np.testing.assert_allclose(rs.bottom, r0.bottom + offset, atol=1e-3)
-        for key in vp0:
-            np.testing.assert_allclose(rs.variance_params[key], vp0[key], rtol=5e-3)
+        if variance_model == "linear":
+            for key in vp0:
+                np.testing.assert_allclose(rs.variance_params[key], vp0[key], rtol=5e-3)
+        else:
+            lo0, hi0 = sorted((r0.top, r0.bottom))
+            _, v0 = _variance_curve(r0, lo0, hi0)
+            _, vs = _variance_curve(rs, lo0 + offset, hi0 + offset)
+            np.testing.assert_allclose(vs, v0, rtol=2e-2)
 
 
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])
@@ -429,10 +454,14 @@ def test_joint_marginal_heteroscedastic_scale_equivariance(variance_model):
         np.testing.assert_allclose(rs.drug_b.hill, r1.drug_b.hill, rtol=1e-3)
         np.testing.assert_allclose(rs.top, r1.top * s, rtol=1e-3)
         np.testing.assert_allclose(rs.bottom, r1.bottom * s, rtol=1e-3)
-        np.testing.assert_allclose(rs.variance_params["a"], vp1["a"] * s * s, rtol=5e-3)
-        np.testing.assert_allclose(rs.variance_params["b"], vp1["b"] * s, rtol=5e-3)
-        if variance_model == "quadratic":
-            np.testing.assert_allclose(rs.variance_params["c"], vp1["c"], rtol=5e-3)
+        if variance_model == "linear":
+            np.testing.assert_allclose(rs.variance_params["a"], vp1["a"] * s * s, rtol=5e-3)
+            np.testing.assert_allclose(rs.variance_params["b"], vp1["b"] * s, rtol=5e-3)
+        else:
+            lo1, hi1 = sorted((r1.top, r1.bottom))
+            _, v1 = _variance_curve(r1, lo1, hi1)
+            _, vs = _variance_curve(rs, lo1 * s, hi1 * s)
+            np.testing.assert_allclose(vs, v1 * s * s, rtol=2e-2)
 
 
 def test_heteroscedastic_shift_invariance_activation():
@@ -589,3 +618,54 @@ def test_gaussian_hetero_spec_serde_round_trip(spec):
         assert encoded["a_init"] == spec.a_init
     assert from_dict(encoded) == spec
     assert from_dict({"kind": spec.kind}).a_init is None
+
+
+@pytest.mark.parametrize("e0, einf", [(1.2, -0.3), (-0.3, 1.2)])
+def test_single_drug_likelihood_passes_lower_asymptote_anchor(e0, einf, monkeypatch):
+    """The likelihood receives min(effect_0, effect_inf) of the trial point as the anchor.
+
+    Variance-function comparisons cannot detect a wrong-but-fixed anchor for
+    quadratic noise (a/b/c can absorb it), so assert the call path directly.
+    """
+    import synfit.single as single_mod
+
+    seen: list = []
+    real = single_mod.noise_log_prob
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("variance_anchor"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(single_mod, "noise_log_prob", spy)
+    fitter = SingleDrugFit(_hetero_curve(c=0.03), FitConfig(variance_model="quadratic"))
+    x0, _ = fitter._get_x0_and_bounds()
+    names = list(fitter.config.fitting_parameters)
+    x = np.array(x0, dtype=float)
+    x[names.index("effect_0")] = e0
+    x[names.index("effect_inf")] = einf
+    fitter._log_prob_data(x)
+    assert seen and seen[-1] == pytest.approx(min(e0, einf))
+
+
+@pytest.mark.parametrize("top, bottom", [(0.9, 0.2), (0.2, 0.9)])
+def test_joint_marginal_likelihood_passes_lower_asymptote_anchor(top, bottom, monkeypatch):
+    """Both marginal likelihood terms receive min(top, bottom) of the trial point."""
+    import synfit.joint_marginal as jm_mod
+
+    seen: list = []
+    real = jm_mod.noise_log_prob
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("variance_anchor"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(jm_mod, "noise_log_prob", spy)
+    data_a, data_b = _two_drug_frames()
+    fitter = JointMarginalFit(data_a, data_b, noise=GaussianQuadratic())
+    x = np.array(fitter._x0, dtype=float)
+    x[fitter._param_names.index("top")] = top
+    x[fitter._param_names.index("bottom")] = bottom
+    seen.clear()
+    fitter._log_prob_data(x)
+    assert len(seen) == 2
+    assert all(a == pytest.approx(min(top, bottom)) for a in seen)
