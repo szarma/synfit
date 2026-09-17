@@ -24,6 +24,10 @@ ALLOWED_DIRECTIONS = ("inhibition", "activation")
 def validate_direction(direction: str, *, name: str = "direction") -> None:
     """Reject any curve direction other than inhibition or activation.
 
+    The contract covers configuration, public helpers, and fit constructors.
+    Result containers (``FitResult``, ``MatrixFitResult``) are fitter outputs
+    and are not validated here.
+
     Public helpers and fit constructors used to fall through to inhibition
     math for any non-``"activation"`` string, while still storing the original
     value. Raise early so a typo cannot silently fit the wrong model.

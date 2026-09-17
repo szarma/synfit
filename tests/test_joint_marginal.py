@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from synfit.joint_marginal import JointMarginalFit, fit_joint_marginal_auto, default_joint_marginal_config
-from synfit.noise import GaussianLinear, GaussianQuadratic
+from synfit.noise import CompoundAddMult, GaussianLinear, GaussianQuadratic
 from synfit.synthetic import generate_single_drug
 
 
@@ -534,3 +534,64 @@ def test_default_joint_marginal_config_variance_coefficients_match_fitter(noise,
         assert result[name]["init"] == init
         assert result[name]["lo"] == lo
         assert result[name]["hi"] == hi
+
+
+def test_default_joint_marginal_config_noise_none_matches_fitter_default():
+    """noise=None matches JointMarginalFit with no noise argument; no var_* keys."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, noise=None)
+    fitter = JointMarginalFit(data_a, data_b)
+    assert set(result) == set(fitter._param_names) == _CURVE_KEYS
+    assert not any(name.startswith("var_") for name in result)
+    for name, init, (lo, hi) in zip(fitter._param_names, fitter._x0, fitter._bounds):
+        assert result[name]["init"] == init
+        assert result[name]["lo"] == lo
+        assert result[name]["hi"] == hi
+
+
+@pytest.mark.parametrize(
+    "noise, var_inits",
+    [
+        (
+            {"kind": "gaussian_linear", "a_init": 0.25, "b_init": 0.08},
+            {"var_a": 0.25, "var_b": 0.08},
+        ),
+        (
+            {"kind": "gaussian_quadratic", "a_init": 0.4, "b_init": 0.05, "c_init": 0.02},
+            {"var_a": 0.4, "var_b": 0.05, "var_c": 0.02},
+        ),
+    ],
+)
+def test_default_joint_marginal_config_honours_nondefault_variance_inits(noise, var_inits):
+    """Tagged-dict a_init/b_init/c_init must round-trip into returned var_* inits."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, noise=noise)
+    fitter = JointMarginalFit(data_a, data_b, noise=noise)
+    for name, value in var_inits.items():
+        assert result[name]["init"] == value
+        ix = fitter._param_names.index(name)
+        assert fitter._x0[ix] == value
+        assert result[name]["init"] == fitter._x0[ix]
+        assert result[name]["lo"] == fitter._bounds[ix][0]
+        assert result[name]["hi"] == fitter._bounds[ix][1]
+
+
+_COMPOUND_NOISE_FORMS = (
+    "compound_add_mult",
+    {"kind": "compound_add_mult"},
+    CompoundAddMult(),
+)
+
+
+@pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
+def test_default_joint_marginal_config_rejects_compound_noise(noise):
+    data_a, data_b = _two_drug_data()
+    with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
+        default_joint_marginal_config(data_a, data_b, noise=noise)
+
+
+@pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
+def test_joint_marginal_fit_rejects_compound_noise(noise):
+    data_a, data_b = _two_drug_data()
+    with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
+        JointMarginalFit(data_a, data_b, noise=noise)

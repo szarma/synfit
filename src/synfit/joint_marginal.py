@@ -254,6 +254,7 @@ class JointMarginalFit(FitBase):
             if noise is not None
             else legacy_to_noise_spec(error_model or "gaussian", variance_model or "constant")
         )
+        _require_supported_joint_noise(self.noise)
 
         cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=self.noise)
         cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=self.noise)
@@ -567,6 +568,8 @@ def fit_joint_marginal_auto(
     the polynomial σ²(μ) is gaussian-only, same rule the single-drug auto
     path follows.
     """
+    validate_direction(direction_a, name="direction_a")
+    validate_direction(direction_b, name="direction_b")
     base_noise = legacy_to_noise_spec("gaussian", variance_model)
     error_models = ("gaussian",) if not isinstance(base_noise, GaussianConstant) else ("gaussian", "lognormal")
     results: dict[str, JointMarginalResult] = {}
@@ -594,6 +597,23 @@ def fit_joint_marginal_auto(
     if g_aic is None or l_aic is None:
         return results["gaussian"]
     return results["gaussian"] if g_aic <= l_aic else results["lognormal"]
+
+
+def _require_supported_joint_noise(noise: NoiseSpec | None) -> None:
+    """Reject noise kinds JointMarginalFit cannot fit.
+
+    Compound additive-multiplicative noise has no joint-parameterisation
+    (and ``FitBounds`` has no ``sigma_log``). Raise after coercion and before
+    any bound derivation so callers get a ``ValueError`` rather than an
+    ``AttributeError``.
+    """
+    if noise is not None and not isinstance(
+        noise, (GaussianConstant, GaussianLinear, GaussianQuadratic, Lognormal)
+    ):
+        raise ValueError(
+            "JointMarginalFit currently supports constant/linear/quadratic "
+            "gaussian and lognormal noise only."
+        )
 
 
 def _variance_coefficient_defaults(
@@ -677,6 +697,7 @@ def default_joint_marginal_config(
     validate_direction(direction_b, name="direction_b")
 
     coerced = _coerce_noise(noise)
+    _require_supported_joint_noise(coerced)
     cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=coerced)
     cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=coerced)
     defaults, bounds = JointMarginalFit._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
