@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .data import FitBounds, FitConfig, FitResult
+from .data import FitConfig, FitResult, validate_direction, variance_anchor_from_asymptotes
 from .fitting import FitBase, PRIOR_PENALTY_WEIGHT
 from .hill import hill_curve, log_wall
 from .noise import (
@@ -25,15 +25,22 @@ from .noise import (
     GaussianQuadratic,
     Lognormal,
     NoiseSpec,
+    apply_variance_param_domain,
+    clamp_noise_spec_initials,
     error_model_name,
     fit_noise_scale,
     free_coefficients,
     from_dict as noise_from_dict,
+    is_heteroscedastic_gaussian,
     legacy_to_noise_spec,
     log_prob as noise_log_prob,
+    noise_spec_with_variance_initials,
+    scaled_variance_coefficient_defaults,
+    variance_at,
+    variance_initials_for_noise,
     variance_model_name,
 )
-from .single import _init_config_from_data
+from .single import _coerce_noise, _init_config_from_data, _robust_response_range
 
 
 @dataclass
@@ -70,10 +77,30 @@ class JointMarginalResult:
     sigma: float | None = None
     # Variance model used for this fit (constant / linear / quadratic).
     variance_model: str = "constant"
-    # Fitted variance polynomial coefficients σ²(μ) = a + b·μ + c·μ². Populated
-    # when ``variance_model`` is non-constant; only the coefficients the model
-    # actually fits are present.
+    # Fitted variance polynomial coefficients σ² = a + b·d + c·d²
+    # (d = μ − min(top, bottom)). Populated when ``variance_model`` is
+    # non-constant; only the coefficients the model actually fits are present.
     variance_params: dict | None = None
+
+    def predict_variance(self, mu: np.ndarray | float) -> np.ndarray | None:
+        """σ²(μ) for this joint fit given a predicted response.
+
+        Anchored at ``m = min(top, bottom)`` so reported σ² matches the fit.
+        Falls back to the profiled ``sigma**2`` for constant variance; ``None``
+        if neither is available.
+        """
+        mu = np.asarray(mu, dtype=float)
+        if self.variance_params:
+            a = float(self.variance_params.get("a", 0.0))
+            b = float(self.variance_params.get("b", 0.0))
+            c = float(self.variance_params.get("c", 0.0))
+            return variance_at(
+                mu, a, b, c,
+                anchor=variance_anchor_from_asymptotes(self.top, self.bottom),
+            )
+        if self.sigma is not None:
+            return np.full_like(mu, float(self.sigma) ** 2)
+        return None
 
     def to_dict(self) -> dict:
         """Serialise to the matrix-analysis fit_params shape.
@@ -237,6 +264,8 @@ class JointMarginalFit(FitBase):
                 raise ValueError(f"{name} must have columns: concentration, y, replicate")
         if model_a not in ("4p", "5p") or model_b not in ("4p", "5p"):
             raise ValueError("model_a and model_b must be '4p' or '5p'")
+        validate_direction(direction_a, name="direction_a")
+        validate_direction(direction_b, name="direction_b")
 
         self.data_a = data_a
         self.data_b = data_b
@@ -252,6 +281,7 @@ class JointMarginalFit(FitBase):
             if noise is not None
             else legacy_to_noise_spec(error_model or "gaussian", variance_model or "constant")
         )
+        _require_supported_joint_noise(self.noise)
 
         cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=self.noise)
         cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=self.noise)
@@ -260,16 +290,22 @@ class JointMarginalFit(FitBase):
         # on top via ``param_config``.
         defaults, bounds = self._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
 
+        self._response_scale = None
         full_names = self._full_param_names(model_a, model_b)
-        # Append variance polynomial coefficients to the parameter list when
-        # the variance model needs them. Defaults / bounds from FitConfig +
-        # FitBounds (single source of truth, same values single.py uses).
-        var_defaults_cfg = FitConfig(noise=self.noise)
-        var_bounds_cfg = FitBounds()
-        for name in free_coefficients(self.noise):
-            full_names.append(name)
-            defaults[name] = float(getattr(var_defaults_cfg, name))
-            bounds[name] = tuple(getattr(var_bounds_cfg, name))
+        if is_heteroscedastic_gaussian(self.noise):
+            self._response_scale = _joint_response_scale(data_a, data_b)
+            self.noise = clamp_noise_spec_initials(
+                self.noise, response_scale=self._response_scale,
+            )
+            var_defaults, var_bounds = _variance_coefficient_defaults(
+                self.noise, self._response_scale,
+            )
+            for name in var_defaults:
+                full_names.append(name)
+                defaults[name] = var_defaults[name]
+                bounds[name] = var_bounds[name]
+            if var_defaults:
+                self.noise = noise_spec_with_variance_initials(self.noise, var_defaults)
 
         cfg = param_config or {}
 
@@ -284,6 +320,12 @@ class JointMarginalFit(FitBase):
             lo = float(entry.get("lo", bounds[name][0]))
             hi = float(entry.get("hi", bounds[name][1]))
             fit_flag = bool(entry.get("fit", True))
+            if name in ("var_a", "var_b", "var_c"):
+                lo, hi, clamped_init = apply_variance_param_domain(
+                    name, lo, hi, init,
+                    response_scale=self._response_scale,
+                )
+                init = float(clamped_init)
             if fit_flag:
                 optimized_names.append(name)
                 optimized_x0.append(init)
@@ -386,6 +428,9 @@ class JointMarginalFit(FitBase):
         c = self._get(x, "var_c") if "var_c" in self._name_to_ix or "var_c" in self._fixed_values else float(defaults_cfg.var_c)
         return a, b, c
 
+    def _variance_anchor(self, x: np.ndarray) -> float:
+        return variance_anchor_from_asymptotes(self._get(x, "top"), self._get(x, "bottom"))
+
     @staticmethod
     def _drug_asymptotes(top: float, bottom: float, direction: str) -> tuple[float, float]:
         """Map shared plate ``top`` / ``bottom`` to this drug's ``(effect_0, effect_inf)``.
@@ -430,15 +475,18 @@ class JointMarginalFit(FitBase):
             asymmetry=p["asymmetry_b"] if p["asymmetry_b"] is not None else 1.0,
         )
         var_params = self._x_to_variance_params(x)
+        anchor = self._variance_anchor(x)
         ll_a = noise_log_prob(
             self.data_a["y"].values, ya_pred,
             self.config.noise,
             variance_params=var_params,
+            variance_anchor=anchor,
         )
         ll_b = noise_log_prob(
             self.data_b["y"].values, yb_pred,
             self.config.noise,
             variance_params=var_params,
+            variance_anchor=anchor,
         )
         return ll_a + ll_b
 
@@ -569,6 +617,8 @@ def fit_joint_marginal_auto(
     the polynomial σ²(μ) is gaussian-only, same rule the single-drug auto
     path follows.
     """
+    validate_direction(direction_a, name="direction_a")
+    validate_direction(direction_b, name="direction_b")
     base_noise = legacy_to_noise_spec("gaussian", variance_model)
     error_models = ("gaussian",) if not isinstance(base_noise, GaussianConstant) else ("gaussian", "lognormal")
     results: dict[str, JointMarginalResult] = {}
@@ -596,3 +646,145 @@ def fit_joint_marginal_auto(
     if g_aic is None or l_aic is None:
         return results["gaussian"]
     return results["gaussian"] if g_aic <= l_aic else results["lognormal"]
+
+
+def _require_supported_joint_noise(noise: NoiseSpec | None) -> None:
+    """Reject noise kinds JointMarginalFit cannot fit.
+
+    Compound additive-multiplicative noise has no joint-parameterisation
+    (and ``FitBounds`` has no ``sigma_log``). Raise after coercion and before
+    any bound derivation so callers get a ``ValueError`` rather than an
+    ``AttributeError``.
+    """
+    if noise is not None and not isinstance(
+        noise, (GaussianConstant, GaussianLinear, GaussianQuadratic, Lognormal)
+    ):
+        raise ValueError(
+            "JointMarginalFit currently supports constant/linear/quadratic "
+            "gaussian and lognormal noise only."
+        )
+
+
+def _joint_response_scale(data_a: pd.DataFrame, data_b: pd.DataFrame) -> float:
+    """Robust response range of the pooled plate (both drugs)."""
+    y = np.concatenate([
+        data_a["y"].dropna().to_numpy(),
+        data_b["y"].dropna().to_numpy(),
+    ])
+    return _robust_response_range(y)
+
+
+def _variance_coefficient_defaults(
+    noise: NoiseSpec,
+    s: float,
+) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """Init and bounds for free variance coefficients.
+
+    Same source :class:`JointMarginalFit` uses when no ``param_config`` is
+    supplied: response-scaled bounds/initials (``a = 1e-3·s²``, ``b = 0``,
+    ``c = 0``) with user-given ``a_init`` / ``b_init`` / ``c_init`` kept
+    after domain clamping. Shared with :func:`default_joint_marginal_config`
+    so the public helper cannot drift from the fitter.
+    """
+    _, scaled_bounds = scaled_variance_coefficient_defaults(s)
+    user_inits = variance_initials_for_noise(noise, s)
+    defaults: dict[str, float] = {}
+    bounds: dict[str, tuple[float, float]] = {}
+    for name in free_coefficients(noise):
+        defaults[name] = float(user_inits[name])
+        bounds[name] = tuple(scaled_bounds[name])
+    return defaults, bounds
+
+
+def default_joint_marginal_config(
+    data_a: pd.DataFrame,
+    data_b: pd.DataFrame,
+    *,
+    model_a: str = "4p",
+    model_b: str = "4p",
+    direction_a: str = "inhibition",
+    direction_b: str = "inhibition",
+    noise: "NoiseSpec | dict | str | None" = None,
+) -> dict[str, dict[str, float]]:
+    """Data-driven default initials and bounds for a joint marginal fit.
+
+    Public entry point to the same derivation :class:`JointMarginalFit` applies
+    when no ``param_config`` is supplied: initials seeded from each drug's
+    response and concentration ranges, asymptote bounds that extend half a
+    dynamic range past each drug's observed extremes, then merged across the two
+    drugs (union of the per-drug bound intervals). Noise-aware: lognormal floors
+    all asymptote lower bounds strictly positive (> 0).
+
+    Parameters
+    ----------
+    data_a, data_b:
+        Per-drug replicate DataFrames with columns ``concentration``, ``y``,
+        ``replicate``.  ``data_a`` maps to the horizontal drug (drug_a /
+        ``_a`` suffixed params); ``data_b`` to the vertical (``_b``).
+    model_a, model_b:
+        ``"4p"`` (default) or ``"5p"``.  5p adds an asymmetry parameter per
+        drug.  Asymmetry entries are present in the returned dict *only* when
+        the corresponding model is ``"5p"``.
+    direction_a, direction_b:
+        ``"inhibition"`` or ``"activation"`` per drug.
+    noise:
+        Accepts a :class:`NoiseSpec`, a tagged dict (``{"kind": "lognormal"}``),
+        or a kind string (``"lognormal"`` / ``"gaussian"``).  Lognormal forces
+        the asymptote lower bounds positive; the same coercion
+        :class:`JointMarginalFit` applies.
+
+    Returns
+    -------
+    dict
+        Flat mapping from joint parameter name to ``{"init": float, "lo":
+        float, "hi": float}``.  Always includes ``top``, ``bottom``,
+        ``log_c50_a``, ``hill_a``, ``log_c50_b``, ``hill_b``.  Includes
+        ``asymmetry_a`` only when ``model_a == "5p"``; ``asymmetry_b`` only
+        when ``model_b == "5p"``.  For heteroscedastic Gaussian noise
+        (``gaussian_linear`` / ``gaussian_quadratic``) also includes the free
+        variance coefficients (``var_a``, ``var_b``, and ``var_c`` for
+        quadratic) with response-scaled initials and bounds matching
+        :class:`JointMarginalFit` when no ``param_config`` is supplied
+        (``var_a ∈ [1e-12·s², 10·s²]``, ``var_b ∈ [0, 10·s]``, ``var_c ∈
+        [0, 10]``, default ``a = 1e-3·s²``). User-given ``a_init`` /
+        ``b_init`` / ``c_init`` are kept after clamping to ``a > 0``,
+        ``b ≥ 0``, ``c ≥ 0``. Constant Gaussian and lognormal return no
+        ``var_*`` entries.
+
+    Consumers that surface editable bounds in a UI should source their defaults
+    here rather than re-deriving them, so the derivation has a single source of
+    truth — identical to what the fitter sees when no overrides are supplied.
+    """
+    if model_a not in ("4p", "5p") or model_b not in ("4p", "5p"):
+        raise ValueError("model_a and model_b must be '4p' or '5p'")
+    validate_direction(direction_a, name="direction_a")
+    validate_direction(direction_b, name="direction_b")
+
+    coerced = _coerce_noise(noise)
+    _require_supported_joint_noise(coerced)
+    cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=coerced)
+    cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=coerced)
+    defaults, bounds = JointMarginalFit._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
+
+    include = ["top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"]
+    if model_a == "5p":
+        include.append("asymmetry_a")
+    if model_b == "5p":
+        include.append("asymmetry_b")
+
+    if coerced is not None and is_heteroscedastic_gaussian(coerced):
+        var_defaults, var_bounds = _variance_coefficient_defaults(
+            coerced, _joint_response_scale(data_a, data_b),
+        )
+        defaults.update(var_defaults)
+        bounds.update(var_bounds)
+        include.extend(var_defaults)
+
+    return {
+        name: {
+            "init": float(defaults[name]),
+            "lo": float(bounds[name][0]),
+            "hi": float(bounds[name][1]),
+        }
+        for name in include
+    }

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 
-from .data import FitConfig, FitResult
+from .data import FitConfig, FitResult, validate_direction
 from .bliss import bliss_independence
 from .fitting import PRIOR_PENALTY_WEIGHT, FitBase
 from .hill import log_wall
@@ -102,6 +102,8 @@ class MatrixFit(FitBase):
         self.valids = valids
         if noise is not None and error_model is not None:
             raise ValueError("Pass either noise or legacy error_model, not both.")
+        validate_direction(direction_horizontal, name="direction_horizontal")
+        validate_direction(direction_vertical, name="direction_vertical")
         self.noise = noise_from_dict(noise if noise is not None else (error_model or "gaussian"))
         if not isinstance(self.noise, (GaussianConstant, Lognormal)):
             raise ValueError("MatrixFit currently supports constant gaussian/lognormal noise only.")
@@ -113,6 +115,23 @@ class MatrixFit(FitBase):
         super().__init__(FitConfig(noise=self.noise))
         self.direction_horizontal = direction_horizontal
         self.direction_vertical = direction_vertical
+
+        # The Bliss surface is built from a single shared (effect_0, effect_inf)
+        # asymptote pair applied to BOTH marginals (see bliss_independence), so
+        # both drugs must move the response the same way. A mixed plate — one
+        # drug activating, the other inhibiting — has no single zero-/saturating-
+        # dose pair that represents both, and the shared-bound merge below would
+        # silently combine one drug's top with the other's bottom. Reject it
+        # explicitly; fit such plates with JointMarginalFit, whose per-drug
+        # top/bottom remapping handles mixed directions.
+        if direction_horizontal != direction_vertical:
+            raise ValueError(
+                "MatrixFit (Bliss independence) requires both drugs to share a "
+                f"direction; got horizontal={direction_horizontal!r}, "
+                f"vertical={direction_vertical!r}. The model uses one shared "
+                "(effect_0, effect_inf) pair for both marginals, which cannot "
+                "represent opposite directions. Use JointMarginalFit instead."
+            )
 
         if self.conc_horizontal.size == 0 or self.conc_vertical.size == 0:
             raise ValueError("Concentration arrays must be non-empty")
@@ -155,9 +174,35 @@ class MatrixFit(FitBase):
         self._hor_result = self.synfit_hor.fit()
         self._ver_result = self.synfit_ver.fit()
 
-        # shared effect_0/effect_inf initialised from edge pre-fits
-        effect_0_init = max(self._hor_result.effect_0, self._ver_result.effect_0)
-        effect_inf_init = min(self._hor_result.effect_inf, self._ver_result.effect_inf)
+        # Shared asymptote bounds come from the same data-derived derivation the
+        # edge pre-fits already use (`_init_config_from_data`), not a fresh
+        # ±(0.5–2)× envelope around the pre-fit results. `effect_0` (zero-dose)
+        # and `effect_inf` (saturating-dose) share the Hill convention with the
+        # single-drug config, so we merge each edge's same-named bound directly:
+        # `(min lo, max hi)` across the two edges — mirroring JointMarginalFit.
+        # This carries the per-asymptote midpoint scheme, the outward rounding,
+        # and (crucially) the lognormal positive floor onto the combination fit,
+        # closing the gap where `effect_inf`'s lower bound was hardcoded to 0.0.
+        def _merge(a: tuple[float, float], b: tuple[float, float]) -> tuple[float, float]:
+            return (min(a[0], b[0]), max(a[1], b[1]))
+
+        effect_0_bounds = _merge(
+            self.synfit_hor.config.bounds.effect_0,
+            self.synfit_ver.config.bounds.effect_0,
+        )
+        effect_inf_bounds = _merge(
+            self.synfit_hor.config.bounds.effect_inf,
+            self.synfit_ver.config.bounds.effect_inf,
+        )
+
+        # shared effect_0/effect_inf initialised from edge pre-fits, clamped into
+        # the merged bounds (the data-seeded inits are normally inside already).
+        effect_0_init = float(np.clip(
+            max(self._hor_result.effect_0, self._ver_result.effect_0), *effect_0_bounds
+        ))
+        effect_inf_init = float(np.clip(
+            min(self._hor_result.effect_inf, self._ver_result.effect_inf), *effect_inf_bounds
+        ))
 
         # 6 parameters: log_c50_hor, log_c50_ver, hill_hor, hill_ver, effect_0, effect_inf
         self._x0 = [
@@ -173,8 +218,8 @@ class MatrixFit(FitBase):
             self.synfit_ver.config.bounds.log_c50,
             (0.1, 4.0),
             (0.1, 4.0),
-            (effect_0_init * 0.5, effect_0_init * 2),
-            (0.0, effect_inf_init * 2 + 1e-6),
+            effect_0_bounds,
+            effect_inf_bounds,
         ]
 
     def _edge_slice(self, axis: str) -> pd.DataFrame:

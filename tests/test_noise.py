@@ -201,6 +201,24 @@ class TestVarianceAt:
         v = variance_at(mu, a=0.01, b=0.0, c=0.04)
         assert np.allclose(v, [0.01, 0.02, 0.05])
 
+    def test_anchor_shifts_polynomial(self):
+        mu = np.array([0.5, 1.0, 1.5])
+        v = variance_at(mu, a=0.01, b=0.05, c=0.0, anchor=0.5)
+        # d = μ − 0.5 → [0.0, 0.5, 1.0]; same values as un-anchored μ in test_linear
+        assert np.allclose(v, [0.01, 0.035, 0.06])
+
+    def test_anchor_zero_matches_old_polynomial_for_nonnegative_mu(self):
+        mu = np.linspace(0.0, 2.0, 7)
+        v_new = variance_at(mu, a=0.02, b=0.03, c=0.01, anchor=0.0)
+        v_old = 0.02 + 0.03 * mu + 0.01 * mu * mu
+        assert np.allclose(v_new, v_old)
+
+    def test_variance_at_least_a_when_d_nonnegative(self):
+        mu = np.array([0.2, 0.5, 1.2])
+        a = 0.015
+        v = variance_at(mu, a=a, b=0.04, c=0.01, anchor=0.2)
+        assert np.all(v >= a - 1e-15)
+
     def test_floor_keeps_positive(self):
         # Negative-going polynomial gets clamped to a tiny positive value so
         # log(σ²) inside the likelihood doesn't blow up.

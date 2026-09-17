@@ -31,13 +31,26 @@ def _manual_known_variance(y, mu, a, b=0.0, c=0.0):
 def test_noise_spec_serde_round_trip_all_variants():
     specs = [
         GaussianConstant(),
+        GaussianLinear(),
         GaussianLinear(a_init=0.2, b_init=0.3),
+        GaussianQuadratic(),
         GaussianQuadratic(a_init=0.2, b_init=0.3, c_init=0.4),
         Lognormal(),
         CompoundAddMult(sigma_log_init=0.25),
     ]
     for spec in specs:
         assert from_dict(to_dict(spec)) == spec
+
+
+def test_hetero_spec_to_dict_omits_unset_initials():
+    assert to_dict(GaussianLinear()) == {"kind": "gaussian_linear"}
+    assert to_dict(GaussianQuadratic()) == {"kind": "gaussian_quadratic"}
+    assert from_dict({"kind": "gaussian_linear"}) == GaussianLinear()
+    encoded = to_dict(GaussianLinear(a_init=0.001))
+    assert encoded == {"kind": "gaussian_linear", "a_init": 0.001}
+    restored = from_dict(encoded)
+    assert restored.a_init == 0.001
+    assert restored.b_init is None
 
 
 def test_legacy_to_noise_spec_coerces_old_shape():
