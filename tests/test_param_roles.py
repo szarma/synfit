@@ -96,11 +96,23 @@ def test_joint_marginal_param_names_classified_by_taxonomy():
 
 # --- Cross-check real fitted parameter names against expected roles -----------
 
+
+def _assert_exact_roles(param_names, expected):
+    """Emitted names must equal the expected set, and each must carry exactly its expected roles.
+
+    Fails on any unexpected (e.g. unclassified) parameter, not just on misclassified known ones.
+    """
+    assert set(param_names) == set(expected), (
+        f"unexpected parameter set: {sorted(set(param_names) ^ set(expected))}"
+    )
+    for name in param_names:
+        assert _classify(name) == expected[name], f"{name}: {_classify(name)} != {expected[name]}"
+
 def test_single_drug_4p_params_have_expected_roles():
     """All param names produced by SingleDrugFit (4p) must match their expected roles."""
     from synfit.single import SingleDrugFit
     from synfit.synthetic import generate_single_drug
-    
+
     # Generate small synthetic data for a 4p curve
     cfg = {
         "seed": 42,
@@ -115,7 +127,7 @@ def test_single_drug_4p_params_have_expected_roles():
     df = generate_single_drug(cfg)
     fit = SingleDrugFit(df)
     result = fit.fit()
-    
+
     # Verify every parameter name has the expected role
     assert result.param_names is not None
     for name in result.param_names:
@@ -135,7 +147,7 @@ def test_single_drug_5p_params_have_expected_roles():
     from synfit.data import FitConfig
     from synfit.single import SingleDrugFit
     from synfit.synthetic import generate_single_drug
-    
+
     # Generate small synthetic data for a 5p curve
     cfg = {
         "seed": 42,
@@ -151,7 +163,7 @@ def test_single_drug_5p_params_have_expected_roles():
     config = FitConfig(fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"])
     fit = SingleDrugFit(df, config)
     result = fit.fit()
-    
+
     # Verify every parameter name has the expected role
     assert result.param_names is not None
     for name in result.param_names:
@@ -171,7 +183,7 @@ def test_single_drug_linear_gaussian_params_include_variance():
     from synfit.data import FitConfig
     from synfit.single import SingleDrugFit
     from synfit.synthetic import generate_single_drug
-    
+
     cfg = {
         "seed": 42,
         "hill_params": {"c50": 5.0, "hill": 1.5, "effect_0": 1.0, "effect_inf": 0.05},
@@ -186,19 +198,13 @@ def test_single_drug_linear_gaussian_params_include_variance():
     config = FitConfig(noise="gaussian_linear")
     fit = SingleDrugFit(df, config)
     result = fit.fit()
-    
+
     assert result.param_names is not None
-    variance_params = {n for n in result.param_names if is_variance_param(n)}
-    assert "var_a" in variance_params, "var_a should be in linear Gaussian fit"
-    assert "var_b" in variance_params, "var_b should be in linear Gaussian fit"
-    assert "var_c" not in variance_params, "var_c should not be in linear Gaussian fit"
-    
-    for name in result.param_names:
-        roles = _classify(name)
-        if name in ("var_a", "var_b"):
-            assert roles == {"variance"}, f"{name} should have variance role only"
-        elif name in ("log_c50", "effect_0", "effect_inf"):
-            assert roles != {"variance"}, f"{name} should not have variance role"
+    _assert_exact_roles(
+        result.param_names,
+        {"log_c50": {"log"}, "hill": set(), "effect_0": {"asymptote"},
+         "effect_inf": {"asymptote"}, "var_a": {"variance"}, "var_b": {"variance"}},
+    )
 
 
 def test_single_drug_quadratic_gaussian_params_include_variance():
@@ -206,7 +212,7 @@ def test_single_drug_quadratic_gaussian_params_include_variance():
     from synfit.data import FitConfig
     from synfit.single import SingleDrugFit
     from synfit.synthetic import generate_single_drug
-    
+
     cfg = {
         "seed": 42,
         "hill_params": {"c50": 5.0, "hill": 1.5, "effect_0": 1.0, "effect_inf": 0.05},
@@ -221,17 +227,14 @@ def test_single_drug_quadratic_gaussian_params_include_variance():
     config = FitConfig(noise="gaussian_quadratic")
     fit = SingleDrugFit(df, config)
     result = fit.fit()
-    
+
     assert result.param_names is not None
-    variance_params = {n for n in result.param_names if is_variance_param(n)}
-    assert "var_a" in variance_params, "var_a should be in quadratic Gaussian fit"
-    assert "var_b" in variance_params, "var_b should be in quadratic Gaussian fit"
-    assert "var_c" in variance_params, "var_c should be in quadratic Gaussian fit"
-    
-    for name in result.param_names:
-        if is_variance_param(name):
-            roles = _classify(name)
-            assert roles == {"variance"}, f"{name} should have variance role only"
+    _assert_exact_roles(
+        result.param_names,
+        {"log_c50": {"log"}, "hill": set(), "effect_0": {"asymptote"},
+         "effect_inf": {"asymptote"}, "var_a": {"variance"}, "var_b": {"variance"},
+         "var_c": {"variance"}},
+    )
 
 
 def test_joint_marginal_params_have_expected_roles():
@@ -239,7 +242,7 @@ def test_joint_marginal_params_have_expected_roles():
     from synfit.data import FitConfig
     from synfit.joint_marginal import JointMarginalFit
     from synfit.synthetic import generate_single_drug
-    
+
     # Generate small synthetic data for two drugs
     cfg = {
         "seed": 42,
@@ -253,15 +256,15 @@ def test_joint_marginal_params_have_expected_roles():
     }
     data_a = generate_single_drug(cfg)
     data_b = generate_single_drug({**cfg, "seed": 43})
-    
+
     config = FitConfig(noise="gaussian_quadratic")
     fitter = JointMarginalFit(
-        data_a, data_b, 
+        data_a, data_b,
         model_a="4p", model_b="4p",
         noise=config.noise,
     )
     result = fitter.fit()
-    
+
     assert result.param_names is not None
     for name in result.param_names:
         roles = _classify(name)
@@ -281,11 +284,11 @@ def test_matrix_fit_params_have_expected_roles():
     """All param names produced by MatrixFit must match their expected roles."""
     from synfit.matrix import MatrixFit
     from tests.helpers import matrix_from_config
-    
+
     replicates, conc_h, conc_v = matrix_from_config(noise_model="gaussian")
     fit = MatrixFit(replicates, conc_h, conc_v, noise="gaussian_constant")
     result = fit.fit()
-    
+
     assert result.param_names is not None
     for name in result.param_names:
         roles = _classify(name)
