@@ -97,11 +97,17 @@ def _robust_response_extrema(y: np.ndarray) -> tuple[float, float]:
 
     Prefer the second-smallest / second-largest when trimming still leaves a
     range; otherwise use the true min/max. Same rule ``_init_config_from_data``
-    uses for the response dynamic range.
+    uses for the response dynamic range. Fewer than two finite values return
+    a degenerate (v, v) pair; ``_robust_response_range`` turns that into a
+    safe positive scale so construction does not IndexError.
     """
     y_sorted = np.sort(np.asarray(y, dtype=float))
+    if y_sorted.size == 0:
+        return 0.0, 0.0
     true_ymin = float(y_sorted[0])
     true_ymax = float(y_sorted[-1])
+    if y_sorted.size < 2:
+        return true_ymin, true_ymax
     trimmed_ymin = float(y_sorted[1])
     trimmed_ymax = float(y_sorted[-2])
     if trimmed_ymin < trimmed_ymax:
@@ -110,6 +116,12 @@ def _robust_response_extrema(y: np.ndarray) -> tuple[float, float]:
 
 
 def _robust_response_range(y: np.ndarray) -> float:
+    y = np.asarray(y, dtype=float)
+    y = y[np.isfinite(y)]
+    if y.size < 2:
+        if y.size == 1:
+            return max(abs(float(y[0])), 1.0)
+        return 1.0
     ymin, ymax = _robust_response_extrema(y)
     return ymax - ymin
 
@@ -330,8 +342,15 @@ class SingleDrugFit(FitBase):
                     # a_init/b_init/c_init are already overlaid in auto.noise).
                     config.noise = auto.noise
         validate_direction(config.direction)
-        apply_variance_coefficient_domain(config)
-        self._response_scale = _robust_response_range(data["y"].dropna().to_numpy())
+        if is_heteroscedastic_gaussian(config.noise):
+            self._response_scale = _robust_response_range(
+                data["y"].dropna().to_numpy()
+            )
+            apply_variance_coefficient_domain(
+                config, response_scale=self._response_scale,
+            )
+        else:
+            apply_variance_coefficient_domain(config)
         super().__init__(config)
 
     def _curve(self, conc: np.ndarray, kwargs: dict) -> np.ndarray:

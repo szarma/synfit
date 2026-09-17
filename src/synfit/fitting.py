@@ -65,6 +65,13 @@ def parameter_scale(
     ``b_init = c_init = 0``. When ``s`` is unknown the ``max(|x0|, 1)`` floor
     is left in place (explicit-bound / non-data fitters).
 
+    ``response_scale`` is only passed for linear/quadratic Gaussian fits.
+    Constant Gaussian, lognormal, and compound noise must see the historical
+    ``parameter_scale(x0, bounds, names)`` path (no ``s``). For heteroscedastic
+    fits with ``0 < s < 1``, asymptote scales use ``s`` instead of the global
+    floor at 1 — otherwise tiny ``effect_0`` / ``effect_inf`` freeze in z-space
+    and scale equivariance at ``s = 1e-3`` fails.
+
     ``names`` aligns with ``x0`` / ``bounds`` and selects which parameters are
     asymptotes. When omitted (no name information available) the fallback
     applies to every parameter, preserving the original behaviour.
@@ -95,9 +102,10 @@ def parameter_scale(
         bound_mag = max(abs(lo_f), abs(hi_f), width * 0.5)
         s = response_scale
         if s is not None and np.isfinite(s) and 0 < s < 1.0:
-            # Sub-unit responses: the global floor at 1 freezes tiny
-            # asymptotes in z-space (z ~ 1e-3) so L-BFGS-B stops early.
-            # Use s itself as the scale so z matches the native-magnitude fit.
+            # Heteroscedastic only (callers omit ``s`` otherwise). Sub-unit
+            # responses: the global floor at 1 freezes tiny asymptotes in
+            # z-space (z ~ 1e-3) so L-BFGS-B stops early. Use s itself as
+            # the scale so z matches the native-magnitude fit.
             scale[i] = max(abs(x0[i]), float(s), 1e-12)
             if abs(x0[i]) < bound_scale_threshold * bound_mag:
                 scale[i] = max(scale[i], bound_mag, 1e-12)
@@ -243,6 +251,24 @@ class FitBase:
             names = getattr(config, "fitting_parameters", None)
         return list(names) if names is not None else None
 
+    def _optimizer_response_scale(self) -> float | None:
+        """Response scale for ``parameter_scale``, or ``None`` for non-hetero fits.
+
+        Constant Gaussian, lognormal, and compound noise must not see
+        ``response_scale`` — that would change asymptote preconditioning on
+        sub-unit data relative to the historical ``parameter_scale(x0, bounds,
+        names)`` path.
+        """
+        noise = getattr(self, "noise", None)
+        if noise is None:
+            noise = getattr(getattr(self, "config", None), "noise", None)
+        if not is_heteroscedastic_gaussian(noise):
+            return None
+        s = getattr(self, "_response_scale", None)
+        if s is None or not np.isfinite(s) or s <= 0:
+            return None
+        return float(s)
+
     def _run_minimize(self, x0, bounds, **kwargs) -> tuple[np.ndarray, bool, str, np.ndarray | None]:
         # Optimise in scale-relative coordinates z = x / scale so L-BFGS-B sees
         # O(1) variables regardless of the response magnitude. With raw
@@ -257,7 +283,7 @@ class FitBase:
         def _once(x_start):
             scale = parameter_scale(
                 x_start, bounds, self._scale_param_names(),
-                response_scale=getattr(self, "_response_scale", None),
+                response_scale=self._optimizer_response_scale(),
             )
             z0 = x_start / scale
             z_bounds = (
@@ -364,7 +390,7 @@ class FitBase:
             return None
         scale = parameter_scale(
             x_opt, bounds, self._scale_param_names(),
-            response_scale=getattr(self, "_response_scale", None),
+            response_scale=self._optimizer_response_scale(),
         )
         z_opt = x_opt / scale
 
