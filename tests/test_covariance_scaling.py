@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from synfit.single import SingleDrugFit, _init_config_from_data
-from synfit.data import FitConfig
+from synfit.data import FitConfig, FitBounds
 from synfit.joint_marginal import JointMarginalFit
 from synfit.matrix import MatrixFit
 from synfit.synthetic import generate_single_drug
@@ -360,8 +360,21 @@ def test_small_c50_with_wide_log_bounds_keeps_covariance():
         {**cfg, "noise_model": "gaussian", "noise_var_a": 0.001, "noise_var_b": 0.05},
         rng=np.random.default_rng(42),
     )
+    # Pass the wide (-5, 5) log bounds explicitly: this test pins the
+    # parameter_scale preconditioning behaviour under wide bounds, so it must
+    # set them up deterministically rather than rely on the default-derivation
+    # path (which would now compute tighter data-driven bounds).
     result = SingleDrugFit(
-        df, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05))
+        df,
+        FitConfig(
+            noise=GaussianLinear(a_init=0.001, b_init=0.05),
+            bounds=FitBounds(
+                log_c50=(-5.0, 5.0),
+                hill=(0.1, 4.0),
+                effect_0=(0.0, 2.0),
+                effect_inf=(0.0, 2.0),
+            ),
+        ),
     ).fit()
 
     assert result.param_cov is not None, "covariance must survive (was None pre-fix)"

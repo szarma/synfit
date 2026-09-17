@@ -15,7 +15,10 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
-### Internal
+### Added
+- **`default_joint_marginal_config` includes variance coefficients for heteroscedastic Gaussian noise.** Linear and quadratic Gaussian noise now return `var_*` entries (`init` / `lo` / `hi`) matching `JointMarginalFit` when no `param_config` is supplied. Constant Gaussian and lognormal are unchanged (no `var_*` keys).
+
+### Changed
 - **Parameter-role taxonomy centralised** (`synfit/param_roles.py`). The
   classification of fitting parameters — log-domain locations, variance
   coefficients, magnitude-bearing asymptotes — was previously re-derived in
@@ -23,6 +26,72 @@ tagged `[X.Y.Z]` heading.
   `MatrixFit._unpack_x`, plus per-class name tuples). It now lives behind
   `is_log_param` / `is_variance_param` / `is_asymptote_param` so the role tests
   cannot drift apart. No change to fitted values.
+- **Heteroscedastic Gaussian variance is anchored at the lower asymptote.** Linear and quadratic models now use σ² = a + b·d + c·d² with d = μ − m and m = min(effect_0, effect_inf) of the current trial (joint-marginal: m = min(top, bottom)). Hill predictions sit between the asymptotes, so σ² ≥ a > 0 by construction and a baseline shift no longer drives the polynomial negative. Constant Gaussian, lognormal, compound, and user-supplied `y_err` paths are unchanged. Synthetic data generation still uses the true-μ polynomial. *Heteroscedastic fitted values can change slightly vs earlier 0.4.0 builds and stay close to 0.3.0.*
+- **`var_a` / `var_b` / `var_c` domain is `a > 0`, `b ≥ 0`, `c ≥ 0`.** Default `FitBounds` lower bounds match that. Explicit negative lower bounds (legacy stored configs sent `var_b` (−1e4, 1e4)) and negative initials are clamped to the domain floor at fitter construction — `1e-12` for `var_a`, or `1e-12·s²` when a response scale exists, and 0 for `var_b` / `var_c`. After clamping, an empty interval (`lo > hi`) raises `ValueError` naming the parameter, the given bounds, and the domain rule, in both single-drug and joint-marginal paths.
+- **Omitted heteroscedastic initials are `None`, not class-default numbers.** `GaussianLinear` / `GaussianQuadratic` `a_init` / `b_init` / `c_init` default to `None` meaning data-derived `1e-3·s²` / `0` / `0`. An explicit value, including `a_init=0.001`, is kept after the domain clamp. `to_dict` omits unset fields; `from_dict` without the key yields `None`. Callers without a data scale (`FitConfig` with no data) fall back to the historical `1e-3` / `0` / `0`.
+- **Response-scaled variance bounds and default initials.** Data-derived fits set `var_a ∈ [1e-12·s², 10·s²]`, `var_b ∈ [0, 10·s]`, `var_c ∈ [0, 10]` and default initials `a = 1e-3·s²`, `b = 0`, `c = 0`, where `s` is the same robust response range used for asymptote bounds. Explicit `var_*` bounds are honoured literally apart from the domain clamp. This is what makes heteroscedastic fits scale-equivariant (`y → s·y` ⇒ `a → s²a`, `b → s·b`, `c → c`).
+- **Reported retry when L-BFGS-B stalls at iteration 0** on a linear/quadratic Gaussian fit with a finite starting objective: one retry from default variance initials (`b = 0`, `c = 0`, `a = 1e-3·s²`), with a note on the result message. Failures after iteration 0, non-finite starts, and invalid input are not retried.
+- **Per-asymptote default bounds that meet at the response midpoint.** The two
+  asymptotes no longer share one wide symmetric bracket. Each gets its own
+  `(lo, hi)`: the bottom is bounded `[…, m]` and the top `[m, …]` at the
+  midpoint `m = ½(y_min + y_max)`, so `bottom.lo < bottom.hi == top.lo <
+  top.hi`. The gaussian top gets extra headroom (`y_max + 2·Δy`, vs. `y_min −
+  ½·Δy` below the bottom) because the response is far less constrained from
+  above. *Moves fitted values* — a near-zero bottom asymptote can land on the
+  opposite side of zero from the old symmetric scheme.
+- **Data-derived asymptote bounds are rounded outward without collapsing narrow
+  high-offset ranges.** The bottom ceiling and top floor retain one shared split,
+  preserving `bottom.lo < bottom.hi == top.lo < top.hi`; rounding precision also
+  follows the observed dynamic range so small positive lognormal floors remain
+  positive.
+- **Adaptive extrema for small samples instead of a blanket minimum.** The
+  robust extremes (second-smallest / second-largest response, which discard a
+  lone outlier at each end) are used whenever trimming leaves a positive
+  dynamic range; otherwise the true min/max are used. This naturally covers
+  two- or three-point inputs and sparse plateaus where trimming would collapse
+  the usable range. Only `n < 2` is rejected. The previous hard five-point
+  minimum 500'd the matrix-defaults endpoint on 2×2 plates and refused
+  legitimate four-point single-drug curves.
+- **`MatrixFit` (Bliss) shares the single-drug asymptote-bound derivation.** Its
+  shared `effect_0` / `effect_inf` bounds are now the `(min lo, max hi)` merge of
+  the two edge configs' data-derived bounds — same as `JointMarginalFit` — rather
+  than a fresh `(0.5–2)×` envelope around the pre-fit results. This carries the
+  per-asymptote midpoint scheme and outward rounding onto the combination fit and
+  floors the lognormal bottom bound strictly positive (it was hardcoded to `0.0`,
+  which let the Bliss surface bottom out at zero and break the likelihood).
+  *Moves fitted values* for Bliss matrix fits.
+
+### Fixed
+- **Optimiser `response_scale` is only applied for linear/quadratic Gaussian fits.** Constant Gaussian, lognormal, and compound fits keep the historical `parameter_scale(x0, bounds, names)` path, so normalized data no longer changes their asymptote preconditioning.
+- **A one-row (or empty) response no longer IndexErrors in `_robust_response_range`.** Construction falls through to the existing fit-size `ValueError`.
+- **Joint fits and `default_joint_marginal_config` reject compound noise with `ValueError`.** Compound additive-multiplicative noise is not supported for joint-marginal fitting; both the fitter and the public helper now raise instead of an `AttributeError` on missing `sigma_log` bounds.
+- **`FitBase` rejects an unresolved `bounds=None` at fit time with an actionable
+  error.** `FitConfig.bounds=None` means "derive from data" — a contract the
+  data-bearing subclasses resolve before fitting. The base optimiser readers
+  (`_get_x0_and_bounds` / `_log_prior_prob`) now route through a `_require_bounds`
+  guard, so a future subclass that forgets to resolve gets a clear message
+  ("bounds is None at fit time… derive from data") instead of an opaque
+  `AttributeError: 'NoneType' object has no attribute 'effect_0'`. No behavioural
+  change for the existing fits (all resolve bounds first); the guard deliberately
+  does not invent a neutral `FitBounds()` default, which would silently fit
+  against the wrong bracket the data-derived scheme replaced.
+- **Lognormal feasibility is checked against the true minimum response, not the
+  trimmed robust extreme.** A single non-positive `y` breaks the lognormal
+  likelihood, so a dataset containing one is now rejected up front (previously a
+  negative point hidden behind the second-smallest value slipped through). The
+  lognormal asymptote lower bound floors at `y_min/100`, strictly positive.
+- **`MatrixFit` rejects mixed-direction plates up front.** The Bliss surface
+  applies one shared `(effect_0, effect_inf)` pair to both marginals, so it
+  cannot represent one drug activating while the other inhibits — the shared-
+  bound merge would otherwise combine one drug's top with the other's bottom.
+  A plate with `direction_horizontal != direction_vertical` now raises with a
+  pointer to `JointMarginalFit` (whose per-drug top/bottom remapping handles
+  mixed directions). Same-direction plates are unaffected.
+- **Invalid curve directions raise `ValueError` instead of silently using
+  inhibition math.** `direction` (and the joint / matrix equivalents) must be
+  exactly `"inhibition"` or `"activation"`; any other value is rejected at the
+  public helpers and fit constructors, naming the bad value and the allowed
+  ones.
 
 ## [0.3.0] — 2026-06-01
 

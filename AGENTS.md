@@ -17,8 +17,13 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 `FitBase` owns `_run_minimize` and `_estimate_covariance`.
 
 - Both run in **scale-relative coordinates** (`z = x / scale`,
-  `scale = parameter_scale(x0, bounds)` — uses bound magnitude only when
-  ``|x0|`` is small vs the feasible range; variance coeffs use ``|x0|`` only)
+ `scale = parameter_scale(x0, bounds)` — uses bound magnitude only when
+ ``|x0|`` is small vs the feasible range for the magnitude-bearing
+ asymptotes; `response_scale` is passed only for linear/quadratic Gaussian
+ noise, so constant/lognormal/compound keep the historical scale vector.
+ Variance coeffs then use ``max(|x0|, typical(s))`` without flooring at 1,
+ where ``s`` is the robust response range, so response-scaled ``var_*`` stay
+ equivariant at tiny and ELISA scales)
   and back-transform (`Σ_x = D Σ_z D`). This is what makes fits
   scale-invariant and keeps covariances valid for large-magnitude (ELISA/RFU)
   data. **Never reintroduce a raw `minimize()` or an absolute-step Hessian in a

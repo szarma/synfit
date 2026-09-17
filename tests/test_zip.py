@@ -182,7 +182,15 @@ class TestZipDelta:
             rng=rng,
         )
         mean_m = np.mean(np.stack(replicates), axis=0)
-        p = MatrixFit(replicates, conc_hor, conc_ver).fit()
+        # This is activation data (effect_0 < effect_inf), so fit it as such.
+        # The per-asymptote default bounds meet at the response midpoint, so a
+        # mismatched (default inhibition) direction pins both asymptotes near
+        # the midpoint and recovers a wrong surface — the loose pre-merge bounds
+        # used to mask this.
+        p = MatrixFit(
+            replicates, conc_hor, conc_ver,
+            direction_horizontal="activation", direction_vertical="activation",
+        ).fit()
         d = zip_delta(
             mean_m,
             conc_hor,

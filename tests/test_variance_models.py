@@ -94,6 +94,7 @@ class TestFitConfigVarianceModel:
     def test_bounds_have_var_coefficients(self):
         b = FitBounds()
         assert b.var_a[0] > 0  # σ² > 0 required
+        assert b.var_b[0] >= 0  # linear coefficient is non-negative
         assert b.var_c[0] >= 0  # quadratic coefficient stays non-negative
 
 
@@ -147,7 +148,10 @@ class TestLinearVarianceRecovery:
         var = result.predict_variance(mu)
         a_hat = result.variance_params["a"]
         b_hat = result.variance_params["b"]
-        expected = variance_at(mu, a_hat, b_hat, 0.0)
+        expected = variance_at(
+            mu, a_hat, b_hat, 0.0,
+            anchor=min(result.effect_0, result.effect_inf),
+        )
         assert np.allclose(var, expected)
 
     def test_to_dict_round_trip(self, fit):
