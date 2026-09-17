@@ -16,8 +16,11 @@ from each re-deriving the classification — and silently drifting apart.
 # ``top`` / ``bottom``.
 ASYMPTOTE_PARAM_NAMES: tuple[str, ...] = ("effect_0", "effect_inf", "top", "bottom")
 
-# Variance-polynomial coefficients (σ²(μ) = a + b·μ + c·μ²) that may appear in
+# Variance-polynomial coefficients (σ²(μ) = a + b·d + c·d²) that may appear in
 # the optimiser parameter list; stripped out before building hill_curve kwargs.
+# The polynomial is anchored at the lower asymptote, d = μ − (min asymptote),
+# so σ² ≥ a > 0 by construction and a baseline shift no longer drives the
+# polynomial negative.
 VARIANCE_PARAM_NAMES: tuple[str, ...] = ("var_a", "var_b", "var_c")
 
 
