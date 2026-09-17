@@ -17,9 +17,11 @@ def _apply_noise(y_true, noise_model: str, noise_params: dict, rng: np.random.Ge
 
     Two families:
 
-    ``"gaussian"`` — additive Gaussian with σ²(μ) = a + b·μ + c·μ². The
-    homoscedastic case is just ``b = c = 0``; this matches the polynomial
-    the fitter optimises in ``noise.variance_at``.
+    ``"gaussian"`` — additive Gaussian with σ²(μ) = a + b·μ + c·μ² evaluated
+    at the true generating mean (not the fitter's lower-asymptote anchor).
+    The homoscedastic case is just ``b = c = 0``. Generation keeps the
+    true-μ polynomial so synthetic data match a known process; the fitter
+    anchors the same coefficients at ``m = min(effect_0, effect_inf)``.
 
     ``"lognormal"`` — multiplicative: ``y · exp(N(0, σ_log))``. Strictly
     positive, skewed; not a special case of the gaussian polynomial.
@@ -84,6 +86,7 @@ def generate_single_drug(config: dict, rng: np.random.Generator | None = None) -
         noise_sigma_log:     float (lognormal: CV ≈ sigma_log)
         noise_sigma:         float (gaussian: additive std dev — legacy alias for var_a = σ²)
         noise_var_a / b / c: floats for σ²(μ) = a + b·μ + c·μ² under gaussian
+                             (true-μ polynomial; see ``_apply_noise``)
         outliers:            list of {replicate, concentration_index, value}  (optional)
         seed:                int (used if rng not provided)
     """
@@ -143,6 +146,7 @@ def generate_matrix(config: dict, rng: np.random.Generator | None = None) -> lis
         noise_sigma_log:  float (lognormal: CV ≈ sigma_log)
         noise_sigma:      float (gaussian: additive std dev — legacy alias for var_a = σ²)
         noise_var_a / b / c: floats for σ²(μ) = a + b·μ + c·μ² under gaussian
+                             (true-μ polynomial; see ``_apply_noise``)
         reference_model:  "bliss" (default) | "loewe" — which null-hypothesis
                           surface to generate before applying noise. Use "loewe"
                           to build Loewe-additive (CI = 1) matrices for testing

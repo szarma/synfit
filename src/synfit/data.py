@@ -8,6 +8,7 @@ from .noise import (
     GaussianLinear,
     GaussianQuadratic,
     NoiseSpec,
+    clamp_noise_spec_initials,
     default_for_kind,
     error_model_name,
     free_coefficients,
@@ -19,6 +20,7 @@ from .noise import (
 
 
 ALLOWED_DIRECTIONS = ("inhibition", "activation")
+_VAR_BC_DOMAIN_FLOOR = 0.0
 
 
 def validate_direction(direction: str, *, name: str = "direction") -> None:
@@ -44,12 +46,14 @@ class FitBounds:
     effect_0: tuple = (0.0, 2.0)
     effect_inf: tuple = (0.0, 2.0)
     asymmetry: tuple = (0.1, 10.0)
-    # Variance polynomial coefficients σ²(μ) = a + b·μ + c·μ².
-    # ``a`` (intercept) must stay strictly positive; floor pinned away from 0
-    # since log(0) blows up the likelihood. Wide upper bounds — the optimiser
-    # will land far inside them in practice.
+    # Variance polynomial coefficients σ² = a + b·d + c·d², d = μ − m.
+    # Domain: a > 0, b ≥ 0, c ≥ 0. A negative lower bound on var_b / var_c
+    # (legacy persisted configs sent var_b (−1e4, 1e4)) is clamped to 0 at
+    # fitter construction — not raised. Data-derived fits replace these
+    # unscaled defaults with response-scaled brackets; explicit user bounds
+    # are honoured literally apart from that domain clamp.
     var_a: tuple = (1e-12, 1e4)
-    var_b: tuple = (-1e4, 1e4)
+    var_b: tuple = (0.0, 1e4)
     var_c: tuple = (0.0, 1e4)
 
 
@@ -197,6 +201,26 @@ class FitConfig:
         return 0.1
 
 
+def clamp_fit_bounds_variance(bounds: FitBounds) -> None:
+    """Clamp ``var_b`` / ``var_c`` lower bounds to ≥ 0 in place. Does not raise."""
+    lo_b, hi_b = bounds.var_b
+    bounds.var_b = (max(float(lo_b), _VAR_BC_DOMAIN_FLOOR), float(hi_b))
+    lo_c, hi_c = bounds.var_c
+    bounds.var_c = (max(float(lo_c), _VAR_BC_DOMAIN_FLOOR), float(hi_c))
+
+
+def apply_variance_coefficient_domain(config: FitConfig) -> None:
+    """Clamp heteroscedastic initials and ``var_b`` / ``var_c`` bounds onto the domain."""
+    if config.bounds is not None:
+        clamp_fit_bounds_variance(config.bounds)
+    config.noise = clamp_noise_spec_initials(config.noise)
+
+
+def variance_anchor_from_asymptotes(effect_0: float, effect_inf: float) -> float:
+    """Lower-asymptote anchor ``m = min(effect_0, effect_inf)`` for σ²(μ)."""
+    return min(float(effect_0), float(effect_inf))
+
+
 @dataclass
 class FitResult:
     """Result of a scipy-minimize fit."""
@@ -229,9 +253,10 @@ class FitResult:
     sigma: float | None = None
     # Variance model used for this fit (constant / linear / quadratic).
     variance_model: str = "constant"
-    # Fitted variance polynomial coefficients σ²(μ) = a + b·μ + c·μ².
-    # Populated when ``variance_model`` is non-constant. Only the
-    # coefficients that the model actually fits are present.
+    # Fitted variance polynomial coefficients σ² = a + b·d + c·d²
+    # (d = μ − min(effect_0, effect_inf)). Populated when ``variance_model``
+    # is non-constant. Only the coefficients that the model actually fits
+    # are present.
     variance_params: dict | None = None
     # Parameter covariance matrix (rows/cols ordered as fitting_parameters)
     param_cov: np.ndarray | None = field(default=None, repr=False)
@@ -248,13 +273,16 @@ class FitResult:
 
         Always evaluated on the original response scale, irrespective of
         ``error_model`` — that's the space the σ² polynomial is defined in.
+        For a heteroscedastic fit the polynomial is anchored at
+        ``m = min(effect_0, effect_inf)`` so reported σ²(μ) matches the fit.
         """
         mu = np.asarray(mu, dtype=float)
         if self.variance_params:
             a = float(self.variance_params.get("a", 0.0))
             b = float(self.variance_params.get("b", 0.0))
             c = float(self.variance_params.get("c", 0.0))
-            return variance_at(mu, a, b, c)
+            anchor = variance_anchor_from_asymptotes(self.effect_0, self.effect_inf)
+            return variance_at(mu, a, b, c, anchor=anchor)
         if self.sigma is not None:
             return np.full_like(mu, float(self.sigma) ** 2)
         return None
