@@ -8,14 +8,37 @@ from .noise import (
     GaussianLinear,
     GaussianQuadratic,
     NoiseSpec,
+    apply_variance_param_domain,
+    clamp_noise_spec_initials,
     default_for_kind,
     error_model_name,
     free_coefficients,
     from_dict as noise_from_dict,
+    historical_variance_init,
+    is_heteroscedastic_gaussian,
     legacy_to_noise_spec,
     variance_at,
     variance_model_name,
 )
+
+
+ALLOWED_DIRECTIONS = ("inhibition", "activation")
+
+
+def validate_direction(direction: str, *, name: str = "direction") -> None:
+    """Reject any curve direction other than inhibition or activation.
+
+    The contract covers configuration, public helpers, and fit constructors.
+    Result containers (``FitResult``, ``MatrixFitResult``) are fitter outputs
+    and are not validated here.
+
+    Public helpers and fit constructors used to fall through to inhibition
+    math for any non-``"activation"`` string, while still storing the original
+    value. Raise early so a typo cannot silently fit the wrong model.
+    """
+    if direction not in ALLOWED_DIRECTIONS:
+        allowed = " or ".join(repr(value) for value in ALLOWED_DIRECTIONS)
+        raise ValueError(f"{name} must be {allowed}; got {direction!r}")
 
 
 @dataclass
@@ -25,12 +48,15 @@ class FitBounds:
     effect_0: tuple = (0.0, 2.0)
     effect_inf: tuple = (0.0, 2.0)
     asymmetry: tuple = (0.1, 10.0)
-    # Variance polynomial coefficients σ²(μ) = a + b·μ + c·μ².
-    # ``a`` (intercept) must stay strictly positive; floor pinned away from 0
-    # since log(0) blows up the likelihood. Wide upper bounds — the optimiser
-    # will land far inside them in practice.
+    # Variance polynomial coefficients σ² = a + b·d + c·d², d = μ − m.
+    # Domain: a > 0, b ≥ 0, c ≥ 0. A negative lower bound on var_a / var_b /
+    # var_c (legacy persisted configs sent var_b (−1e4, 1e4)) is clamped to
+    # the domain floor at fitter construction — not raised, unless clamping
+    # empties the interval (lo > hi). Data-derived fits replace these
+    # unscaled defaults with response-scaled brackets; explicit user bounds
+    # are honoured literally apart from that domain clamp.
     var_a: tuple = (1e-12, 1e4)
-    var_b: tuple = (-1e4, 1e4)
+    var_b: tuple = (0.0, 1e4)
     var_c: tuple = (0.0, 1e4)
 
 
@@ -44,7 +70,9 @@ class FitConfig:
     fitting_parameters: list = field(
         default_factory=lambda: ["log_c50", "hill", "effect_0", "effect_inf"]
     )
-    bounds: FitBounds = field(default_factory=FitBounds)
+    # ``None`` means "derive from data at fit time" (see ``SingleDrugFit``);
+    # a concrete ``FitBounds`` is honoured literally.
+    bounds: FitBounds | None = None
     noise: NoiseSpec | dict | str = field(default_factory=lambda: default_for_kind("gaussian_constant"))
     # Initial value for the asymmetry parameter (5p model only)
     asymmetry: float = 1.0
@@ -66,13 +94,14 @@ class FitConfig:
         *,
         error_model: str | None = None,
         variance_model: str | None = None,
-        var_a: float = 1e-3,
-        var_b: float = 0.0,
-        var_c: float = 0.0,
+        var_a: float | None = None,
+        var_b: float | None = None,
+        var_c: float | None = None,
         sigma_log_init: float = 0.1,
     ) -> None:
         if noise is not None and (error_model is not None or variance_model is not None):
             raise ValueError("Pass either noise or legacy error_model/variance_model, not both.")
+        validate_direction(direction)
         self.log_c50 = log_c50
         self.hill = hill
         self.effect_0 = effect_0
@@ -82,7 +111,14 @@ class FitConfig:
             if fitting_parameters is not None
             else ["log_c50", "hill", "effect_0", "effect_inf"]
         )
-        self.bounds = bounds or FitBounds()
+        # ``bounds is None`` is the persistent signal for "derive from data":
+        # ``SingleDrugFit`` fills data-driven bounds when none were supplied (so
+        # a bare ``FitConfig()`` fits any-magnitude data), and honours supplied
+        # bounds literally — no equality-based override. Storing ``None`` (rather
+        # than a flag) keeps the semantic correct across ``dataclasses.replace``
+        # / ``asdict`` round-trips, which would otherwise re-pass resolved bounds
+        # and mark them explicit.
+        self.bounds = bounds
         self.noise = (
             noise
             if noise is not None
@@ -116,9 +152,9 @@ class FitConfig:
         *,
         error_model: str = "gaussian",
         variance_model: str = "constant",
-        var_a: float = 1e-3,
-        var_b: float = 0.0,
-        var_c: float = 0.0,
+        var_a: float | None = None,
+        var_b: float | None = None,
+        var_c: float | None = None,
         sigma_log_init: float = 0.1,
         **kwargs,
     ) -> "FitConfig":
@@ -146,26 +182,65 @@ class FitConfig:
     @property
     def var_a(self) -> float:
         if isinstance(self.noise, (GaussianLinear, GaussianQuadratic)):
-            return self.noise.a_init
-        return 1e-3
+            a = self.noise.a_init
+            return historical_variance_init("var_a") if a is None else float(a)
+        return historical_variance_init("var_a")
 
     @property
     def var_b(self) -> float:
         if isinstance(self.noise, (GaussianLinear, GaussianQuadratic)):
-            return self.noise.b_init
-        return 0.0
+            b = self.noise.b_init
+            return historical_variance_init("var_b") if b is None else float(b)
+        return historical_variance_init("var_b")
 
     @property
     def var_c(self) -> float:
         if isinstance(self.noise, GaussianQuadratic):
-            return self.noise.c_init
-        return 0.0
+            c = self.noise.c_init
+            return historical_variance_init("var_c") if c is None else float(c)
+        return historical_variance_init("var_c")
 
     @property
     def sigma_log(self) -> float:
         if isinstance(self.noise, CompoundAddMult):
             return self.noise.sigma_log_init
         return 0.1
+
+
+def clamp_fit_bounds_variance(
+    bounds: FitBounds,
+    response_scale: float | None = None,
+) -> None:
+    """Clamp ``var_a`` / ``var_b`` / ``var_c`` onto the coefficient domain.
+
+    Raises ``ValueError`` if clamping empties any interval. Does not invent
+    new upper bounds.
+    """
+    for name in ("var_a", "var_b", "var_c"):
+        lo, hi = getattr(bounds, name)
+        lo, hi, _ = apply_variance_param_domain(
+            name, lo, hi, response_scale=response_scale,
+        )
+        setattr(bounds, name, (lo, hi))
+
+
+def apply_variance_coefficient_domain(
+    config: FitConfig,
+    response_scale: float | None = None,
+) -> None:
+    """Clamp heteroscedastic initials and ``var_*`` bounds onto the domain."""
+    if not is_heteroscedastic_gaussian(config.noise):
+        return
+    if config.bounds is not None:
+        clamp_fit_bounds_variance(config.bounds, response_scale=response_scale)
+    config.noise = clamp_noise_spec_initials(
+        config.noise, response_scale=response_scale,
+    )
+
+
+def variance_anchor_from_asymptotes(effect_0: float, effect_inf: float) -> float:
+    """Lower-asymptote anchor ``m = min(effect_0, effect_inf)`` for σ²(μ)."""
+    return min(float(effect_0), float(effect_inf))
 
 
 @dataclass
@@ -200,9 +275,10 @@ class FitResult:
     sigma: float | None = None
     # Variance model used for this fit (constant / linear / quadratic).
     variance_model: str = "constant"
-    # Fitted variance polynomial coefficients σ²(μ) = a + b·μ + c·μ².
-    # Populated when ``variance_model`` is non-constant. Only the
-    # coefficients that the model actually fits are present.
+    # Fitted variance polynomial coefficients σ² = a + b·d + c·d²
+    # (d = μ − min(effect_0, effect_inf)). Populated when ``variance_model``
+    # is non-constant. Only the coefficients that the model actually fits
+    # are present.
     variance_params: dict | None = None
     # Parameter covariance matrix (rows/cols ordered as fitting_parameters)
     param_cov: np.ndarray | None = field(default=None, repr=False)
@@ -219,13 +295,16 @@ class FitResult:
 
         Always evaluated on the original response scale, irrespective of
         ``error_model`` — that's the space the σ² polynomial is defined in.
+        For a heteroscedastic fit the polynomial is anchored at
+        ``m = min(effect_0, effect_inf)`` so reported σ²(μ) matches the fit.
         """
         mu = np.asarray(mu, dtype=float)
         if self.variance_params:
             a = float(self.variance_params.get("a", 0.0))
             b = float(self.variance_params.get("b", 0.0))
             c = float(self.variance_params.get("c", 0.0))
-            return variance_at(mu, a, b, c)
+            anchor = variance_anchor_from_asymptotes(self.effect_0, self.effect_inf)
+            return variance_at(mu, a, b, c, anchor=anchor)
         if self.sigma is not None:
             return np.full_like(mu, float(self.sigma) ** 2)
         return None

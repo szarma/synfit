@@ -30,13 +30,17 @@ Gaussian variance specs
 ``GaussianConstant``
     σ² = a, profiled out by default. Today's behaviour.
 
-``GaussianLinear``
-    σ²(μ) = a + b·μ. Poisson-like; captures the case where measurement noise
-    grows with the signal level.
+``GaussianLinear`` / ``GaussianQuadratic``
+    Anchored at the lower asymptote of the *current* trial parameters:
 
-``GaussianQuadratic``
-    σ²(μ) = a + b·μ + c·μ². Full power-law form; spans constant CV
-    (``a = b = 0``), pure additive (``b = c = 0``), and everything between.
+        σ²(μ) = a + b·d + c·d²,  d = μ − m,  m = min(effect_0, effect_inf)
+
+    (joint-marginal: ``m = min(top, bottom)``). Hill predictions lie between
+    the two asymptotes, so ``d ≥ 0`` and σ² ≥ a > 0. Coefficients satisfy
+    ``a > 0``, ``b ≥ 0``, ``c ≥ 0``. Linear is the ``c = 0`` special case.
+
+    ``variance_at(..., anchor=0)`` recovers the historical polynomial
+    ``a + b·μ + c·μ²`` for callers that are not a fitter.
 
 Log-likelihood
 --------------
@@ -73,20 +77,28 @@ class GaussianConstant:
 
 @dataclass(frozen=True)
 class GaussianLinear:
-    """Gaussian residuals with σ²(μ) = a + b·μ."""
+    """Gaussian residuals with σ² = a + b·d, d = μ − m (see module docstring).
 
-    a_init: float = 1e-3
-    b_init: float = 0.0
+    ``a_init`` / ``b_init`` default to ``None`` (data-derived
+    ``1e-3·s²`` / ``0``). An explicit value, including ``0.001``, is kept.
+    """
+
+    a_init: float | None = None
+    b_init: float | None = None
     kind: str = "gaussian_linear"
 
 
 @dataclass(frozen=True)
 class GaussianQuadratic:
-    """Gaussian residuals with σ²(μ) = a + b·μ + c·μ²."""
+    """Gaussian residuals with σ² = a + b·d + c·d², d = μ − m (see module docstring).
 
-    a_init: float = 1e-3
-    b_init: float = 0.0
-    c_init: float = 0.0
+    ``a_init`` / ``b_init`` / ``c_init`` default to ``None`` (data-derived
+    ``1e-3·s²`` / ``0`` / ``0``). An explicit value, including ``0.001``, is kept.
+    """
+
+    a_init: float | None = None
+    b_init: float | None = None
+    c_init: float | None = None
     kind: str = "gaussian_quadratic"
 
 
@@ -175,14 +187,14 @@ def from_dict(value: NoiseSpec | dict | str | None) -> NoiseSpec:
         return GaussianConstant()
     if kind == "gaussian_linear":
         return GaussianLinear(
-            a_init=float(value.get("a_init", value.get("a", 1e-3))),
-            b_init=float(value.get("b_init", value.get("b", 0.0))),
+            a_init=_optional_init(value, "a_init", "a"),
+            b_init=_optional_init(value, "b_init", "b"),
         )
     if kind == "gaussian_quadratic":
         return GaussianQuadratic(
-            a_init=float(value.get("a_init", value.get("a", 1e-3))),
-            b_init=float(value.get("b_init", value.get("b", 0.0))),
-            c_init=float(value.get("c_init", value.get("c", 0.0))),
+            a_init=_optional_init(value, "a_init", "a"),
+            b_init=_optional_init(value, "b_init", "b"),
+            c_init=_optional_init(value, "c_init", "c"),
         )
     if kind == "lognormal":
         return Lognormal()
@@ -192,19 +204,39 @@ def from_dict(value: NoiseSpec | dict | str | None) -> NoiseSpec:
 
 
 def to_dict(noise: NoiseSpec) -> dict:
-    """Serialise a ``NoiseSpec`` as a tagged JSON dict."""
+    """Serialise a ``NoiseSpec`` as a tagged JSON dict.
+
+    Unset heteroscedastic initials (``None``) are omitted so a round-trip
+    without those keys yields ``None`` again, not the historical 1e-3 / 0 / 0.
+    """
     match noise:
         case GaussianConstant():
             return {"kind": "gaussian_constant"}
         case GaussianLinear(a_init=a, b_init=b):
-            return {"kind": "gaussian_linear", "a_init": a, "b_init": b}
+            return _tagged("gaussian_linear", a_init=a, b_init=b)
         case GaussianQuadratic(a_init=a, b_init=b, c_init=c):
-            return {"kind": "gaussian_quadratic", "a_init": a, "b_init": b, "c_init": c}
+            return _tagged("gaussian_quadratic", a_init=a, b_init=b, c_init=c)
         case Lognormal():
             return {"kind": "lognormal"}
         case CompoundAddMult(sigma_log_init=sigma_log):
             return {"kind": "compound_add_mult", "sigma_log_init": sigma_log}
     raise TypeError(f"Unknown NoiseSpec variant: {noise!r}")
+
+
+def _optional_init(value: dict, *keys: str) -> float | None:
+    for key in keys:
+        if key in value:
+            raw = value[key]
+            return None if raw is None else float(raw)
+    return None
+
+
+def _tagged(kind: str, **fields) -> dict:
+    out = {"kind": kind}
+    for name, val in fields.items():
+        if val is not None:
+            out[name] = val
+    return out
 
 
 def default_for_kind(kind: str) -> NoiseSpec:
@@ -226,9 +258,9 @@ def legacy_to_noise_spec(
     error_model: str = "gaussian",
     variance_model: str = "constant",
     *,
-    var_a: float = 1e-3,
-    var_b: float = 0.0,
-    var_c: float = 0.0,
+    var_a: float | None = None,
+    var_b: float | None = None,
+    var_c: float | None = None,
     sigma_log_init: float = 0.1,
 ) -> NoiseSpec:
     """Convert the old ``error_model`` + ``variance_model`` pair to ``NoiseSpec``.
@@ -242,10 +274,15 @@ def legacy_to_noise_spec(
         if variance_model == "constant":
             return GaussianConstant()
         if variance_model == "linear":
-            return GaussianLinear(a_init=float(var_a), b_init=float(var_b))
+            return GaussianLinear(
+                a_init=None if var_a is None else float(var_a),
+                b_init=None if var_b is None else float(var_b),
+            )
         if variance_model == "quadratic":
             return GaussianQuadratic(
-                a_init=float(var_a), b_init=float(var_b), c_init=float(var_c),
+                a_init=None if var_a is None else float(var_a),
+                b_init=None if var_b is None else float(var_b),
+                c_init=None if var_c is None else float(var_c),
             )
         raise ValueError(f"Unknown variance_model: {variance_model!r}")
     if error_model == "lognormal":
@@ -297,9 +334,25 @@ def variance_model_name(noise: NoiseSpec) -> str:
             return "quadratic"
     raise TypeError(f"Unknown NoiseSpec variant: {noise!r}")
 
-# Floor for σ² inside the likelihood — keeps log(σ²) finite when the variance
-# polynomial dips toward zero. Same eps used elsewhere in this module.
+# Floor for σ² inside the likelihood — a last-resort guard so log(σ²) stays
+# finite. Heteroscedastic Gaussian models keep variance positive by construction
+# (a > 0, b ≥ 0, c ≥ 0, d ≥ 0); this floor must not be the mechanism that
+# enforces that.
 _VARIANCE_FLOOR = float(np.finfo(float).eps)
+
+# Unset (``None``) initials on GaussianLinear / GaussianQuadratic mean
+# "data-derived default" (a = 1e-3·s², b = 0, c = 0). An explicit value,
+# including the historical class default 1e-3, is kept after domain clamping.
+_DEFAULT_VAR_A_INIT = 1e-3
+_DEFAULT_VAR_B_INIT = 0.0
+_DEFAULT_VAR_C_INIT = 0.0
+_VAR_A_DOMAIN_FLOOR = 1e-12
+_VAR_BC_DOMAIN_FLOOR = 0.0
+_VAR_DOMAIN_RULE = {
+    "var_a": "a > 0",
+    "var_b": "b >= 0",
+    "var_c": "c >= 0",
+}
 
 # Number of Gauss–Hermite nodes for the compound (add_mult) likelihood.
 # 24 is overkill for σ_log ≲ 0.5 (relative quadrature error ~1e-12) and still
@@ -314,23 +367,189 @@ def variance_at(
     a: float,
     b: float = 0.0,
     c: float = 0.0,
+    anchor: float = 0.0,
 ) -> np.ndarray:
-    """σ²(μ) = a + b·μ + c·μ², floored to keep the likelihood finite.
+    """σ² = a + b·d + c·d² with d = μ − anchor, floored to keep log(σ²) finite.
+
+    Default ``anchor=0`` recovers the historical polynomial ``a + b·μ + c·μ²``.
+    Fitters pass the current lower asymptote so ``d ≥ 0`` for Hill predictions.
 
     Independent of error model; the caller is responsible for passing μ in
     the right space (original for gaussian, log for lognormal — though only
     gaussian is supported with non-trivial b/c at the moment).
     """
     mu = np.asarray(mu, dtype=float)
-    return np.maximum(a + b * mu + c * mu * mu, _VARIANCE_FLOOR)
+    d = mu - float(anchor)
+    return np.maximum(a + b * d + c * d * d, _VARIANCE_FLOOR)
+
+
+def scaled_variance_coefficient_defaults(
+    s: float,
+) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """Response-scaled default initials and bounds for ``var_a`` / ``var_b`` / ``var_c``.
+
+    ``s`` is the robust response range (same dynamic range the asymptote
+    derivation uses). Under ``y → s·y`` the coefficients transform as
+    ``a → s²a``, ``b → s·b``, ``c → c``.
+    """
+    s = abs(float(s))
+    s2 = s * s
+    initials = {
+        "var_a": _DEFAULT_VAR_A_INIT * s2,
+        "var_b": _DEFAULT_VAR_B_INIT,
+        "var_c": _DEFAULT_VAR_C_INIT,
+    }
+    bounds = {
+        "var_a": (_VAR_A_DOMAIN_FLOOR * s2, 10.0 * s2),
+        "var_b": (_VAR_BC_DOMAIN_FLOOR, 10.0 * s),
+        "var_c": (_VAR_BC_DOMAIN_FLOOR, 10.0),
+    }
+    return initials, bounds
+
+
+def variance_coefficient_floor(name: str, response_scale: float | None = None) -> float:
+    """Domain floor for ``var_a`` / ``var_b`` / ``var_c``.
+
+    ``var_a`` is ``1e-12``, or ``1e-12·s²`` when a response scale is given, so
+    explicit bounds stay consistent with the data-derived lower bound.
+    ``var_b`` / ``var_c`` floor at 0.
+    """
+    if name == "var_a":
+        if response_scale is not None and np.isfinite(response_scale) and response_scale > 0:
+            return _VAR_A_DOMAIN_FLOOR * float(response_scale) ** 2
+        return _VAR_A_DOMAIN_FLOOR
+    if name in ("var_b", "var_c"):
+        return _VAR_BC_DOMAIN_FLOOR
+    raise ValueError(f"Unknown variance coefficient {name!r}")
+
+
+def apply_variance_param_domain(
+    name: str,
+    lo: float,
+    hi: float,
+    init: float | None = None,
+    *,
+    response_scale: float | None = None,
+) -> tuple[float, float, float | None]:
+    """Clamp a ``var_*`` bound pair (and optional initial) onto the domain.
+
+    Raises ``ValueError`` naming the parameter, the given bounds, and the
+    domain rule when the clamped interval is empty (``lo > hi``).
+    """
+    if name not in _VAR_DOMAIN_RULE:
+        raise ValueError(f"Unknown variance coefficient {name!r}")
+    floor = variance_coefficient_floor(name, response_scale)
+    given_lo, given_hi = float(lo), float(hi)
+    clamped_lo = max(given_lo, floor)
+    clamped_hi = given_hi
+    if clamped_lo > clamped_hi:
+        raise ValueError(
+            f"{name} bounds ({given_lo}, {given_hi}) are empty after applying "
+            f"the domain {_VAR_DOMAIN_RULE[name]} "
+            f"(lower bound clamped to {floor:g})"
+        )
+    clamped_init = None if init is None else max(float(init), floor)
+    return clamped_lo, clamped_hi, clamped_init
+
+
+def historical_variance_init(name: str) -> float:
+    """Concrete fallback when no data scale exists (``FitConfig`` without data)."""
+    if name == "var_a":
+        return _DEFAULT_VAR_A_INIT
+    if name == "var_b":
+        return _DEFAULT_VAR_B_INIT
+    if name == "var_c":
+        return _DEFAULT_VAR_C_INIT
+    raise ValueError(f"Unknown variance coefficient {name!r}")
+
+
+def variance_initials_for_noise(noise: NoiseSpec, s: float) -> dict[str, float]:
+    """Scaled default initials, overlaying any user-given ``a_init`` / ``b_init`` / ``c_init``.
+
+    ``None`` initials are replaced by the response-scaled defaults. Any
+    explicit value is kept, then clamped to the coefficient domain
+    (``a > 0``, ``b ≥ 0``, ``c ≥ 0``).
+    """
+    scaled, _ = scaled_variance_coefficient_defaults(s)
+    if not isinstance(noise, (GaussianLinear, GaussianQuadratic)):
+        return {}
+    a = scaled["var_a"] if noise.a_init is None else float(noise.a_init)
+    b = scaled["var_b"] if noise.b_init is None else float(noise.b_init)
+    c_raw = getattr(noise, "c_init", None)
+    c = scaled["var_c"] if c_raw is None else float(c_raw)
+    floor_a = variance_coefficient_floor("var_a", s)
+    out = {
+        "var_a": max(a, floor_a),
+        "var_b": max(b, _VAR_BC_DOMAIN_FLOOR),
+    }
+    if isinstance(noise, GaussianQuadratic):
+        out["var_c"] = max(c, _VAR_BC_DOMAIN_FLOOR)
+    return out
+
+
+def noise_spec_with_variance_initials(
+    noise: NoiseSpec,
+    initials: dict[str, float],
+) -> NoiseSpec:
+    """Return a copy of ``noise`` with the given ``var_*`` initials."""
+    if isinstance(noise, GaussianLinear):
+        return GaussianLinear(
+            a_init=float(initials["var_a"]),
+            b_init=float(initials["var_b"]),
+        )
+    if isinstance(noise, GaussianQuadratic):
+        return GaussianQuadratic(
+            a_init=float(initials["var_a"]),
+            b_init=float(initials["var_b"]),
+            c_init=float(initials.get("var_c", _DEFAULT_VAR_C_INIT)),
+        )
+    return noise
+
+
+def clamp_noise_spec_initials(
+    noise: NoiseSpec,
+    response_scale: float | None = None,
+) -> NoiseSpec:
+    """Clamp heteroscedastic initials onto ``a > 0``, ``b ≥ 0``, ``c ≥ 0``.
+
+    ``None`` initials stay ``None`` (data-derived later). Explicit values
+    are floored; ``var_a`` uses ``1e-12`` or ``1e-12·s²`` when ``s`` is given.
+    """
+    floor_a = variance_coefficient_floor("var_a", response_scale)
+    if isinstance(noise, GaussianLinear):
+        a, b = noise.a_init, noise.b_init
+        return GaussianLinear(
+            a_init=None if a is None else max(float(a), floor_a),
+            b_init=None if b is None else max(float(b), _VAR_BC_DOMAIN_FLOOR),
+        )
+    if isinstance(noise, GaussianQuadratic):
+        a, b, c = noise.a_init, noise.b_init, noise.c_init
+        return GaussianQuadratic(
+            a_init=None if a is None else max(float(a), floor_a),
+            b_init=None if b is None else max(float(b), _VAR_BC_DOMAIN_FLOOR),
+            c_init=None if c is None else max(float(c), _VAR_BC_DOMAIN_FLOOR),
+        )
+    return noise
+
+
+def is_heteroscedastic_gaussian(noise: NoiseSpec) -> bool:
+    return isinstance(noise, (GaussianLinear, GaussianQuadratic))
 
 
 def _variance_params_from_spec(noise: GaussianLinear | GaussianQuadratic) -> tuple[float, float, float]:
     match noise:
         case GaussianLinear(a_init=a, b_init=b):
-            return float(a), float(b), 0.0
+            return (
+                _DEFAULT_VAR_A_INIT if a is None else float(a),
+                _DEFAULT_VAR_B_INIT if b is None else float(b),
+                0.0,
+            )
         case GaussianQuadratic(a_init=a, b_init=b, c_init=c):
-            return float(a), float(b), float(c)
+            return (
+                _DEFAULT_VAR_A_INIT if a is None else float(a),
+                _DEFAULT_VAR_B_INIT if b is None else float(b),
+                _DEFAULT_VAR_C_INIT if c is None else float(c),
+            )
 
 
 def _coerce_noise_arg(
@@ -552,6 +771,7 @@ def log_prob(
     mask: np.ndarray | None = None,
     y_err: np.ndarray | None = None,
     variance_params: tuple[float, float, float] | None = None,
+    variance_anchor: float | None = None,
     compound_params: tuple[float, float] | None = None,
     error_model: str | None = None,
 ) -> float:
@@ -567,10 +787,14 @@ def log_prob(
     y_err:           Per-point standard errors. When provided uses weighted
                      likelihood; otherwise profiles out variance.
     variance_params: ``(a, b, c)`` for the heteroscedastic variance polynomial
-                     ``σ²(μ) = a + b·μ + c·μ²``. When provided, σ² is computed
-                     per point from ``y_pred`` and the weighted likelihood is
-                     used. Mutually exclusive with ``y_err``. Currently only
-                     supported under the ``gaussian`` error model.
+                     ``σ² = a + b·d + c·d²``, ``d = μ − m``. When provided, σ²
+                     is computed per point from ``y_pred`` and the weighted
+                     likelihood is used. Mutually exclusive with ``y_err``.
+                     Currently only supported under the ``gaussian`` error model.
+    variance_anchor: Lower-asymptote anchor ``m``. ``None`` (default) is
+                     treated as ``0``, recovering ``σ²(μ) = a + b·μ + c·μ²``.
+                     Fitters pass ``min(effect_0, effect_inf)`` (or
+                     ``min(top, bottom)`` for a joint fit).
     compound_params: ``(sigma_add, sigma_log)`` for the ``add_mult`` family.
                      Required when ``error_model='add_mult'``; rejected for
                      other families. Mutually exclusive with ``y_err`` and
@@ -651,11 +875,12 @@ def log_prob(
 
     if variance_params is not None:
         a, b, c = variance_params
-        # σ²(μ) is keyed off the *prediction* in the original space — that's
+        # σ² is keyed off the *prediction* in the original space — that's
         # the meaningful "expected response" for which heteroscedasticity is
         # specified. We index by the original (un-transformed) y_pred.
         mu = np.asarray(y_pred, dtype=float)[mask][finite]
-        sigma2 = variance_at(mu, a, b, c)
+        anchor = 0.0 if variance_anchor is None else float(variance_anchor)
+        sigma2 = variance_at(mu, a, b, c, anchor=anchor)
         return float(
             -0.5 * np.sum(np.log(2 * np.pi * sigma2) + residuals ** 2 / sigma2)
             + jacobian_correction
