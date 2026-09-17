@@ -130,16 +130,7 @@ def test_single_drug_4p_params_have_expected_roles():
 
     # Verify every parameter name has the expected role
     assert result.param_names is not None
-    for name in result.param_names:
-        roles = _classify(name)
-        if name == "log_c50":
-            assert roles == {"log"}, f"{name} should have log role only"
-        elif name in ("effect_0", "effect_inf"):
-            assert roles == {"asymptote"}, f"{name} should have asymptote role only"
-        elif name == "hill":
-            assert roles == set(), f"{name} should have no role"
-        else:
-            raise AssertionError(f"Unexpected parameter name: {name}")
+    _assert_exact_roles(result.param_names, {"log_c50": {"log"}, "hill": set(), "effect_0": {"asymptote"}, "effect_inf": {"asymptote"}})
 
 
 def test_single_drug_5p_params_have_expected_roles():
@@ -166,16 +157,7 @@ def test_single_drug_5p_params_have_expected_roles():
 
     # Verify every parameter name has the expected role
     assert result.param_names is not None
-    for name in result.param_names:
-        roles = _classify(name)
-        if name == "log_c50":
-            assert roles == {"log"}, f"{name} should have log role only"
-        elif name in ("effect_0", "effect_inf"):
-            assert roles == {"asymptote"}, f"{name} should have asymptote role only"
-        elif name in ("hill", "asymmetry"):
-            assert roles == set(), f"{name} should have no role"
-        else:
-            raise AssertionError(f"Unexpected parameter name: {name}")
+    _assert_exact_roles(result.param_names, {"log_c50": {"log"}, "hill": set(), "asymmetry": set(), "effect_0": {"asymptote"}, "effect_inf": {"asymptote"}})
 
 
 def test_single_drug_linear_gaussian_params_include_variance():
@@ -266,18 +248,7 @@ def test_joint_marginal_params_have_expected_roles():
     result = fitter.fit()
 
     assert result.param_names is not None
-    for name in result.param_names:
-        roles = _classify(name)
-        if is_log_param(name):
-            assert roles == {"log"}, f"{name} should have log role only"
-        elif is_variance_param(name):
-            assert roles == {"variance"}, f"{name} should have variance role only"
-        elif is_asymptote_param(name):
-            assert roles == {"asymptote"}, f"{name} should have asymptote role only"
-        elif name in ("hill_a", "hill_b"):
-            assert roles == set(), f"{name} should have no role"
-        else:
-            raise AssertionError(f"Unexpected parameter name: {name}")
+    _assert_exact_roles(result.param_names, {"top": {"asymptote"}, "bottom": {"asymptote"}, "log_c50_a": {"log"}, "hill_a": set(), "log_c50_b": {"log"}, "hill_b": set(), "var_a": {"variance"}, "var_b": {"variance"}, "var_c": {"variance"}})
 
 
 def test_matrix_fit_params_have_expected_roles():
@@ -290,13 +261,4 @@ def test_matrix_fit_params_have_expected_roles():
     result = fit.fit()
 
     assert result.param_names is not None
-    for name in result.param_names:
-        roles = _classify(name)
-        if is_log_param(name):
-            assert roles == {"log"}, f"{name} should have log role only"
-        elif is_asymptote_param(name):
-            assert roles == {"asymptote"}, f"{name} should have asymptote role only"
-        elif name in ("hill_hor", "hill_ver"):
-            assert roles == set(), f"{name} should have no role"
-        else:
-            raise AssertionError(f"Unexpected parameter name: {name}")
+    _assert_exact_roles(result.param_names, {"log_c50_hor": {"log"}, "log_c50_ver": {"log"}, "hill_hor": set(), "hill_ver": set(), "effect_0": {"asymptote"}, "effect_inf": {"asymptote"}})
