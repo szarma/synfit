@@ -15,10 +15,41 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-09-17
+
 ### Added
+- **`default_fit_config` / `default_bounds`** — public entry points to the
+  data-driven default derivation (initials + asymptote/log-c50 bounds, noise-
+  aware) that `SingleDrugFit` already used internally. Lets consumers that
+  surface *editable* bounds (e.g. the app's analysis modals) source their
+  defaults from one place instead of re-deriving them. ``noise`` accepts a
+  ``NoiseSpec``, a tagged dict, or a kind string (a ``"lognormal"`` string /
+  dict now applies the positive-floor like a ``Lognormal()`` instance).
+- **`default_joint_marginal_config`** — the joint-marginal counterpart of
+  `default_fit_config`: data-derived initials + bounds for the shared
+  ``top``/``bottom`` asymptotes and each drug's ``log_c50``/``hill`` (and
+  ``asymmetry`` for 5p), matching what `JointMarginalFit` derives when no
+  ``param_config`` overrides are supplied. Lets the app's matrix modal surface
+  editable bounds from the same single source of truth. Noise-aware; asymmetry
+  keys present only for 5p drugs.
 - **`default_joint_marginal_config` includes variance coefficients for heteroscedastic Gaussian noise.** Linear and quadratic Gaussian noise now return `var_*` entries (`init` / `lo` / `hi`) matching `JointMarginalFit` when no `param_config` is supplied. Constant Gaussian and lognormal are unchanged (no `var_*` keys).
 
 ### Changed
+- **Bounds are honoured literally; absent bounds are derived from data.**
+  `SingleDrugFit` no longer uses the all-or-nothing equality override
+  (`config.bounds == FitBounds()` → swap in data-derived). Instead,
+  `FitConfig.bounds` defaults to ``None`` meaning "derive from data at fit
+  time"; a config whose bounds were *not supplied* gets data-driven bounds (and
+  its still-at-default initials seeded from data), while *explicitly-supplied*
+  bounds are used verbatim. Storing ``None`` (rather than a derived-then-flagged
+  value) keeps the semantic correct across `dataclasses.replace` / `asdict`
+  round-trips. **Fitted values change** for the previously-unhandled case of a
+  bare `FitConfig()` against non-normalised data (e.g. `direction="inhibition"`
+  with default `[0, 2]` asymptote bounds no longer clamps large-magnitude
+  responses) — hence a MINOR bump. Explicit bounds are otherwise unchanged, with one
+  compatibility note: an explicit `FitBounds()` equal to the old defaults was
+  previously replaced by data-derived bounds and is now used literally
+  (`[0, 2]` asymptotes). `config=None` paths are unchanged.
 - **Parameter-role taxonomy centralised** (`synfit/param_roles.py`). The
   classification of fitting parameters — log-domain locations, variance
   coefficients, magnitude-bearing asymptotes — was previously re-derived in
@@ -28,7 +59,7 @@ tagged `[X.Y.Z]` heading.
   cannot drift apart. No change to fitted values. `FitResult.param_ci()` now
   recognises exactly `var_a` / `var_b` / `var_c` as variance coefficients (it
   previously matched any five-character `var_*` name; no fitter emits others).
-- **Heteroscedastic Gaussian variance is anchored at the lower asymptote.** Linear and quadratic models now use σ² = a + b·d + c·d² with d = μ − m and m = min(effect_0, effect_inf) of the current trial (joint-marginal: m = min(top, bottom)). Hill predictions sit between the asymptotes, so σ² ≥ a > 0 by construction and a baseline shift no longer drives the polynomial negative. Constant Gaussian, lognormal, compound, and user-supplied `y_err` paths are unchanged. Synthetic data generation still uses the true-μ polynomial. *Heteroscedastic fitted values can change slightly vs earlier 0.4.0 builds and stay close to 0.3.0.*
+- **Heteroscedastic Gaussian variance is anchored at the lower asymptote.** Linear and quadratic models now use σ² = a + b·d + c·d² with d = μ − m and m = min(effect_0, effect_inf) of the current trial (joint-marginal: m = min(top, bottom)). Hill predictions sit between the asymptotes, so σ² ≥ a > 0 by construction and a baseline shift no longer drives the polynomial negative. Constant Gaussian, lognormal, compound, and user-supplied `y_err` paths are unchanged. Synthetic data generation still uses the true-μ polynomial. *Moves heteroscedastic fitted values relative to the un-anchored polynomial; results stay close to 0.3.0 for data whose predictions are ≥ 0.*
 - **`var_a` / `var_b` / `var_c` domain is `a > 0`, `b ≥ 0`, `c ≥ 0`.** Default `FitBounds` lower bounds match that. Explicit negative lower bounds (legacy stored configs sent `var_b` (−1e4, 1e4)) and negative initials are clamped to the domain floor at fitter construction — `1e-12` for `var_a`, or `1e-12·s²` when a response scale exists, and 0 for `var_b` / `var_c`. After clamping, an empty interval (`lo > hi`) raises `ValueError` naming the parameter, the given bounds, and the domain rule, in both single-drug and joint-marginal paths.
 - **Omitted heteroscedastic initials are `None`, not class-default numbers.** `GaussianLinear` / `GaussianQuadratic` `a_init` / `b_init` / `c_init` default to `None` meaning data-derived `1e-3·s²` / `0` / `0`. An explicit value, including `a_init=0.001`, is kept after the domain clamp. `to_dict` omits unset fields; `from_dict` without the key yields `None`. Callers without a data scale (`FitConfig` with no data) fall back to the historical `1e-3` / `0` / `0`.
 - **Response-scaled variance bounds and default initials.** Data-derived fits set `var_a ∈ [1e-12·s², 10·s²]`, `var_b ∈ [0, 10·s]`, `var_c ∈ [0, 10]` and default initials `a = 1e-3·s²`, `b = 0`, `c = 0`, where `s` is the same robust response range used for asymptote bounds. Explicit `var_*` bounds are honoured literally apart from the domain clamp. This is what makes heteroscedastic fits scale-equivariant (`y → s·y` ⇒ `a → s²a`, `b → s·b`, `c → c`).
@@ -94,39 +125,6 @@ tagged `[X.Y.Z]` heading.
   exactly `"inhibition"` or `"activation"`; any other value is rejected at the
   public helpers and fit constructors, naming the bad value and the allowed
   ones.
-
-## [0.4.0] — 2026-06-11
-
-### Added
-- **`default_fit_config` / `default_bounds`** — public entry points to the
-  data-driven default derivation (initials + asymptote/log-c50 bounds, noise-
-  aware) that `SingleDrugFit` already used internally. Lets consumers that
-  surface *editable* bounds (e.g. the app's analysis modals) source their
-  defaults from one place instead of re-deriving them. ``noise`` accepts a
-  ``NoiseSpec``, a tagged dict, or a kind string (a ``"lognormal"`` string /
-  dict now applies the positive-floor like a ``Lognormal()`` instance).
-- **`default_joint_marginal_config`** — the joint-marginal counterpart of
-  `default_fit_config`: data-derived initials + bounds for the shared
-  ``top``/``bottom`` asymptotes and each drug's ``log_c50``/``hill`` (and
-  ``asymmetry`` for 5p), matching what `JointMarginalFit` derives when no
-  ``param_config`` overrides are supplied. Lets the app's matrix modal surface
-  editable bounds from the same single source of truth. Noise-aware; asymmetry
-  keys present only for 5p drugs.
-
-### Changed
-- **Bounds are honoured literally; absent bounds are derived from data.**
-  `SingleDrugFit` no longer uses the all-or-nothing equality override
-  (`config.bounds == FitBounds()` → swap in data-derived). Instead,
-  `FitConfig.bounds` defaults to ``None`` meaning "derive from data at fit
-  time"; a config whose bounds were *not supplied* gets data-driven bounds (and
-  its still-at-default initials seeded from data), while *explicitly-supplied*
-  bounds are used verbatim. Storing ``None`` (rather than a derived-then-flagged
-  value) keeps the semantic correct across `dataclasses.replace` / `asdict`
-  round-trips. **Fitted values change** for the previously-unhandled case of a
-  bare `FitConfig()` against non-normalised data (e.g. `direction="inhibition"`
-  with default `[0, 2]` asymptote bounds no longer clamps large-magnitude
-  responses) — hence a MINOR bump. Explicit-bounds and `config=None` paths are
-  unchanged.
 
 ## [0.3.0] — 2026-06-01
 
