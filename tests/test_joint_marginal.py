@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from synfit.joint_marginal import JointMarginalFit, fit_joint_marginal_auto, default_joint_marginal_config
+from synfit.noise import GaussianLinear, GaussianQuadratic
 from synfit.synthetic import generate_single_drug
 
 
@@ -503,3 +504,33 @@ def test_default_joint_marginal_config_invalid_model():
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match="4p.*5p|5p.*4p"):
         default_joint_marginal_config(data_a, data_b, model_a="3p")
+
+
+_CURVE_KEYS = {"top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"}
+
+
+@pytest.mark.parametrize(
+    "noise, extra_keys",
+    [
+        ("gaussian_constant", ()),
+        ("gaussian_linear", ("var_a", "var_b")),
+        ("gaussian_quadratic", ("var_a", "var_b", "var_c")),
+        ("lognormal", ()),
+        ({"kind": "gaussian_linear"}, ("var_a", "var_b")),
+        ({"kind": "gaussian_quadratic"}, ("var_a", "var_b", "var_c")),
+        (GaussianLinear(), ("var_a", "var_b")),
+        (GaussianQuadratic(), ("var_a", "var_b", "var_c")),
+    ],
+)
+def test_default_joint_marginal_config_variance_coefficients_match_fitter(noise, extra_keys):
+    """Returned keys and init/lo/hi match JointMarginalFit with no param_config."""
+    data_a, data_b = _two_drug_data()
+    result = default_joint_marginal_config(data_a, data_b, noise=noise)
+    assert set(result) == _CURVE_KEYS | set(extra_keys)
+
+    fitter = JointMarginalFit(data_a, data_b, noise=noise)
+    assert set(result) == set(fitter._param_names)
+    for name, init, (lo, hi) in zip(fitter._param_names, fitter._x0, fitter._bounds):
+        assert result[name]["init"] == init
+        assert result[name]["lo"] == lo
+        assert result[name]["hi"] == hi
