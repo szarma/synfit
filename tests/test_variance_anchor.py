@@ -7,7 +7,6 @@ import pytest
 from scipy.optimize import OptimizeResult, minimize as real_minimize
 
 from synfit.data import FitBounds, FitConfig
-from synfit.fitting import parameter_scale
 from synfit.hill import calculate_concentration_series, hill_curve
 from synfit.joint_marginal import JointMarginalFit, default_joint_marginal_config
 from synfit.noise import (
@@ -353,19 +352,35 @@ def _5p_curve() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@pytest.mark.parametrize("noise", [GaussianConstant(), Lognormal()])
-def test_non_heteroscedastic_optimizer_scale_ignores_response_scale(noise):
-    data = _normalized_positive()
-    fitter = SingleDrugFit(data, FitConfig(noise=noise))
-    x0, bounds = fitter._get_x0_and_bounds()
-    names = fitter._scale_param_names()
-    used = parameter_scale(
-        x0, bounds, names,
-        response_scale=getattr(fitter, "_response_scale", None),
-    )
-    expected = parameter_scale(x0, bounds, names)
-    np.testing.assert_array_equal(used, expected)
-    assert getattr(fitter, "_response_scale", None) is None
+@pytest.mark.parametrize(
+    "noise, expect_scale",
+    [(GaussianConstant(), False), (Lognormal(), False), (GaussianLinear(), True)],
+)
+def test_non_heteroscedastic_optimizer_scale_ignores_response_scale(
+    noise, expect_scale, monkeypatch,
+):
+    """Spy on the optimiser's real ``parameter_scale`` calls during ``fit()``.
+
+    Constant/lognormal fits must never pass a response scale (their
+    preconditioning stays identical to the pre-anchor path); the linear case
+    proves the spy observes the argument when it is supplied.
+    """
+    import synfit.fitting as fitting_mod
+
+    seen: list = []
+    real = fitting_mod.parameter_scale
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("response_scale"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(fitting_mod, "parameter_scale", spy)
+    SingleDrugFit(_normalized_positive(), FitConfig(noise=noise)).fit()
+    assert seen, "parameter_scale was not called during fit()"
+    if expect_scale:
+        assert all(s is not None and s > 0 for s in seen)
+    else:
+        assert all(s is None for s in seen)
 
 
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])
