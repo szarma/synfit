@@ -297,6 +297,7 @@ class SingleDrugFit(FitBase):
                     config.effect_inf = auto.effect_inf
                 if config.bounds is None:
                     config.bounds = auto.bounds
+        validate_direction(config.direction)
         super().__init__(config)
 
     def _curve(self, conc: np.ndarray, kwargs: dict) -> np.ndarray:
@@ -456,6 +457,7 @@ class SingleDrugFitWithError(FitBase):
             raise ValueError("data must have columns: concentration, y, y_err")
         self.data = data
         cfg = config or _init_config_from_data(data)
+        validate_direction(cfg.direction)
         # Honour the bounds=None "derive from data" signal (FitBase readers
         # dereference config.bounds.<param>, so it must be concrete by fit time).
         if cfg.bounds is None:

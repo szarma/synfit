@@ -50,6 +50,7 @@ tagged `[X.Y.Z]` heading.
   *Moves fitted values* for Bliss matrix fits.
 
 ### Fixed
+- **Joint fits and `default_joint_marginal_config` reject compound noise with `ValueError`.** Compound additive-multiplicative noise is not supported for joint-marginal fitting; both the fitter and the public helper now raise instead of an `AttributeError` on missing `sigma_log` bounds.
 - **`FitBase` rejects an unresolved `bounds=None` at fit time with an actionable
   error.** `FitConfig.bounds=None` means "derive from data" — a contract the
   data-bearing subclasses resolve before fitting. The base optimiser readers

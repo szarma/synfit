@@ -3,8 +3,12 @@ import pandas as pd
 import pytest
 
 from synfit import default_bounds, default_fit_config
-from synfit.data import FitConfig
-from synfit.joint_marginal import JointMarginalFit, default_joint_marginal_config
+from synfit.data import FitBounds, FitConfig
+from synfit.joint_marginal import (
+    JointMarginalFit,
+    default_joint_marginal_config,
+    fit_joint_marginal_auto,
+)
 from synfit.matrix import MatrixFit
 from synfit.single import SingleDrugFit, SingleDrugFitWithError
 from tests.helpers import matrix_from_config
@@ -96,6 +100,24 @@ def test_single_drug_fit_with_error_accepts_valid_direction(direction):
     assert fitter.config.direction == direction
 
 
+def test_single_drug_fit_rejects_direction_mutated_after_construction():
+    """Explicit bounds skip derivation; constructors must still validate direction."""
+    cfg = FitConfig(direction="inhibition", bounds=FitBounds())
+    cfg.direction = "sideways"
+    with pytest.raises(ValueError) as exc_info:
+        SingleDrugFit(_curve(), cfg)
+    _assert_invalid_direction(exc_info)
+
+
+def test_single_drug_fit_with_error_rejects_direction_mutated_after_construction():
+    """Explicit bounds skip derivation; constructors must still validate direction."""
+    cfg = FitConfig(direction="inhibition", bounds=FitBounds())
+    cfg.direction = "sideways"
+    with pytest.raises(ValueError) as exc_info:
+        SingleDrugFitWithError(_curve().assign(y_err=0.05), cfg)
+    _assert_invalid_direction(exc_info)
+
+
 @pytest.mark.parametrize("which", ["direction_a", "direction_b"])
 def test_default_joint_marginal_config_rejects_invalid_direction(which):
     data_a = data_b = _curve()
@@ -137,6 +159,16 @@ def test_joint_marginal_fit_accepts_valid_directions(direction_a, direction_b):
     )
     assert fitter.direction_a == direction_a
     assert fitter.direction_b == direction_b
+
+
+@pytest.mark.parametrize("which", ["direction_a", "direction_b"])
+def test_fit_joint_marginal_auto_rejects_invalid_direction(which):
+    """Invalid direction must raise before the candidate loop swallows it."""
+    kwargs = {which: "sideways"}
+    with pytest.raises(ValueError) as exc_info:
+        fit_joint_marginal_auto(_curve(), _curve(), **kwargs)
+    _assert_invalid_direction(exc_info)
+    assert "both" not in str(exc_info.value).lower()
 
 
 @pytest.mark.parametrize("which", ["direction_horizontal", "direction_vertical"])
