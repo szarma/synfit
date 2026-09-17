@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 
-from .data import FitConfig, FitResult
+from .data import FitConfig, FitResult, validate_direction
 from .bliss import bliss_independence
 from .fitting import PRIOR_PENALTY_WEIGHT, FitBase
 from .hill import log_wall
@@ -101,6 +101,8 @@ class MatrixFit(FitBase):
         self.valids = valids
         if noise is not None and error_model is not None:
             raise ValueError("Pass either noise or legacy error_model, not both.")
+        validate_direction(direction_horizontal, name="direction_horizontal")
+        validate_direction(direction_vertical, name="direction_vertical")
         self.noise = noise_from_dict(noise if noise is not None else (error_model or "gaussian"))
         if not isinstance(self.noise, (GaussianConstant, Lognormal)):
             raise ValueError("MatrixFit currently supports constant gaussian/lognormal noise only.")
