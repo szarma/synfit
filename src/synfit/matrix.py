@@ -7,6 +7,7 @@ from .data import FitConfig, FitResult, validate_direction
 from .bliss import bliss_independence
 from .fitting import PRIOR_PENALTY_WEIGHT, FitBase
 from .hill import log_wall
+from .param_roles import is_log_param
 from .noise import (
     GaussianConstant,
     Lognormal,
@@ -244,7 +245,7 @@ class MatrixFit(FitBase):
     def _unpack_x(self, x: np.ndarray) -> dict:
         out = {}
         for name, v in zip(self._PARAM_NAMES, x):
-            if name.startswith("log_"):
+            if is_log_param(name):
                 out[name[4:]] = 10**v
             else:
                 out[name] = v
