@@ -77,20 +77,28 @@ class GaussianConstant:
 
 @dataclass(frozen=True)
 class GaussianLinear:
-    """Gaussian residuals with σ² = a + b·d, d = μ − m (see module docstring)."""
+    """Gaussian residuals with σ² = a + b·d, d = μ − m (see module docstring).
 
-    a_init: float = 1e-3
-    b_init: float = 0.0
+    ``a_init`` / ``b_init`` default to ``None`` (data-derived
+    ``1e-3·s²`` / ``0``). An explicit value, including ``0.001``, is kept.
+    """
+
+    a_init: float | None = None
+    b_init: float | None = None
     kind: str = "gaussian_linear"
 
 
 @dataclass(frozen=True)
 class GaussianQuadratic:
-    """Gaussian residuals with σ² = a + b·d + c·d², d = μ − m (see module docstring)."""
+    """Gaussian residuals with σ² = a + b·d + c·d², d = μ − m (see module docstring).
 
-    a_init: float = 1e-3
-    b_init: float = 0.0
-    c_init: float = 0.0
+    ``a_init`` / ``b_init`` / ``c_init`` default to ``None`` (data-derived
+    ``1e-3·s²`` / ``0`` / ``0``). An explicit value, including ``0.001``, is kept.
+    """
+
+    a_init: float | None = None
+    b_init: float | None = None
+    c_init: float | None = None
     kind: str = "gaussian_quadratic"
 
 
@@ -179,14 +187,14 @@ def from_dict(value: NoiseSpec | dict | str | None) -> NoiseSpec:
         return GaussianConstant()
     if kind == "gaussian_linear":
         return GaussianLinear(
-            a_init=float(value.get("a_init", value.get("a", 1e-3))),
-            b_init=float(value.get("b_init", value.get("b", 0.0))),
+            a_init=_optional_init(value, "a_init", "a"),
+            b_init=_optional_init(value, "b_init", "b"),
         )
     if kind == "gaussian_quadratic":
         return GaussianQuadratic(
-            a_init=float(value.get("a_init", value.get("a", 1e-3))),
-            b_init=float(value.get("b_init", value.get("b", 0.0))),
-            c_init=float(value.get("c_init", value.get("c", 0.0))),
+            a_init=_optional_init(value, "a_init", "a"),
+            b_init=_optional_init(value, "b_init", "b"),
+            c_init=_optional_init(value, "c_init", "c"),
         )
     if kind == "lognormal":
         return Lognormal()
@@ -196,19 +204,39 @@ def from_dict(value: NoiseSpec | dict | str | None) -> NoiseSpec:
 
 
 def to_dict(noise: NoiseSpec) -> dict:
-    """Serialise a ``NoiseSpec`` as a tagged JSON dict."""
+    """Serialise a ``NoiseSpec`` as a tagged JSON dict.
+
+    Unset heteroscedastic initials (``None``) are omitted so a round-trip
+    without those keys yields ``None`` again, not the historical 1e-3 / 0 / 0.
+    """
     match noise:
         case GaussianConstant():
             return {"kind": "gaussian_constant"}
         case GaussianLinear(a_init=a, b_init=b):
-            return {"kind": "gaussian_linear", "a_init": a, "b_init": b}
+            return _tagged("gaussian_linear", a_init=a, b_init=b)
         case GaussianQuadratic(a_init=a, b_init=b, c_init=c):
-            return {"kind": "gaussian_quadratic", "a_init": a, "b_init": b, "c_init": c}
+            return _tagged("gaussian_quadratic", a_init=a, b_init=b, c_init=c)
         case Lognormal():
             return {"kind": "lognormal"}
         case CompoundAddMult(sigma_log_init=sigma_log):
             return {"kind": "compound_add_mult", "sigma_log_init": sigma_log}
     raise TypeError(f"Unknown NoiseSpec variant: {noise!r}")
+
+
+def _optional_init(value: dict, *keys: str) -> float | None:
+    for key in keys:
+        if key in value:
+            raw = value[key]
+            return None if raw is None else float(raw)
+    return None
+
+
+def _tagged(kind: str, **fields) -> dict:
+    out = {"kind": kind}
+    for name, val in fields.items():
+        if val is not None:
+            out[name] = val
+    return out
 
 
 def default_for_kind(kind: str) -> NoiseSpec:
@@ -230,9 +258,9 @@ def legacy_to_noise_spec(
     error_model: str = "gaussian",
     variance_model: str = "constant",
     *,
-    var_a: float = 1e-3,
-    var_b: float = 0.0,
-    var_c: float = 0.0,
+    var_a: float | None = None,
+    var_b: float | None = None,
+    var_c: float | None = None,
     sigma_log_init: float = 0.1,
 ) -> NoiseSpec:
     """Convert the old ``error_model`` + ``variance_model`` pair to ``NoiseSpec``.
@@ -246,10 +274,15 @@ def legacy_to_noise_spec(
         if variance_model == "constant":
             return GaussianConstant()
         if variance_model == "linear":
-            return GaussianLinear(a_init=float(var_a), b_init=float(var_b))
+            return GaussianLinear(
+                a_init=None if var_a is None else float(var_a),
+                b_init=None if var_b is None else float(var_b),
+            )
         if variance_model == "quadratic":
             return GaussianQuadratic(
-                a_init=float(var_a), b_init=float(var_b), c_init=float(var_c),
+                a_init=None if var_a is None else float(var_a),
+                b_init=None if var_b is None else float(var_b),
+                c_init=None if var_c is None else float(var_c),
             )
         raise ValueError(f"Unknown variance_model: {variance_model!r}")
     if error_model == "lognormal":
@@ -307,14 +340,19 @@ def variance_model_name(noise: NoiseSpec) -> str:
 # enforces that.
 _VARIANCE_FLOOR = float(np.finfo(float).eps)
 
-# Class-default initials on GaussianLinear / GaussianQuadratic. When bounds
-# are data-derived these are replaced by the response-scaled defaults
-# (a = 1e-3·s², b = 0, c = 0); any other a_init/b_init/c_init is kept.
+# Unset (``None``) initials on GaussianLinear / GaussianQuadratic mean
+# "data-derived default" (a = 1e-3·s², b = 0, c = 0). An explicit value,
+# including the historical class default 1e-3, is kept after domain clamping.
 _DEFAULT_VAR_A_INIT = 1e-3
 _DEFAULT_VAR_B_INIT = 0.0
 _DEFAULT_VAR_C_INIT = 0.0
 _VAR_A_DOMAIN_FLOOR = 1e-12
 _VAR_BC_DOMAIN_FLOOR = 0.0
+_VAR_DOMAIN_RULE = {
+    "var_a": "a > 0",
+    "var_b": "b >= 0",
+    "var_c": "c >= 0",
+}
 
 # Number of Gauss–Hermite nodes for the compound (add_mult) likelihood.
 # 24 is overkill for σ_log ≲ 0.5 (relative quadrature error ~1e-12) and still
@@ -369,27 +407,79 @@ def scaled_variance_coefficient_defaults(
     return initials, bounds
 
 
+def variance_coefficient_floor(name: str, response_scale: float | None = None) -> float:
+    """Domain floor for ``var_a`` / ``var_b`` / ``var_c``.
+
+    ``var_a`` is ``1e-12``, or ``1e-12·s²`` when a response scale is given, so
+    explicit bounds stay consistent with the data-derived lower bound.
+    ``var_b`` / ``var_c`` floor at 0.
+    """
+    if name == "var_a":
+        if response_scale is not None and np.isfinite(response_scale) and response_scale > 0:
+            return _VAR_A_DOMAIN_FLOOR * float(response_scale) ** 2
+        return _VAR_A_DOMAIN_FLOOR
+    if name in ("var_b", "var_c"):
+        return _VAR_BC_DOMAIN_FLOOR
+    raise ValueError(f"Unknown variance coefficient {name!r}")
+
+
+def apply_variance_param_domain(
+    name: str,
+    lo: float,
+    hi: float,
+    init: float | None = None,
+    *,
+    response_scale: float | None = None,
+) -> tuple[float, float, float | None]:
+    """Clamp a ``var_*`` bound pair (and optional initial) onto the domain.
+
+    Raises ``ValueError`` naming the parameter, the given bounds, and the
+    domain rule when the clamped interval is empty (``lo > hi``).
+    """
+    if name not in _VAR_DOMAIN_RULE:
+        raise ValueError(f"Unknown variance coefficient {name!r}")
+    floor = variance_coefficient_floor(name, response_scale)
+    given_lo, given_hi = float(lo), float(hi)
+    clamped_lo = max(given_lo, floor)
+    clamped_hi = given_hi
+    if clamped_lo > clamped_hi:
+        raise ValueError(
+            f"{name} bounds ({given_lo}, {given_hi}) are empty after applying "
+            f"the domain {_VAR_DOMAIN_RULE[name]} "
+            f"(lower bound clamped to {floor:g})"
+        )
+    clamped_init = None if init is None else max(float(init), floor)
+    return clamped_lo, clamped_hi, clamped_init
+
+
+def historical_variance_init(name: str) -> float:
+    """Concrete fallback when no data scale exists (``FitConfig`` without data)."""
+    if name == "var_a":
+        return _DEFAULT_VAR_A_INIT
+    if name == "var_b":
+        return _DEFAULT_VAR_B_INIT
+    if name == "var_c":
+        return _DEFAULT_VAR_C_INIT
+    raise ValueError(f"Unknown variance coefficient {name!r}")
+
+
 def variance_initials_for_noise(noise: NoiseSpec, s: float) -> dict[str, float]:
     """Scaled default initials, overlaying any user-given ``a_init`` / ``b_init`` / ``c_init``.
 
-    Class-default ``a_init=1e-3`` (and ``b_init=c_init=0``) are replaced by
-    the response-scaled defaults. Any other value is kept, then clamped to
-    the coefficient domain (``a > 0``, ``b ≥ 0``, ``c ≥ 0``).
+    ``None`` initials are replaced by the response-scaled defaults. Any
+    explicit value is kept, then clamped to the coefficient domain
+    (``a > 0``, ``b ≥ 0``, ``c ≥ 0``).
     """
     scaled, _ = scaled_variance_coefficient_defaults(s)
     if not isinstance(noise, (GaussianLinear, GaussianQuadratic)):
         return {}
-    a = float(noise.a_init)
-    b = float(noise.b_init)
-    c = float(getattr(noise, "c_init", _DEFAULT_VAR_C_INIT))
-    if a == _DEFAULT_VAR_A_INIT:
-        a = scaled["var_a"]
-    if b == _DEFAULT_VAR_B_INIT:
-        b = scaled["var_b"]
-    if c == _DEFAULT_VAR_C_INIT:
-        c = scaled["var_c"]
+    a = scaled["var_a"] if noise.a_init is None else float(noise.a_init)
+    b = scaled["var_b"] if noise.b_init is None else float(noise.b_init)
+    c_raw = getattr(noise, "c_init", None)
+    c = scaled["var_c"] if c_raw is None else float(c_raw)
+    floor_a = variance_coefficient_floor("var_a", s)
     out = {
-        "var_a": max(a, _VAR_A_DOMAIN_FLOOR),
+        "var_a": max(a, floor_a),
         "var_b": max(b, _VAR_BC_DOMAIN_FLOOR),
     }
     if isinstance(noise, GaussianQuadratic):
@@ -416,18 +506,28 @@ def noise_spec_with_variance_initials(
     return noise
 
 
-def clamp_noise_spec_initials(noise: NoiseSpec) -> NoiseSpec:
-    """Clamp heteroscedastic initials onto ``a > 0``, ``b ≥ 0``, ``c ≥ 0``."""
+def clamp_noise_spec_initials(
+    noise: NoiseSpec,
+    response_scale: float | None = None,
+) -> NoiseSpec:
+    """Clamp heteroscedastic initials onto ``a > 0``, ``b ≥ 0``, ``c ≥ 0``.
+
+    ``None`` initials stay ``None`` (data-derived later). Explicit values
+    are floored; ``var_a`` uses ``1e-12`` or ``1e-12·s²`` when ``s`` is given.
+    """
+    floor_a = variance_coefficient_floor("var_a", response_scale)
     if isinstance(noise, GaussianLinear):
+        a, b = noise.a_init, noise.b_init
         return GaussianLinear(
-            a_init=max(float(noise.a_init), _VAR_A_DOMAIN_FLOOR),
-            b_init=max(float(noise.b_init), _VAR_BC_DOMAIN_FLOOR),
+            a_init=None if a is None else max(float(a), floor_a),
+            b_init=None if b is None else max(float(b), _VAR_BC_DOMAIN_FLOOR),
         )
     if isinstance(noise, GaussianQuadratic):
+        a, b, c = noise.a_init, noise.b_init, noise.c_init
         return GaussianQuadratic(
-            a_init=max(float(noise.a_init), _VAR_A_DOMAIN_FLOOR),
-            b_init=max(float(noise.b_init), _VAR_BC_DOMAIN_FLOOR),
-            c_init=max(float(noise.c_init), _VAR_BC_DOMAIN_FLOOR),
+            a_init=None if a is None else max(float(a), floor_a),
+            b_init=None if b is None else max(float(b), _VAR_BC_DOMAIN_FLOOR),
+            c_init=None if c is None else max(float(c), _VAR_BC_DOMAIN_FLOOR),
         )
     return noise
 
@@ -439,9 +539,17 @@ def is_heteroscedastic_gaussian(noise: NoiseSpec) -> bool:
 def _variance_params_from_spec(noise: GaussianLinear | GaussianQuadratic) -> tuple[float, float, float]:
     match noise:
         case GaussianLinear(a_init=a, b_init=b):
-            return float(a), float(b), 0.0
+            return (
+                _DEFAULT_VAR_A_INIT if a is None else float(a),
+                _DEFAULT_VAR_B_INIT if b is None else float(b),
+                0.0,
+            )
         case GaussianQuadratic(a_init=a, b_init=b, c_init=c):
-            return float(a), float(b), float(c)
+            return (
+                _DEFAULT_VAR_A_INIT if a is None else float(a),
+                _DEFAULT_VAR_B_INIT if b is None else float(b),
+                _DEFAULT_VAR_C_INIT if c is None else float(c),
+            )
 
 
 def _coerce_noise_arg(

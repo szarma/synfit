@@ -25,11 +25,13 @@ from .noise import (
     GaussianQuadratic,
     Lognormal,
     NoiseSpec,
+    apply_variance_param_domain,
     clamp_noise_spec_initials,
     error_model_name,
     fit_noise_scale,
     free_coefficients,
     from_dict as noise_from_dict,
+    is_heteroscedastic_gaussian,
     legacy_to_noise_spec,
     log_prob as noise_log_prob,
     noise_spec_with_variance_initials,
@@ -274,7 +276,7 @@ class JointMarginalFit(FitBase):
 
         if noise is not None and (error_model is not None or variance_model is not None):
             raise ValueError("Pass either noise or legacy error_model/variance_model, not both.")
-        self.noise = clamp_noise_spec_initials(
+        self.noise = (
             noise_from_dict(noise)
             if noise is not None
             else legacy_to_noise_spec(error_model or "gaussian", variance_model or "constant")
@@ -288,17 +290,22 @@ class JointMarginalFit(FitBase):
         # on top via ``param_config``.
         defaults, bounds = self._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
 
-        self._response_scale = _joint_response_scale(data_a, data_b)
+        self._response_scale = None
         full_names = self._full_param_names(model_a, model_b)
-        var_defaults, var_bounds = _variance_coefficient_defaults(
-            self.noise, self._response_scale,
-        )
-        for name in var_defaults:
-            full_names.append(name)
-            defaults[name] = var_defaults[name]
-            bounds[name] = var_bounds[name]
-        if var_defaults:
-            self.noise = noise_spec_with_variance_initials(self.noise, var_defaults)
+        if is_heteroscedastic_gaussian(self.noise):
+            self._response_scale = _joint_response_scale(data_a, data_b)
+            self.noise = clamp_noise_spec_initials(
+                self.noise, response_scale=self._response_scale,
+            )
+            var_defaults, var_bounds = _variance_coefficient_defaults(
+                self.noise, self._response_scale,
+            )
+            for name in var_defaults:
+                full_names.append(name)
+                defaults[name] = var_defaults[name]
+                bounds[name] = var_bounds[name]
+            if var_defaults:
+                self.noise = noise_spec_with_variance_initials(self.noise, var_defaults)
 
         cfg = param_config or {}
 
@@ -313,11 +320,12 @@ class JointMarginalFit(FitBase):
             lo = float(entry.get("lo", bounds[name][0]))
             hi = float(entry.get("hi", bounds[name][1]))
             fit_flag = bool(entry.get("fit", True))
-            if name == "var_a":
-                init = max(init, 1e-12)
-            elif name in ("var_b", "var_c"):
-                init = max(init, 0.0)
-                lo = max(lo, 0.0)
+            if name in ("var_a", "var_b", "var_c"):
+                lo, hi, clamped_init = apply_variance_param_domain(
+                    name, lo, hi, init,
+                    response_scale=self._response_scale,
+                )
+                init = float(clamped_init)
             if fit_flag:
                 optimized_names.append(name)
                 optimized_x0.append(init)
@@ -764,7 +772,7 @@ def default_joint_marginal_config(
     if model_b == "5p":
         include.append("asymmetry_b")
 
-    if coerced is not None:
+    if coerced is not None and is_heteroscedastic_gaussian(coerced):
         var_defaults, var_bounds = _variance_coefficient_defaults(
             coerced, _joint_response_scale(data_a, data_b),
         )

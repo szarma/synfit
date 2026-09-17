@@ -8,11 +8,14 @@ from .noise import (
     GaussianLinear,
     GaussianQuadratic,
     NoiseSpec,
+    apply_variance_param_domain,
     clamp_noise_spec_initials,
     default_for_kind,
     error_model_name,
     free_coefficients,
     from_dict as noise_from_dict,
+    historical_variance_init,
+    is_heteroscedastic_gaussian,
     legacy_to_noise_spec,
     variance_at,
     variance_model_name,
@@ -20,7 +23,6 @@ from .noise import (
 
 
 ALLOWED_DIRECTIONS = ("inhibition", "activation")
-_VAR_BC_DOMAIN_FLOOR = 0.0
 
 
 def validate_direction(direction: str, *, name: str = "direction") -> None:
@@ -47,9 +49,10 @@ class FitBounds:
     effect_inf: tuple = (0.0, 2.0)
     asymmetry: tuple = (0.1, 10.0)
     # Variance polynomial coefficients σ² = a + b·d + c·d², d = μ − m.
-    # Domain: a > 0, b ≥ 0, c ≥ 0. A negative lower bound on var_b / var_c
-    # (legacy persisted configs sent var_b (−1e4, 1e4)) is clamped to 0 at
-    # fitter construction — not raised. Data-derived fits replace these
+    # Domain: a > 0, b ≥ 0, c ≥ 0. A negative lower bound on var_a / var_b /
+    # var_c (legacy persisted configs sent var_b (−1e4, 1e4)) is clamped to
+    # the domain floor at fitter construction — not raised, unless clamping
+    # empties the interval (lo > hi). Data-derived fits replace these
     # unscaled defaults with response-scaled brackets; explicit user bounds
     # are honoured literally apart from that domain clamp.
     var_a: tuple = (1e-12, 1e4)
@@ -91,9 +94,9 @@ class FitConfig:
         *,
         error_model: str | None = None,
         variance_model: str | None = None,
-        var_a: float = 1e-3,
-        var_b: float = 0.0,
-        var_c: float = 0.0,
+        var_a: float | None = None,
+        var_b: float | None = None,
+        var_c: float | None = None,
         sigma_log_init: float = 0.1,
     ) -> None:
         if noise is not None and (error_model is not None or variance_model is not None):
@@ -149,9 +152,9 @@ class FitConfig:
         *,
         error_model: str = "gaussian",
         variance_model: str = "constant",
-        var_a: float = 1e-3,
-        var_b: float = 0.0,
-        var_c: float = 0.0,
+        var_a: float | None = None,
+        var_b: float | None = None,
+        var_c: float | None = None,
         sigma_log_init: float = 0.1,
         **kwargs,
     ) -> "FitConfig":
@@ -179,20 +182,23 @@ class FitConfig:
     @property
     def var_a(self) -> float:
         if isinstance(self.noise, (GaussianLinear, GaussianQuadratic)):
-            return self.noise.a_init
-        return 1e-3
+            a = self.noise.a_init
+            return historical_variance_init("var_a") if a is None else float(a)
+        return historical_variance_init("var_a")
 
     @property
     def var_b(self) -> float:
         if isinstance(self.noise, (GaussianLinear, GaussianQuadratic)):
-            return self.noise.b_init
-        return 0.0
+            b = self.noise.b_init
+            return historical_variance_init("var_b") if b is None else float(b)
+        return historical_variance_init("var_b")
 
     @property
     def var_c(self) -> float:
         if isinstance(self.noise, GaussianQuadratic):
-            return self.noise.c_init
-        return 0.0
+            c = self.noise.c_init
+            return historical_variance_init("var_c") if c is None else float(c)
+        return historical_variance_init("var_c")
 
     @property
     def sigma_log(self) -> float:
@@ -201,19 +207,35 @@ class FitConfig:
         return 0.1
 
 
-def clamp_fit_bounds_variance(bounds: FitBounds) -> None:
-    """Clamp ``var_b`` / ``var_c`` lower bounds to ≥ 0 in place. Does not raise."""
-    lo_b, hi_b = bounds.var_b
-    bounds.var_b = (max(float(lo_b), _VAR_BC_DOMAIN_FLOOR), float(hi_b))
-    lo_c, hi_c = bounds.var_c
-    bounds.var_c = (max(float(lo_c), _VAR_BC_DOMAIN_FLOOR), float(hi_c))
+def clamp_fit_bounds_variance(
+    bounds: FitBounds,
+    response_scale: float | None = None,
+) -> None:
+    """Clamp ``var_a`` / ``var_b`` / ``var_c`` onto the coefficient domain.
+
+    Raises ``ValueError`` if clamping empties any interval. Does not invent
+    new upper bounds.
+    """
+    for name in ("var_a", "var_b", "var_c"):
+        lo, hi = getattr(bounds, name)
+        lo, hi, _ = apply_variance_param_domain(
+            name, lo, hi, response_scale=response_scale,
+        )
+        setattr(bounds, name, (lo, hi))
 
 
-def apply_variance_coefficient_domain(config: FitConfig) -> None:
-    """Clamp heteroscedastic initials and ``var_b`` / ``var_c`` bounds onto the domain."""
+def apply_variance_coefficient_domain(
+    config: FitConfig,
+    response_scale: float | None = None,
+) -> None:
+    """Clamp heteroscedastic initials and ``var_*`` bounds onto the domain."""
+    if not is_heteroscedastic_gaussian(config.noise):
+        return
     if config.bounds is not None:
-        clamp_fit_bounds_variance(config.bounds)
-    config.noise = clamp_noise_spec_initials(config.noise)
+        clamp_fit_bounds_variance(config.bounds, response_scale=response_scale)
+    config.noise = clamp_noise_spec_initials(
+        config.noise, response_scale=response_scale,
+    )
 
 
 def variance_anchor_from_asymptotes(effect_0: float, effect_inf: float) -> float:
