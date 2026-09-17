@@ -18,6 +18,21 @@ from .noise import (
 )
 
 
+ALLOWED_DIRECTIONS = ("inhibition", "activation")
+
+
+def validate_direction(direction: str, *, name: str = "direction") -> None:
+    """Reject any curve direction other than inhibition or activation.
+
+    Public helpers and fit constructors used to fall through to inhibition
+    math for any non-``"activation"`` string, while still storing the original
+    value. Raise early so a typo cannot silently fit the wrong model.
+    """
+    if direction not in ALLOWED_DIRECTIONS:
+        allowed = " or ".join(repr(value) for value in ALLOWED_DIRECTIONS)
+        raise ValueError(f"{name} must be {allowed}; got {direction!r}")
+
+
 @dataclass
 class FitBounds:
     log_c50: tuple = (-5.0, 5.0)
@@ -75,6 +90,7 @@ class FitConfig:
     ) -> None:
         if noise is not None and (error_model is not None or variance_model is not None):
             raise ValueError("Pass either noise or legacy error_model/variance_model, not both.")
+        validate_direction(direction)
         self.log_c50 = log_c50
         self.hill = hill
         self.effect_0 = effect_0

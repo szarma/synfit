@@ -69,6 +69,11 @@ tagged `[X.Y.Z]` heading.
   A plate with `direction_horizontal != direction_vertical` now raises with a
   pointer to `JointMarginalFit` (whose per-drug top/bottom remapping handles
   mixed directions). Same-direction plates are unaffected.
+- **Invalid curve directions raise `ValueError` instead of silently using
+  inhibition math.** `direction` (and the joint / matrix equivalents) must be
+  exactly `"inhibition"` or `"activation"`; any other value is rejected at the
+  public helpers and fit constructors, naming the bad value and the allowed
+  ones.
 
 ## [0.4.0] — 2026-06-11
 

@@ -4,7 +4,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from .data import FitConfig, FitBounds, FitResult
+from .data import FitConfig, FitBounds, FitResult, validate_direction
 from .fitting import FitBase
 from .hill import hill_curve
 from .noise import (
@@ -90,6 +90,7 @@ def _init_config_from_data(
     noise: NoiseSpec | None = None,
 ) -> FitConfig:
     """Derive sensible initial parameters and bounds from data."""
+    validate_direction(direction)
     if data["y"].isna().any():
         warnings.warn(
             "Response column contains NaN values; those rows will be dropped before fitting.",
