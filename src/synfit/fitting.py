@@ -3,7 +3,7 @@ from scipy.optimize import minimize, approx_fprime
 
 from .data import FitConfig
 from .hill import log_wall
-from .param_roles import is_asymptote_param, is_log_param, is_variance_param
+from .param_roles import VARIANCE_PARAM_NAMES, is_asymptote_param, is_log_param, is_variance_param
 from .noise import (
     _DEFAULT_VAR_A_INIT,
     is_heteroscedastic_gaussian,
@@ -113,9 +113,11 @@ class FitBase:
     Child classes implement _log_prob_data(x, **kwargs).
     """
 
+    # Backwards compatibility: exposed callers may reference this.
+    _VARIANCE_PARAM_NAMES = tuple(VARIANCE_PARAM_NAMES)
+
     def __init__(self, config: FitConfig | None = None):
         self.config = config or FitConfig()
-
 
     def _x_to_kwargs(self, x: np.ndarray) -> dict:
         """Convert parameter array to hill_curve kwargs (un-logs log_ params).
