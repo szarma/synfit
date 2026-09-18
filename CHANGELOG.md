@@ -15,6 +15,18 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Fixed
+- **Pinned Hill-curve parameters now enter the single-drug likelihood.**
+  `FitConfig.fitting_parameters` lists the parameters to estimate; any Hill
+  parameter not in that list is meant to be held at its configured value.
+  `FitBase._x_to_kwargs` previously built curve kwargs only from the free
+  vector, so a pinned `hill` / `effect_0` / `effect_inf` / `asymmetry` was
+  silently replaced by `hill_curve`'s own default, while `SingleDrugFit.fit`
+  still echoed the configured value on `FitResult`. Pinning `log_c50` crashed
+  (`c50` has no default) because `fit` also assumed it was always free. Fits
+  that pinned a curve parameter under 0.4.0 or earlier were computed with the
+  library default rather than the pinned value and must be re-run.
+
 ## [0.4.0] — 2026-09-17
 
 ### Added
