@@ -474,3 +474,56 @@ def test_single_drug_fit_with_error_can_fix_log_c50():
     assert result.log_c50 == pytest.approx(0.0)
     assert result.c50 == pytest.approx(1.0)
     assert "log_c50" not in result.param_names
+
+
+def _with_error_df(data):
+    """Keep every replicate so a 5-parameter WithError fit stays identifiable."""
+    df = data[["concentration", "y"]].copy()
+    df["y_err"] = 0.02
+    return df
+
+
+def test_single_drug_fit_with_error_reports_free_asymmetry():
+    """Asymmetry was estimated (in param_names) but FitResult.asymmetry was
+    always None, so param_ci() skipped it."""
+    data = _synthetic_data(c50=1.5, length=10)
+    df = _with_error_df(data)
+    base = default_fit_config(data)
+    cfg = FitConfig(
+        log_c50=base.log_c50,
+        hill=base.hill,
+        effect_0=base.effect_0,
+        effect_inf=base.effect_inf,
+        asymmetry=1.5,
+        bounds=base.bounds,
+        fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"],
+    )
+    result = SingleDrugFitWithError(df, cfg).fit()
+    assert result.success
+    assert result.asymmetry is not None
+    assert np.isfinite(result.asymmetry)
+    assert "asymmetry" in result.param_names
+    cis = result.param_ci()
+    assert cis is not None
+    assert "asymmetry" in cis
+
+
+def test_single_drug_fit_with_error_reports_pinned_asymmetry():
+    data = _synthetic_data(c50=1.5, length=10)
+    df = _with_error_df(data)
+    base = default_fit_config(data)
+    cfg = FitConfig(
+        log_c50=base.log_c50,
+        hill=base.hill,
+        effect_0=base.effect_0,
+        effect_inf=base.effect_inf,
+        asymmetry=2.0,
+        bounds=base.bounds,
+        fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf"],
+    )
+    result = SingleDrugFitWithError(df, cfg).fit()
+    assert result.asymmetry == pytest.approx(2.0)
+    assert "asymmetry" not in result.param_names
+    cis = result.param_ci()
+    if cis is not None:
+        assert "asymmetry" not in cis
