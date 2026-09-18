@@ -569,6 +569,11 @@ class SingleDrugFitWithError(FitBase):
         x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=valids)
         kwargs = self._x_to_kwargs(x_opt)
         log_c50 = self._parameter_value("log_c50", x_opt)
+        if "asymmetry" in self.config.fitting_parameters:
+            asymmetry = self._parameter_value("asymmetry", x_opt)
+        else:
+            asymmetry = self.config.asymmetry
+        kwargs.pop("asymmetry", None)
 
         return FitResult(
             c50=kwargs["c50"],
@@ -580,6 +585,7 @@ class SingleDrugFitWithError(FitBase):
             n_valid=n_valid,
             n_total=len(self.data),
             message=message,
+            asymmetry=asymmetry,
             direction=self.config.direction,
             param_cov=pcov,
             param_names=list(self.config.fitting_parameters),
