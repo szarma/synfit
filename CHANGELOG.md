@@ -23,9 +23,11 @@ tagged `[X.Y.Z]` heading.
   vector, so a pinned `hill` / `effect_0` / `effect_inf` / `asymmetry` was
   silently replaced by `hill_curve`'s own default, while `SingleDrugFit.fit`
   still echoed the configured value on `FitResult`. Pinning `log_c50` crashed
-  (`c50` has no default) because `fit` also assumed it was always free. Fits
-  that pinned a curve parameter under 0.4.0 or earlier were computed with the
-  library default rather than the pinned value and must be re-run.
+  (`c50` has no default) because `fit` also assumed it was always free.
+  Successful fits that pinned a curve parameter to a value other than
+  `hill_curve`'s own default (`hill=1.0`, `effect_0=1.0`, `effect_inf=0.0`,
+  `asymmetry=1.0`) used the library default rather than the pin and must
+  be re-run.
 
 ## [0.4.0] — 2026-09-17
 
