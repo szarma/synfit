@@ -527,3 +527,17 @@ def test_single_drug_fit_with_error_reports_pinned_asymmetry():
     cis = result.param_ci()
     if cis is not None:
         assert "asymmetry" not in cis
+
+
+@pytest.mark.parametrize("fitter_cls, frame", [
+    (SingleDrugFit, None),
+    (SingleDrugFitWithError, "error"),
+])
+def test_single_drug_fitters_reject_empty_fitting_parameters(fitter_cls, frame):
+    """fitting_parameters=[] used to reach the optimiser with an empty vector
+    and die with 'not enough values to unpack (expected 2, got 0)'."""
+    data = _synthetic_data()
+    df = _with_error_df(data) if frame == "error" else data
+    cfg = FitConfig(fitting_parameters=[], bounds=default_fit_config(data).bounds)
+    with pytest.raises(ValueError, match="no free parameters"):
+        fitter_cls(df, cfg)
