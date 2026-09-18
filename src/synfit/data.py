@@ -63,11 +63,22 @@ class FitBounds:
 
 @dataclass
 class FitConfig:
-    """Initial parameter values and bounds for a single-drug fit."""
+    """Initial parameter values and bounds for a single-drug fit.
+
+    ``fitting_parameters`` is the set the optimiser estimates. Any Hill-curve
+    name omitted from that list is held at the configured value and enters
+    the likelihood as a constant. A pin is used exactly as configured; it is
+    *not* constrained by the corresponding ``FitBounds`` interval — bounds
+    are optimiser constraints for estimated parameters only. Pinning
+    ``hill=9`` with bounds ``(0.1, 4.0)`` therefore fits successfully and
+    uses 9.
+    """
     log_c50: float = 0.0
     hill: float = 1.0
     effect_0: float = 1.0
     effect_inf: float = 0.0
+    # Names the optimiser estimates. Omitted Hill-curve names are pinned at
+    # their configured value and are not constrained by ``bounds``.
     fitting_parameters: list = field(
         default_factory=lambda: ["log_c50", "hill", "effect_0", "effect_inf"]
     )
