@@ -360,6 +360,11 @@ class SingleDrugFit(FitBase):
             )
         else:
             apply_variance_coefficient_domain(config)
+        if not config.fitting_parameters:
+            raise ValueError(
+                "At least one parameter must be listed in fitting_parameters — "
+                "cannot run an optimiser with no free parameters."
+            )
         super().__init__(config)
 
     def _curve(self, conc: np.ndarray, kwargs: dict) -> np.ndarray:
@@ -537,6 +542,11 @@ class SingleDrugFitWithError(FitBase):
                 "SingleDrugFitWithError uses per-point y_err — pair it with "
                 "noise.kind='gaussian_constant' or 'lognormal'. To fit a heteroscedastic σ²(μ) "
                 "polynomial, drop y_err and use SingleDrugFit instead."
+            )
+        if not cfg.fitting_parameters:
+            raise ValueError(
+                "At least one parameter must be listed in fitting_parameters — "
+                "cannot run an optimiser with no free parameters."
             )
         super().__init__(cfg)
 
