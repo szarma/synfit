@@ -15,6 +15,8 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-09-21
+
 ### Fixed
 - **Pinned Hill-curve parameters now enter the single-drug likelihood.**
   `FitConfig.fitting_parameters` lists the parameters to estimate; any Hill
