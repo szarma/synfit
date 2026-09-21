@@ -119,18 +119,48 @@ class FitBase:
     def __init__(self, config: FitConfig | None = None):
         self.config = config or FitConfig()
 
+    def _parameter_value(self, name: str, x: np.ndarray) -> float:
+        """Return ``name`` from ``x`` if it is being estimated, else FitConfig.
+
+        ``fitting_parameters`` is the estimated set; anything else is held
+        at its configured value. Used by single-drug ``fit`` so a pinned
+        ``log_c50`` does not assume it is in the optimiser vector.
+        """
+        try:
+            idx = self.config.fitting_parameters.index(name)
+        except ValueError:
+            return float(getattr(self.config, name))
+        return float(x[idx])
+
     def _x_to_kwargs(self, x: np.ndarray) -> dict:
         """Convert parameter array to hill_curve kwargs (un-logs log_ params).
 
+        Every Hill-curve parameter is present: values in ``fitting_parameters``
+        come from ``x``; any others fall back to the FitConfig so a pinned
+        hill / baseline / log_c50 actually enters the likelihood. Log-space
+        names are un-logged in both cases (``log_c50`` → ``c50 = 10**v``).
         Variance polynomial coefficients (``var_a`` etc.) are filtered out —
         retrieve them via ``_x_to_variance_params`` instead.
+
+        ``JointMarginalFit`` / ``MatrixFit`` do not use this helper: they
+        unpack via ``_get`` / ``_unpack_x`` and already restore fixed values
+        themselves. Changing the fallback here does not double-handle them.
         """
-        out = {}
+        values = {
+            "log_c50": float(self.config.log_c50),
+            "hill": float(self.config.hill),
+            "effect_0": float(self.config.effect_0),
+            "effect_inf": float(self.config.effect_inf),
+            "asymmetry": float(self.config.asymmetry),
+        }
         for par, v in zip(self.config.fitting_parameters, x):
             if is_variance_param(par):
                 continue
+            values[par] = float(v)
+        out = {}
+        for par, v in values.items():
             if is_log_param(par):
-                out[par[4:]] = 10**v
+                out[par[4:]] = 10.0 ** v
             else:
                 out[par] = v
         return out

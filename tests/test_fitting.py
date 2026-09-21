@@ -4,8 +4,9 @@ import pytest
 from scipy.optimize import approx_fprime
 from scipy.stats import norm as _norm
 from synfit.data import FitBounds, FitConfig, FitResult
+from synfit.fitting import FitBase
 from synfit.hill import hill_curve
-from synfit.single import SingleDrugFit, SingleDrugFitWithError
+from synfit.single import SingleDrugFit, SingleDrugFitWithError, default_fit_config
 from synfit.synthetic import generate_single_drug
 
 
@@ -282,3 +283,261 @@ def test_predict_ci_jacobian_matches_numerical_finite_differences():
 
     np.testing.assert_allclose(lo_analytic, lo_num, atol=2e-3, rtol=1e-3)
     np.testing.assert_allclose(hi_analytic, hi_num, atol=2e-3, rtol=1e-3)
+
+
+# ----------------------------- pinned curve parameters -------------------- #
+#
+# A FitResult that merely *echoes* the configured value is how this bug hid:
+# hill_curve silently substituted its own default, then fit() reported the
+# user's number via kwargs.get(..., config.<param>). Every test below asserts
+# that the pinned value changed the likelihood / curve, not just the report.
+
+_FREE_CURVE = ["log_c50", "hill", "effect_0", "effect_inf"]
+
+_PIN_PAIRS = (
+    ("log_c50", -0.5, 1.0),
+    ("hill", 0.5, 3.0),
+    ("effect_0", 0.7, 1.3),
+    ("effect_inf", 0.0, 0.2),
+    ("asymmetry", 0.4, 2.5),
+)
+
+
+def _pinned_config(data, name, value):
+    """Data-derived bounds/initials, with ``name`` held at ``value``."""
+    base = default_fit_config(data)
+    kwargs = dict(
+        log_c50=base.log_c50,
+        hill=base.hill,
+        effect_0=base.effect_0,
+        effect_inf=base.effect_inf,
+        asymmetry=base.asymmetry,
+        bounds=base.bounds,
+        fitting_parameters=[p for p in _FREE_CURVE if p != name],
+        noise=base.noise,
+    )
+    kwargs[name] = value
+    return FitConfig(**kwargs)
+
+
+def test_x_to_kwargs_all_free_matches_optimizer_vector():
+    """All-free path: kwargs come from ``x``, plus config.asymmetry=1 (the
+    hill_curve default), so the evaluated curve is unchanged."""
+    cfg = FitConfig(bounds=FitBounds())
+    base = FitBase(cfg)
+    x = np.array([0.3, 1.7, 0.95, 0.05])
+    kwargs = base._x_to_kwargs(x)
+    assert kwargs["c50"] == pytest.approx(10 ** 0.3)
+    assert kwargs["hill"] == pytest.approx(1.7)
+    assert kwargs["effect_0"] == pytest.approx(0.95)
+    assert kwargs["effect_inf"] == pytest.approx(0.05)
+    assert kwargs["asymmetry"] == pytest.approx(1.0)
+    conc = np.array([0.1, 1.0, 10.0])
+    y_new = hill_curve(conc, **kwargs)
+    y_old = hill_curve(conc, c50=10 ** 0.3, hill=1.7, effect_0=0.95, effect_inf=0.05)
+    np.testing.assert_allclose(y_new, y_old)
+
+
+def test_x_to_kwargs_unlogs_fixed_log_c50():
+    cfg = FitConfig(
+        log_c50=0.5,
+        hill=1.2,
+        effect_0=0.9,
+        effect_inf=0.1,
+        fitting_parameters=["hill", "effect_0", "effect_inf"],
+        bounds=FitBounds(),
+    )
+    kwargs = FitBase(cfg)._x_to_kwargs(np.array([1.2, 0.9, 0.1]))
+    assert kwargs["c50"] == pytest.approx(10 ** 0.5)
+    assert "log_c50" not in kwargs
+
+
+@pytest.mark.parametrize("name, v1, v2", _PIN_PAIRS)
+def test_pinned_curve_param_moves_the_likelihood(name, v1, v2):
+    """Same free-parameter vector, two pinned values → different objective.
+
+    This is the check that would have caught the bug: before the fix, kwargs
+    and log-likelihood were identical for hill / effect_0 / effect_inf /
+    asymmetry, and log_c50 raised TypeError.
+    """
+    data = _synthetic_data()
+    f1 = SingleDrugFit(data, _pinned_config(data, name, v1))
+    f2 = SingleDrugFit(data, _pinned_config(data, name, v2))
+    x0, _bounds = f1._get_x0_and_bounds()
+    x = np.asarray(x0, dtype=float)
+    assert f1.config.fitting_parameters == f2.config.fitting_parameters
+    kw1 = f1._x_to_kwargs(x)
+    kw2 = f2._x_to_kwargs(x)
+    curve_key = "c50" if name == "log_c50" else name
+    assert kw1[curve_key] == pytest.approx(10 ** v1 if name == "log_c50" else v1)
+    assert kw2[curve_key] == pytest.approx(10 ** v2 if name == "log_c50" else v2)
+    assert kw1[curve_key] != pytest.approx(kw2[curve_key])
+    ll1 = f1._log_prob_data(x)
+    ll2 = f2._log_prob_data(x)
+    assert np.isfinite(ll1) and np.isfinite(ll2)
+    assert abs(ll1 - ll2) > 1e-6
+
+
+@pytest.mark.parametrize("name, v1, v2", _PIN_PAIRS)
+def test_pinned_curve_param_fit_uses_the_pinned_value(name, v1, v2):
+    """End-to-end: two pins produce different curves / MLE free params, and
+    the result reports the pin rather than echoing a value the fit ignored."""
+    data = _synthetic_data()
+    f1 = SingleDrugFit(data, _pinned_config(data, name, v1))
+    f2 = SingleDrugFit(data, _pinned_config(data, name, v2))
+    r1 = f1.fit()
+    r2 = f2.fit()
+
+    reported1 = getattr(r1, name)
+    reported2 = getattr(r2, name)
+    assert reported1 == pytest.approx(v1)
+    assert reported2 == pytest.approx(v2)
+    if name == "log_c50":
+        assert r1.c50 == pytest.approx(10 ** v1)
+        assert r2.c50 == pytest.approx(10 ** v2)
+
+    pred1 = f1.predict(r1)
+    pred2 = f2.predict(r2)
+    assert not np.allclose(pred1, pred2)
+    assert r1.log_likelihood is not None and r2.log_likelihood is not None
+    assert abs(r1.log_likelihood - r2.log_likelihood) > 1e-6
+
+    # A free parameter the optimiser *did* move should differ across pins
+    # (otherwise the two fits collapsed to the same ignored-pin solution).
+    free_vals_1 = [getattr(r1, p) for p in r1.param_names if p in _FREE_CURVE]
+    free_vals_2 = [getattr(r2, p) for p in r2.param_names if p in _FREE_CURVE]
+    assert not np.allclose(free_vals_1, free_vals_2, rtol=1e-5, atol=1e-5)
+
+
+def test_fixing_log_c50_does_not_raise():
+    data = _synthetic_data()
+    cfg = _pinned_config(data, "log_c50", 0.0)
+    result = SingleDrugFit(data, cfg).fit()
+    assert result.log_c50 == pytest.approx(0.0)
+    assert result.c50 == pytest.approx(1.0)
+    assert "log_c50" not in result.param_names
+
+
+def test_pinning_default_log_c50_survives_data_seeding():
+    """log_c50=0 is both the FitConfig default *and* a legitimate pin
+    (c50=1). Data-derived seeding must not overwrite it when it is fixed."""
+    data = _synthetic_data()
+    cfg = FitConfig(
+        log_c50=0.0,
+        fitting_parameters=["hill", "effect_0", "effect_inf"],
+    )
+    fitter = SingleDrugFit(data, cfg)
+    assert fitter.config.log_c50 == pytest.approx(0.0)
+    result = fitter.fit()
+    assert result.log_c50 == pytest.approx(0.0)
+    assert result.c50 == pytest.approx(1.0)
+
+
+def test_all_free_single_drug_fit_still_recovers_truth():
+    """Regression guard: the default (all curve params free) path is unchanged."""
+    data = _synthetic_data(c50=2.0, hill=1.5)
+    result = SingleDrugFit(data, FitConfig()).fit()
+    assert result.success
+    assert result.c50 == pytest.approx(2.0, rel=0.25)
+    assert result.hill == pytest.approx(1.5, rel=0.6)
+    assert result.param_names == ["log_c50", "hill", "effect_0", "effect_inf"]
+    # 4 estimated curve params + 1 profiled constant-σ
+    assert result.n_params == 5
+
+
+def test_fixed_parameter_excluded_from_estimated_count():
+    data = _synthetic_data()
+    result = SingleDrugFit(data, _pinned_config(data, "hill", 2.0)).fit()
+    assert "hill" not in result.param_names
+    assert result.param_names == ["log_c50", "effect_0", "effect_inf"]
+    # 3 estimated curve params + 1 profiled constant-σ
+    assert result.n_params == 4
+    if result.param_cov is not None:
+        assert result.param_cov.shape == (3, 3)
+
+
+def test_single_drug_fit_with_error_can_fix_log_c50():
+    data = _synthetic_data(c50=1.5, length=10)
+    df = data.groupby("concentration")["y"].agg(["mean", "std"]).reset_index()
+    df.columns = ["concentration", "y", "y_err"]
+    df["y_err"] = df["y_err"].fillna(0.01)
+    base = default_fit_config(data)
+    cfg = FitConfig(
+        log_c50=0.0,
+        hill=base.hill,
+        effect_0=base.effect_0,
+        effect_inf=base.effect_inf,
+        bounds=base.bounds,
+        fitting_parameters=["hill", "effect_0", "effect_inf"],
+    )
+    result = SingleDrugFitWithError(df, cfg).fit()
+    assert result.log_c50 == pytest.approx(0.0)
+    assert result.c50 == pytest.approx(1.0)
+    assert "log_c50" not in result.param_names
+
+
+def _with_error_df(data):
+    """Keep every replicate so a 5-parameter WithError fit stays identifiable."""
+    df = data[["concentration", "y"]].copy()
+    df["y_err"] = 0.02
+    return df
+
+
+def test_single_drug_fit_with_error_reports_free_asymmetry():
+    """Asymmetry was estimated (in param_names) but FitResult.asymmetry was
+    always None, so param_ci() skipped it."""
+    data = _synthetic_data(c50=1.5, length=10)
+    df = _with_error_df(data)
+    base = default_fit_config(data)
+    cfg = FitConfig(
+        log_c50=base.log_c50,
+        hill=base.hill,
+        effect_0=base.effect_0,
+        effect_inf=base.effect_inf,
+        asymmetry=1.5,
+        bounds=base.bounds,
+        fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"],
+    )
+    result = SingleDrugFitWithError(df, cfg).fit()
+    assert result.success
+    assert result.asymmetry is not None
+    assert np.isfinite(result.asymmetry)
+    assert "asymmetry" in result.param_names
+    cis = result.param_ci()
+    assert cis is not None
+    assert "asymmetry" in cis
+
+
+def test_single_drug_fit_with_error_reports_pinned_asymmetry():
+    data = _synthetic_data(c50=1.5, length=10)
+    df = _with_error_df(data)
+    base = default_fit_config(data)
+    cfg = FitConfig(
+        log_c50=base.log_c50,
+        hill=base.hill,
+        effect_0=base.effect_0,
+        effect_inf=base.effect_inf,
+        asymmetry=2.0,
+        bounds=base.bounds,
+        fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf"],
+    )
+    result = SingleDrugFitWithError(df, cfg).fit()
+    assert result.asymmetry == pytest.approx(2.0)
+    assert "asymmetry" not in result.param_names
+    cis = result.param_ci()
+    if cis is not None:
+        assert "asymmetry" not in cis
+
+
+@pytest.mark.parametrize("fitter_cls, frame", [
+    (SingleDrugFit, None),
+    (SingleDrugFitWithError, "error"),
+])
+def test_single_drug_fitters_reject_empty_fitting_parameters(fitter_cls, frame):
+    """fitting_parameters=[] used to reach the optimiser with an empty vector
+    and die with 'not enough values to unpack (expected 2, got 0)'."""
+    data = _synthetic_data()
+    df = _with_error_df(data) if frame == "error" else data
+    cfg = FitConfig(fitting_parameters=[], bounds=default_fit_config(data).bounds)
+    with pytest.raises(ValueError, match="no free parameters"):
+        fitter_cls(df, cfg)
