@@ -331,11 +331,20 @@ class SingleDrugFit(FitBase):
                 auto = _init_config_from_data(
                     data, direction=config.direction, noise=config.noise,
                 )
-                if config.log_c50 == 0.0:
+                # Only seed still-at-default *free* parameters. A name omitted
+                # from fitting_parameters is pinned; overwriting it would
+                # silently replace a pin at the type default (log_c50=0,
+                # effect_inf=0) with the data-derived initial.
+                if (
+                    config.log_c50 == 0.0
+                    and "log_c50" in config.fitting_parameters
+                ):
                     config.log_c50 = auto.log_c50
                 if config.effect_0 == 1.0 and config.effect_inf == 0.0:
-                    config.effect_0 = auto.effect_0
-                    config.effect_inf = auto.effect_inf
+                    if "effect_0" in config.fitting_parameters:
+                        config.effect_0 = auto.effect_0
+                    if "effect_inf" in config.fitting_parameters:
+                        config.effect_inf = auto.effect_inf
                 if config.bounds is None:
                     config.bounds = auto.bounds
                     # Data-derived variance bounds/initials (user-given
@@ -351,6 +360,11 @@ class SingleDrugFit(FitBase):
             )
         else:
             apply_variance_coefficient_domain(config)
+        if not config.fitting_parameters:
+            raise ValueError(
+                "At least one parameter must be listed in fitting_parameters — "
+                "cannot run an optimiser with no free parameters."
+            )
         super().__init__(config)
 
     def _curve(self, conc: np.ndarray, kwargs: dict) -> np.ndarray:
@@ -453,10 +467,9 @@ class SingleDrugFit(FitBase):
         kwargs = self._x_to_kwargs(x_opt)
         var_tuple = self._x_to_variance_params(x_opt)
 
-        log_c50 = x_opt[self.config.fitting_parameters.index("log_c50")]
-        asymmetry = None
+        log_c50 = self._parameter_value("log_c50", x_opt)
         if "asymmetry" in self.config.fitting_parameters:
-            asymmetry = float(x_opt[self.config.fitting_parameters.index("asymmetry")])
+            asymmetry = self._parameter_value("asymmetry", x_opt)
         else:
             asymmetry = self.config.asymmetry
         # pop asymmetry out so kwargs only has hill_curve params
@@ -481,9 +494,9 @@ class SingleDrugFit(FitBase):
         result = FitResult(
             c50=kwargs["c50"],
             log_c50=float(log_c50),
-            hill=kwargs.get("hill", self.config.hill),
-            effect_0=kwargs.get("effect_0", self.config.effect_0),
-            effect_inf=kwargs.get("effect_inf", self.config.effect_inf),
+            hill=kwargs["hill"],
+            effect_0=kwargs["effect_0"],
+            effect_inf=kwargs["effect_inf"],
             success=success,
             n_valid=n_valid,
             n_total=len(self.data),
@@ -530,6 +543,11 @@ class SingleDrugFitWithError(FitBase):
                 "noise.kind='gaussian_constant' or 'lognormal'. To fit a heteroscedastic σ²(μ) "
                 "polynomial, drop y_err and use SingleDrugFit instead."
             )
+        if not cfg.fitting_parameters:
+            raise ValueError(
+                "At least one parameter must be listed in fitting_parameters — "
+                "cannot run an optimiser with no free parameters."
+            )
         super().__init__(cfg)
 
     def _log_prob_data(self, x: np.ndarray, valids: np.ndarray | None = None) -> float:
@@ -560,18 +578,24 @@ class SingleDrugFitWithError(FitBase):
         x0, bounds = self._get_x0_and_bounds()
         x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=valids)
         kwargs = self._x_to_kwargs(x_opt)
-        log_c50 = x_opt[self.config.fitting_parameters.index("log_c50")]
+        log_c50 = self._parameter_value("log_c50", x_opt)
+        if "asymmetry" in self.config.fitting_parameters:
+            asymmetry = self._parameter_value("asymmetry", x_opt)
+        else:
+            asymmetry = self.config.asymmetry
+        kwargs.pop("asymmetry", None)
 
         return FitResult(
             c50=kwargs["c50"],
             log_c50=float(log_c50),
-            hill=kwargs.get("hill", self.config.hill),
-            effect_0=kwargs.get("effect_0", self.config.effect_0),
-            effect_inf=kwargs.get("effect_inf", self.config.effect_inf),
+            hill=kwargs["hill"],
+            effect_0=kwargs["effect_0"],
+            effect_inf=kwargs["effect_inf"],
             success=success,
             n_valid=n_valid,
             n_total=len(self.data),
             message=message,
+            asymmetry=asymmetry,
             direction=self.config.direction,
             param_cov=pcov,
             param_names=list(self.config.fitting_parameters),
