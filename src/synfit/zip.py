@@ -17,7 +17,9 @@ Per-slice fits in normalised space with fixed baseline ``f0`` (the other drug's
 single-agent fraction affected), fixed asymmetry ``s`` (the slice drug's 5p
 shape, 1 for symmetric 4p), and free ``log10 m``, Hill slope λ, and ``Emax``.
 Row slices use the horizontal drug's asymmetry; column slices use the vertical
-drug's. The fitted combination surface averages successful row/column slice
+drug's. The fixed asymmetry is a synfit extension: the published method
+(Yadav et al. 2015, SynergyFinder) uses symmetric 4-parameter slices, which
+this reduces to exactly when s = 1. The fitted combination surface averages successful row/column slice
 predictions (a single direction when the other failed; NaN when both failed).
 δ compares that surface to ``f_zip``. synfit sign convention: **negative = synergy**
 (``delta = -(f_c - f_zip)`` in fraction-affected terms).
