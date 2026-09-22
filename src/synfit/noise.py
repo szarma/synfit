@@ -141,6 +141,32 @@ def require_supported_single_drug_fitting_noise(noise: NoiseSpec | None) -> None
         )
 
 
+_SINGLE_DRUG_WITH_ERROR_NOISE = (GaussianConstant, Lognormal)
+
+
+def require_supported_single_drug_with_error_fitting_noise(
+    noise: NoiseSpec | None,
+) -> None:
+    """Reject noise kinds :class:`~synfit.single.SingleDrugFitWithError` cannot use."""
+    if noise is None or isinstance(noise, _SINGLE_DRUG_WITH_ERROR_NOISE):
+        return
+    if isinstance(noise, CompoundAddMult):
+        raise ValueError(
+            "SingleDrugFitWithError currently supports gaussian_constant and "
+            "lognormal noise only."
+        )
+    if isinstance(noise, (GaussianLinear, GaussianQuadratic)):
+        raise ValueError(
+            "SingleDrugFitWithError uses per-point y_err — pair it with "
+            "noise.kind='gaussian_constant' or 'lognormal'. To fit a heteroscedastic σ²(μ) "
+            "polynomial, drop y_err and use SingleDrugFit instead."
+        )
+    raise ValueError(
+        "SingleDrugFitWithError currently supports gaussian_constant and "
+        "lognormal noise only."
+    )
+
+
 def require_supported_joint_marginal_fitting_noise(noise: NoiseSpec | None) -> None:
     """Reject noise kinds :class:`~synfit.joint_marginal.JointMarginalFit` cannot fit."""
     if noise is not None and not isinstance(noise, _FITTABLE_GAUSSIAN_LOGNORMAL_NOISE):

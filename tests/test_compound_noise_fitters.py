@@ -7,7 +7,12 @@ from synfit.data import FitConfig
 from synfit.joint_marginal import JointMarginalFit
 from synfit.matrix import MatrixFit
 from synfit.noise import CompoundAddMult, from_dict, to_dict
-from synfit.single import SingleDrugFit, SingleDrugFitWithError, default_fit_config
+from synfit.single import (
+    SingleDrugFit,
+    SingleDrugFitWithError,
+    default_bounds,
+    default_fit_config,
+)
 from synfit.synthetic import generate_single_drug
 
 from tests.helpers import matrix_from_config
@@ -55,7 +60,7 @@ def test_single_drug_fit_rejects_compound_noise(noise):
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_single_drug_fit_with_error_rejects_compound_noise(noise):
-    with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
+    with pytest.raises(ValueError, match=r"gaussian_constant and lognormal"):
         SingleDrugFitWithError(_single_drug_with_error_df(), FitConfig(noise=noise))
 
 
@@ -63,6 +68,12 @@ def test_single_drug_fit_with_error_rejects_compound_noise(noise):
 def test_default_fit_config_rejects_compound_noise(noise):
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
         default_fit_config(_single_drug_df(), noise=noise)
+
+
+@pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
+def test_default_bounds_rejects_compound_noise(noise):
+    with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
+        default_bounds(_single_drug_df(), noise=noise)
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
