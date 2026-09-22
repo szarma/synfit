@@ -269,6 +269,22 @@ class TestPredictVarianceFallback:
         assert v is not None
         assert np.allclose(v, 0.07 ** 2)
 
+    def test_lognormal_constant_sigma_is_response_space_variance(self):
+        """σ̂ is log-space; predict_variance must map to Var(y) at each μ."""
+        sigma_log = 0.12
+        result = FitResult(
+            c50=1.0, log_c50=0.0, hill=1.0, effect_0=1.0, effect_inf=0.0,
+            success=True, n_valid=20, n_total=20,
+            sigma=sigma_log, error_model="lognormal", variance_model="constant",
+        )
+        mu = np.array([0.2, 0.5, 0.8])
+        v = result.predict_variance(mu)
+        assert v is not None
+        exp_s2 = np.exp(sigma_log ** 2)
+        expected = mu * mu * exp_s2 * (exp_s2 - 1.0)
+        assert np.allclose(v, expected)
+        assert not np.allclose(v, sigma_log ** 2)
+
     def test_no_sigma_no_variance_returns_none(self):
         # User-supplied y_err path leaves both unset → nothing to predict.
         result = FitResult(
