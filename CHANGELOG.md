@@ -54,8 +54,9 @@ tagged `[X.Y.Z]` heading.
   variance at each predicted μ (median), so prediction bands and downstream
   summaries match the documented units. The profiled ``sigma`` field on
   ``FitResult`` / ``JointMarginalResult`` is unchanged (still log-space); only
-  ``predict_variance()`` maps it to response-scale Var(y). Downstream code that
-  manually converted ``sigma`` for bands should stop double-transforming.
+  ``predict_variance()`` maps it to response-scale Var(y). If your code
+  already converted the *output of* ``predict_variance()`` to the response
+  scale, remove that step; code that converts ``sigma`` itself is unaffected.
 - **Half-max (IC₅₀/EC₅₀) confidence intervals when asymmetry is estimated at
   S = 1.** If asymmetry was a fitted parameter, a point estimate of exactly 1.0
   no longer reuses the κ (c50) interval; uncertainty in S is propagated even
