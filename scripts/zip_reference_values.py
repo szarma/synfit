@@ -35,15 +35,16 @@ def _synergistic_surface(bliss: np.ndarray) -> np.ndarray:
     out = bliss.copy()
     for i in range(1, len(CV)):
         for j in range(1, len(CH)):
-            out[i, j] = bliss[i, j] ** 1.12
+            out[i, j] = bliss[i, j] ** 1.25
     return out
 
 
-def _antagonistic_surface(bliss: np.ndarray) -> np.ndarray:
-    out = bliss.copy()
-    for i in range(1, len(CV)):
-        for j in range(1, len(CH)):
-            out[i, j] = min(1.0, bliss[i, j] ** 0.97)
+def _potentiated_surface() -> np.ndarray:
+    """Vertical drug's c50 drops up to 4x as the horizontal dose rises."""
+    out = np.empty((len(CV), len(CH)))
+    for j, ch in enumerate(CH):
+        c50_ver = C50_VER / (1.0 + 3.0 * ch / (ch + 1.0))
+        out[:, j] = _hill_survival(CV, c50_ver, HILL_VER) * _hill_survival(np.array([ch]), C50_HOR, HILL_HOR)[0]
     return out
 
 
@@ -76,11 +77,17 @@ def _case(name: str, mean_matrix: np.ndarray) -> dict:
     }
 
 
+# Only synergistic surfaces: on antagonistic ones the ``synergy`` package's
+# column slice fits stall at their start values (its fitted SSE is 10-1000x
+# worse than synfit's on the same slice), so it is not a usable reference there.
+# Antagonism is covered by synfit's own sign tests.
+
+
 def main() -> None:
     bliss = _bliss_surface()
     cases = [
         _case("synergistic", _synergistic_surface(bliss)),
-        _case("antagonistic", _antagonistic_surface(bliss)),
+        _case("potentiated", _potentiated_surface()),
     ]
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({"cases": cases}, indent=2) + "\n")

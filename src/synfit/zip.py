@@ -110,7 +110,9 @@ def _fit_slice_normalized(
     if not np.isfinite(log_lo) or not np.isfinite(log_hi):
         return None
 
-    bounds = [(log_lo, log_hi), (0.1, 10.0), (0.0, 1.5)]
+    # Emax is capped at full effect (fraction affected 1), as in SynergyFinder
+    # (≤ 100 % inhibition); an uncapped slice overshoots on synergistic data.
+    bounds = [(log_lo, log_hi), (0.1, 10.0), (-0.5, 1.0)]
     x0 = np.array([log10_m0, hill0, 1.0], dtype=float)
     x0[0] = float(np.clip(x0[0], bounds[0][0], bounds[0][1]))
     x0[1] = float(np.clip(x0[1], bounds[1][0], bounds[1][1]))
