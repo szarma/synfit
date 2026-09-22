@@ -7,14 +7,18 @@ on:
 
 jobs:
   test:
-    name: Core – tests
+    name: Core – tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: uv sync --extra dev
@@ -24,3 +28,28 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -v --tb=short
+
+  dist-smoke:
+    name: Installed wheel – import and README examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Install wheel in a clean venv (outside source tree)
+        run: |
+          python3 -m venv /tmp/synfit-smoke-venv
+          /tmp/synfit-smoke-venv/bin/pip install --upgrade pip
+          /tmp/synfit-smoke-venv/bin/pip install dist/synfit-*.whl
+
+      - name: Print installed version
+        run: /tmp/synfit-smoke-venv/bin/python -c "import synfit; print(synfit.__version__)"
+
+      - name: Run README python examples against installed package
+        run: /tmp/synfit-smoke-venv/bin/python scripts/check_readme_examples.py
