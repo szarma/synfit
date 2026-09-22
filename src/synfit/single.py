@@ -330,6 +330,7 @@ class SingleDrugFit(FitBase):
         if config is None:
             config = _init_config_from_data(data)
         else:
+            config = config.copy()
             # Re-derive data-driven defaults for anything the caller left
             # unspecified, using the config's direction heuristics and noise
             # model (so lognormal forces positive bounds). We derive when the
@@ -548,7 +549,10 @@ class SingleDrugFitWithError(FitBase):
         if not {"concentration", "y", "y_err"}.issubset(data.columns):
             raise ValueError("data must have columns: concentration, y, y_err")
         self.data = data
-        cfg = config or _init_config_from_data(data)
+        if config is None:
+            cfg = _init_config_from_data(data)
+        else:
+            cfg = config.copy()
         validate_direction(cfg.direction)
         # Honour the bounds=None "derive from data" signal (FitBase readers
         # dereference config.bounds.<param>, so it must be concrete by fit time).
