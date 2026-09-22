@@ -8,8 +8,13 @@ default:
 check:
     @echo "Running full quality gate..."
     @just install
+    @just check-readme-examples
     @just test
     @echo "Quality gate passed!"
+
+# Execute README ```python blocks against the current environment
+check-readme-examples:
+    uv run python scripts/check_readme_examples.py
 
 # Install dependencies
 install:
