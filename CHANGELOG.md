@@ -22,6 +22,14 @@ tagged `[X.Y.Z]` heading.
   to its own smoothed slice averages and reported spurious synergy on additive
   surfaces. ``zip_reference`` now returns the zero-interaction expectation;
   added ``zip_fitted_surface`` for the averaged slice-fit combination surface.
+- **HSA is direction-aware.** The stronger single agent is the one whose
+  response is closer to ``effect_inf``: the lower response for inhibition, the
+  higher one for activation. Previously HSA always took the lower response, so
+  an activating combination that merely matched its stronger agent scored as
+  synergy. ``hsa_reference`` takes optional ``effect_0``/``effect_inf``
+  (without them it keeps the inhibition convention); ``hsa_deviation`` passes
+  its asymptotes through. HSA, like Bliss, Loewe and ZIP, assumes both drugs
+  act in the same direction.
 
 ## [0.5.0] — 2026-09-21
 

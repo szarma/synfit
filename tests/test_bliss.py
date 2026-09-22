@@ -220,3 +220,33 @@ def test_hsa_deviation_masks_zero_concentration_edges():
     assert np.all(np.isnan(dev[0, :]))    # zero-conc_ver row
     assert np.all(np.isnan(dev[:, 0]))    # zero-conc_hor column
     assert np.any(np.isfinite(dev[1:, 1:]))  # interior is finite
+
+
+def test_hsa_reference_activation_takes_higher_response():
+    ref = hsa_reference(np.array([0.2, 0.4]), np.array([0.2, 0.8]), effect_0=0.2, effect_inf=1.0)
+    np.testing.assert_allclose(ref, [[0.2, 0.4], [0.8, 0.8]])
+
+
+def test_hsa_reference_requires_both_asymptotes():
+    with pytest.raises(ValueError):
+        hsa_reference(np.ones(2), np.ones(2), effect_0=1.0)
+
+
+def test_hsa_deviation_activation_matching_stronger_agent_is_zero():
+    # Review repro: agents 0.8 and 0.4, combination 0.8 merely matches the
+    # stronger (activating) agent, so it is not synergy.
+    resp_hor = np.array([0.0, 0.4])
+    resp_ver = np.array([0.0, 0.8])
+    mean = np.array([[0.0, 0.4], [0.8, 0.8]])
+    dev = hsa_deviation(mean, resp_hor, resp_ver, effect_0=0.0, effect_inf=1.0)
+    assert dev[1, 1] == pytest.approx(0.0)
+
+
+def test_hsa_deviation_sign_is_direction_neutral():
+    # Exceeding the stronger agent is synergy (negative) in both directions.
+    inh = hsa_deviation(np.array([[1.0, 0.6], [0.3, 0.1]]), np.array([1.0, 0.6]),
+                        np.array([1.0, 0.3]), effect_0=1.0, effect_inf=0.0)
+    act = hsa_deviation(np.array([[0.0, 0.4], [0.7, 0.9]]), np.array([0.0, 0.4]),
+                        np.array([0.0, 0.7]), effect_0=0.0, effect_inf=1.0)
+    assert inh[1, 1] < 0 and act[1, 1] < 0
+    assert inh[1, 1] == pytest.approx(act[1, 1])
