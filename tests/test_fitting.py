@@ -6,7 +6,7 @@ from scipy.stats import norm as _norm
 from synfit.data import FitBounds, FitConfig, FitResult
 from synfit.fitting import FitBase, effective_observation_mask
 from synfit.hill import hill_curve
-from synfit.noise import GaussianLinear, log_prob as noise_log_prob
+from synfit.noise import GaussianLinear, Lognormal, log_prob as noise_log_prob
 from synfit.single import (
     SingleDrugFit,
     SingleDrugFitWithError,
@@ -191,6 +191,30 @@ def test_to_dict_5p_ic50_is_true_half_max_not_kappa():
         assert "kappa" in d["ci"]
         assert "ic50" in d["ci"]
         assert d["ci"]["kappa"] != d["ci"]["ic50"]
+
+
+def test_half_max_ci_propagates_fitted_asymmetry_at_s_equals_one():
+    """5p with Ŝ=1 must not reuse the κ CI when asymmetry was estimated."""
+    result = FitResult(
+        c50=1.0,
+        log_c50=0.0,
+        hill=1.0,
+        effect_0=1.0,
+        effect_inf=0.0,
+        asymmetry=1.0,
+        success=True,
+        n_valid=20,
+        n_total=20,
+        param_names=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"],
+        param_cov=np.diag([0.01, 0.01, 0.01, 0.01, 0.25]),
+    )
+    assert result.half_max == pytest.approx(result.c50)
+    c50_ci = result.param_ci()["c50"]
+    half_ci = result._half_max_ci()
+    assert half_ci is not None
+    c50_width = c50_ci[1] - c50_ci[0]
+    half_width = half_ci[1] - half_ci[0]
+    assert half_width > c50_width * 1.5
 
 
 def test_single_drug_fit_with_error_valids_mask():
@@ -512,6 +536,14 @@ def test_single_drug_fit_with_error_reports_free_asymmetry():
     cis = result.param_ci()
     assert cis is not None
     assert "asymmetry" in cis
+
+
+def test_single_drug_fit_with_error_reports_lognormal_error_model():
+    data = _synthetic_data(noise_model="lognormal", noise_sigma_log=0.08)
+    df = _with_error_df(data)
+    result = SingleDrugFitWithError(df, FitConfig(noise=Lognormal())).fit()
+    assert result.error_model == "lognormal"
+    assert result.variance_model == "constant"
 
 
 def test_single_drug_fit_with_error_reports_pinned_asymmetry():
