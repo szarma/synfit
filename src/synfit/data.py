@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -217,6 +218,10 @@ class FitConfig:
         if isinstance(self.noise, CompoundAddMult):
             return self.noise.sigma_log_init
         return 0.1
+
+    def copy(self) -> "FitConfig":
+        """Deep copy for fitter working state; leaves the caller's config untouched."""
+        return copy.deepcopy(self)
 
 
 def clamp_fit_bounds_variance(
