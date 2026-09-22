@@ -4,8 +4,9 @@ import pytest
 from scipy.optimize import approx_fprime
 from scipy.stats import norm as _norm
 from synfit.data import FitBounds, FitConfig, FitResult
-from synfit.fitting import FitBase
+from synfit.fitting import FitBase, effective_observation_mask
 from synfit.hill import hill_curve
+from synfit.noise import GaussianLinear, log_prob as noise_log_prob
 from synfit.single import (
     SingleDrugFit,
     SingleDrugFitWithError,
@@ -648,3 +649,80 @@ def test_single_drug_fit_with_error_nan_y_excluded_from_n_valid():
     result = SingleDrugFitWithError(df).fit()
     assert result.n_valid == 12
     assert result.n_total == 13
+
+
+def test_single_drug_fit_with_error_invalid_y_err_on_excluded_row_ignored():
+    conc, y = _case_ab_conc_y()
+    rng = np.random.default_rng(5)
+    y_noisy = y + rng.normal(0, 0.03, 13)
+    df = pd.DataFrame({"concentration": conc, "y": y_noisy, "y_err": 0.02})
+    valids = np.ones(13, dtype=bool)
+    valids[7] = False
+    df_bad = df.copy()
+    df_bad.loc[7, "y_err"] = np.nan
+    df_drop = df.loc[valids].reset_index(drop=True)
+    r_ok = SingleDrugFitWithError(df).fit(valids=valids)
+    r_bad = SingleDrugFitWithError(df_bad).fit(valids=valids)
+    r_drop = SingleDrugFitWithError(df_drop).fit()
+    for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf"):
+        np.testing.assert_allclose(
+            getattr(r_ok, name), getattr(r_bad, name), rtol=1e-9, atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            getattr(r_bad, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
+        )
+
+
+@pytest.mark.parametrize("bad_err", [np.nan, 0.0, -0.01])
+def test_single_drug_fit_with_error_invalid_y_err_on_included_row_raises(bad_err):
+    conc, y = _case_ab_conc_y()
+    df = pd.DataFrame({"concentration": conc, "y": y, "y_err": 0.02})
+    df.loc[4, "y_err"] = bad_err
+    with pytest.raises(ValueError, match="Invalid y_err on observations included"):
+        SingleDrugFitWithError(df).fit()
+
+
+def test_single_drug_fit_with_error_likelihood_uses_weights():
+    conc, y = _case_ab_conc_y()
+    rng = np.random.default_rng(6)
+    y_noisy = y + rng.normal(0, 0.03, 13)
+    df = pd.DataFrame({"concentration": conc, "y": y_noisy, "y_err": 0.02})
+    fitter = SingleDrugFitWithError(df)
+    mask = effective_observation_mask(
+        None, len(df), df["concentration"].values, df["y"].values,
+    )
+    x0, bounds = fitter._get_x0_and_bounds()
+    x_opt, _, _, _ = fitter._run_minimize(x0, bounds, valids=mask)
+    fitter._likelihood_mask = mask
+    ll_weighted = fitter._log_prob_data(x_opt, valids=mask)
+    kwargs = fitter._x_to_kwargs(x_opt)
+    y_pred = hill_curve(conc, **kwargs)
+    ll_unweighted = noise_log_prob(
+        df["y"].values, y_pred, fitter.config.noise, mask=mask,
+    )
+    assert ll_weighted != ll_unweighted
+
+
+def test_single_drug_gaussian_linear_nan_concentration_rows_match_drop():
+    conc, y = _case_ab_conc_y()
+    rng = np.random.default_rng(7)
+    y_noisy = y + rng.normal(0, 0.05, 13)
+    df_base = pd.DataFrame({"concentration": conc, "y": y_noisy, "replicate": 0})
+    cfg = FitConfig(noise=GaussianLinear())
+    extra = pd.DataFrame(
+        {"concentration": [np.nan, np.nan], "y": [1e6, 2e6], "replicate": [0, 0]},
+    )
+    df_bad = pd.concat([df_base, extra], ignore_index=True)
+    fit_bad = SingleDrugFit(df_bad, cfg)
+    fit_drop = SingleDrugFit(df_base, cfg)
+    assert fit_bad._response_scale == pytest.approx(fit_drop._response_scale)
+    assert fit_bad.config.bounds.var_a == fit_drop.config.bounds.var_a
+    assert fit_bad.config.bounds.var_b == fit_drop.config.bounds.var_b
+    assert fit_bad.config.bounds.var_c == fit_drop.config.bounds.var_c
+    r_bad = fit_bad.fit()
+    r_drop = fit_drop.fit()
+    assert r_bad.success and r_drop.success
+    for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf"):
+        np.testing.assert_allclose(
+            getattr(r_bad, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
+        )

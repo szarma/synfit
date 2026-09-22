@@ -26,6 +26,15 @@ tagged `[X.Y.Z]` heading.
   ``SingleDrugFit.fit(valids=...)`` still shape the automatic initials and
   bounds as before. A fit with too few finite responses raises instead of
   reporting success with misleading metrics.
+- **`SingleDrugFitWithError` no longer drops all weights when any `y_err` is
+  non-finite.** Per-point errors are checked only on observations that enter
+  the likelihood; invalid errors on included rows raise ``ValueError`` instead
+  of silently falling back to an unweighted fit. Errors on excluded rows are
+  ignored.
+- **Heteroscedastic `SingleDrugFit` response scaling ignores rows with
+  non-finite concentration** (same finite-pair rule as data-derived defaults),
+  so stray NaN-concentration rows no longer inflate variance coefficient
+  bounds and break ``gaussian_linear`` / ``gaussian_quadratic`` fits.
 
 ## [0.6.0] — 2026-09-22
 

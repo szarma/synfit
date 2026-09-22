@@ -40,6 +40,37 @@ def effective_observation_mask(
     return mask & np.isfinite(conc) & np.isfinite(resp)
 
 
+def validate_included_y_err(y_err: np.ndarray, mask: np.ndarray) -> None:
+    """Raise if any likelihood row has invalid per-point standard error."""
+    err = np.asarray(y_err, dtype=float)
+    obs = np.asarray(mask, dtype=bool)
+    if obs.shape != err.shape:
+        raise ValueError(
+            f"y_err length {err.shape[0]} does not match observation mask length "
+            f"{obs.shape[0]}."
+        )
+    included = np.flatnonzero(obs)
+    if included.size == 0:
+        return
+    err_inc = err[included]
+    non_finite = included[~np.isfinite(err_inc)]
+    finite_nonpos = included[np.isfinite(err_inc) & (err_inc <= 0)]
+    parts: list[str] = []
+    if non_finite.size:
+        parts.append(
+            f"non-finite y_err at row indices {non_finite.tolist()}"
+        )
+    if finite_nonpos.size:
+        parts.append(
+            f"non-positive y_err at row indices {finite_nonpos.tolist()}"
+        )
+    if parts:
+        raise ValueError(
+            "Invalid y_err on observations included in the fit: "
+            + "; ".join(parts)
+        )
+
+
 def matrix_observation_masks(
     replicates: list[np.ndarray],
     valids: list[np.ndarray] | None,
