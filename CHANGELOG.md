@@ -15,6 +15,28 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Fixed
+- **ZIP now implements the published Yadav et al. 2015 definition** (slice fits
+  anchored at the other drug's single-agent effect with free Emax, compared
+  against the zero-interaction expectation). Previously ZIP compared the data
+  to its own smoothed slice averages and reported spurious synergy on additive
+  surfaces. ``zip_reference`` returns the zero-interaction expectation;
+  ``zip_fitted_surface`` returns the combination surface; ``zip_scores`` with
+  ``ZipResult`` exposes reference, fitted, δ, and which row/column slice fits
+  failed. Failed slices no longer fall back to the null expectation (one
+  successful direction is used alone; both failed → NaN interior δ). Slice
+  models use each drug's 5-parameter asymmetry as a fixed shape so δ vanishes
+  on exact asymmetric null surfaces (a synfit extension of the published
+  symmetric formulation; identical to it for 4-parameter drugs).
+- **HSA is direction-aware.** The stronger single agent is the one whose
+  response is closer to ``effect_inf``: the lower response for inhibition, the
+  higher one for activation. Previously HSA always took the lower response, so
+  an activating combination that merely matched its stronger agent scored as
+  synergy. ``hsa_reference`` takes optional ``effect_0``/``effect_inf``
+  (without them it keeps the inhibition convention); ``hsa_deviation`` passes
+  its asymptotes through. HSA, like Bliss, Loewe and ZIP, assumes both drugs
+  act in the same direction.
+
 ## [0.5.0] — 2026-09-21
 
 ### Fixed
