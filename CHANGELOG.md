@@ -15,6 +15,14 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Fixed
+- **ZIP now implements the published Yadav et al. 2015 definition** (slice fits
+  anchored at the other drug's single-agent effect with free Emax, compared
+  against the zero-interaction expectation). Previously ZIP compared the data
+  to its own smoothed slice averages and reported spurious synergy on additive
+  surfaces. ``zip_reference`` now returns the zero-interaction expectation;
+  added ``zip_fitted_surface`` for the averaged slice-fit combination surface.
+
 ## [0.5.0] — 2026-09-21
 
 ### Fixed
