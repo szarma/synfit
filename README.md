@@ -2,32 +2,69 @@
 
 Core numerical functions for drug response curve fitting.
 
+## Quick start
+
+synfit is not published on PyPI yet. Install a release wheel after building it locally, or install directly from Git:
+
+```bash
+# From a built wheel (run `uv build` in the repository first)
+pip install dist/synfit-*.whl
+
+# Or from Git
+pip install "synfit @ git+https://github.com/szarma/synfit.git"
+```
+
+Minimal single-drug fit (inhibition; IC₅₀ is reported as `ic50` for the half-max concentration):
+
+```python
+import pandas as pd
+from synfit import SingleDrugFit
+
+data = pd.DataFrame({
+    "concentration": [0, 0.1, 1, 10, 100, 100],
+    "y": [1.0, 0.95, 0.75, 0.35, 0.08, 0.05],
+    "replicate": [0, 0, 0, 0, 0, 0],
+})
+result = SingleDrugFit(data).fit()
+print(f"c50 (κ): {result.c50:.3g}")
+print(f"IC50:    {result.half_max:.3g}")
+print(f"Hill:    {result.hill:.3g}")
+cis = result.param_ci()
+if cis and "c50" in cis:
+    lo, hi = cis["c50"]
+    print(f"c50 95% CI: [{lo:.3g}, {hi:.3g}]")
+```
+
 ## Overview
 
 `synfit` is a pure Python package (no Django) that provides:
 
 - 4-parameter Hill equation fitting for single-drug dose-response data
 - Drug-drug interaction matrix fitting with Bliss independence comparison
-- Configurable `NoiseSpec` models: constant/heteroscedastic Gaussian, Lognormal, and compound additive+multiplicative noise
+- Configurable `NoiseSpec` models: constant and heteroscedastic Gaussian and Lognormal
 - Synthetic data generation for testing and validation
 - Static matplotlib plotting (dose-response curves, heatmaps)
 
 ## Installation
 
+**End users (installed package):** see [Quick start](#quick-start) above.
+
+**Development checkout:**
+
 ```bash
-# Install with development dependencies
 uv sync --extra dev
 ```
 
 ## Quality Gates
 
 ```bash
-# Full quality gate (seed data check + all tests)
+# Full quality gate (README examples + all tests)
 just check
 
 # Individual commands
 just test                # Run all tests
 just test-coverage       # Run tests with coverage report
+just check-readme-examples  # Run README ```python blocks
 just generate-seed-data  # Regenerate synthetic seed CSVs
 just check-seed-data     # Verify seed CSVs are up-to-date (CI check)
 
@@ -60,7 +97,8 @@ synfit/
 ├── data/                # Synthetic seed datasets (committed, CI-verified)
 │   └── */config.json    # Generation configs with ground truth
 ├── scripts/
-│   └── generate_seed_datasets.py  # Seed data generator (supports --check)
+│   ├── generate_seed_datasets.py  # Seed data generator (supports --check)
+│   └── check_readme_examples.py   # Execute README python blocks (CI)
 ├── pyproject.toml
 └── justfile
 ```
@@ -70,14 +108,16 @@ synfit/
 ### Fitting
 
 All fitters inherit from `FitBase`, which provides:
-- `scipy.optimize.minimize` with multiple restarts
+
+- `scipy.optimize.minimize` (L-BFGS-B) in scale-relative coordinates so fits are stable across response magnitudes
+- A single optional retry with refreshed variance initials when heteroscedastic Gaussian noise stalls at the first iteration
 - Bounded parameter search via `FitBounds`
 - `log_wall` soft boundary prior (smooth penalty near bounds)
 - Profiled variance log-likelihood (MLE variance computed analytically)
 
 ### Noise models
 
-Configured via `FitConfig.noise`, a tagged `NoiseSpec` union serialized as JSON (for example `{"kind": "gaussian_linear", "a_init": 0.001, "b_init": 0.0}`). Variants are `GaussianConstant`, `GaussianLinear`, `GaussianQuadratic`, `Lognormal`, and `CompoundAddMult`. Constant Gaussian and Lognormal profile one variance term analytically; Gaussian linear/quadratic fit response-dependent variance coefficients; per-point `y_err` weights remain available for constant Gaussian/Lognormal fits.
+Configured via `FitConfig.noise`, a tagged `NoiseSpec` union serialized as JSON (for example `{"kind": "gaussian_linear", "a_init": 0.001, "b_init": 0.0}`). Fittable variants are `GaussianConstant`, `GaussianLinear`, `GaussianQuadratic`, and `Lognormal`. Constant Gaussian and Lognormal profile one variance term analytically; Gaussian linear/quadratic fit response-dependent variance coefficients; per-point `y_err` weights remain available for constant Gaussian/Lognormal fits.
 
 ### Synthetic Data
 
@@ -88,7 +128,7 @@ from synfit.synthetic import generate_single_drug, generate_matrix
 
 df = generate_single_drug({
     "seed": 42,
-    "hill_params": {"ic50": 5.0, "hill": 1.8, "top": 1.0, "bottom": 0.02},
+    "hill_params": {"c50": 5.0, "hill": 1.8, "effect_0": 1.0, "effect_inf": 0.02},
     "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 3.0, "length": 8, "has_zero": True},
     "n_replicates": 3,
     "noise_sigma_log": 0.05,
