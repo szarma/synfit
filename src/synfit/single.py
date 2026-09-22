@@ -9,7 +9,7 @@ from .data import (
     apply_variance_coefficient_domain,
     variance_anchor_from_asymptotes,
 )
-from .fitting import FitBase
+from .fitting import FitBase, effective_observation_mask, validate_included_y_err
 from .hill import hill_curve
 from .noise import (
     GaussianConstant,
@@ -133,14 +133,27 @@ def _init_config_from_data(
 ) -> FitConfig:
     """Derive sensible initial parameters and bounds from data."""
     validate_direction(direction)
-    if data["y"].isna().any():
+    finite = effective_observation_mask(
+        None,
+        len(data),
+        data["concentration"].values,
+        data["y"].values,
+    )
+    if not finite.all():
         warnings.warn(
-            "Response column contains NaN values; those rows will be dropped before fitting.",
+            "Rows with non-finite concentration or response are excluded when "
+            "deriving fit defaults.",
             UserWarning,
             stacklevel=2,
         )
+    data = data.loc[finite]
+    if data.empty:
+        raise ValueError(
+            "Need at least 2 finite (concentration, response) pairs to derive fit defaults; "
+            "got 0."
+        )
 
-    y = data["y"].dropna()
+    y = data["y"]
     conc_nonzero = data.query("concentration > 0")["concentration"]
 
     n = len(y)
@@ -186,7 +199,7 @@ def _init_config_from_data(
 
     ym = ymin + dy / 2
 
-    # find concentration closest to midpoint response
+    # Concentration closest to the midpoint response (finite rows only).
     idx = (data["y"] - ym).abs().sort_values().index[0]
     ic50_init = float(data.loc[idx, "concentration"])
     if ic50_init <= 0:
@@ -352,8 +365,14 @@ class SingleDrugFit(FitBase):
                     config.noise = auto.noise
         validate_direction(config.direction)
         if is_heteroscedastic_gaussian(config.noise):
+            finite = effective_observation_mask(
+                None,
+                len(data),
+                data["concentration"].values,
+                data["y"].values,
+            )
             self._response_scale = _robust_response_range(
-                data["y"].dropna().to_numpy()
+                data["y"].values[finite]
             )
             apply_variance_coefficient_domain(
                 config, response_scale=self._response_scale,
@@ -451,10 +470,13 @@ class SingleDrugFit(FitBase):
         """
         Fit the Hill curve. Optionally pass a boolean array to exclude points.
         """
-        if valids is None:
-            valids = np.ones(len(self.data), dtype=bool)
-
-        n_valid = int(valids.sum())
+        mask = effective_observation_mask(
+            valids,
+            len(self.data),
+            self.data["concentration"].values,
+            self.data["y"].values,
+        )
+        n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
             raise ValueError(
@@ -463,7 +485,7 @@ class SingleDrugFit(FitBase):
             )
 
         x0, bounds = self._get_x0_and_bounds()
-        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=valids)
+        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
         kwargs = self._x_to_kwargs(x_opt)
         var_tuple = self._x_to_variance_params(x_opt)
 
@@ -510,7 +532,7 @@ class SingleDrugFit(FitBase):
             param_names=list(self.config.fitting_parameters),
         )
 
-        self._compute_gof_metrics(result, valids)
+        self._compute_gof_metrics(result, mask)
 
         return result
 
@@ -556,18 +578,26 @@ class SingleDrugFitWithError(FitBase):
         y = self.data["y"].values
         y_err = self.data["y_err"].values
         y_pred = hill_curve(conc, **kwargs)
+        mask = valids
+        if mask is None:
+            mask = getattr(self, "_likelihood_mask", None)
         return noise_log_prob(
             y, y_pred,
             self.config.noise,
-            y_err=y_err if np.isfinite(y_err).all() else None,
-            mask=valids,
+            y_err=y_err,
+            mask=mask,
         )
 
     def fit(self, valids: np.ndarray | None = None) -> FitResult:
-        if valids is None:
-            valids = np.ones(len(self.data), dtype=bool)
-
-        n_valid = int(valids.sum())
+        mask = effective_observation_mask(
+            valids,
+            len(self.data),
+            self.data["concentration"].values,
+            self.data["y"].values,
+        )
+        validate_included_y_err(self.data["y_err"].values, mask)
+        self._likelihood_mask = mask
+        n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
             raise ValueError(
@@ -576,7 +606,7 @@ class SingleDrugFitWithError(FitBase):
             )
 
         x0, bounds = self._get_x0_and_bounds()
-        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=valids)
+        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
         kwargs = self._x_to_kwargs(x_opt)
         log_c50 = self._parameter_value("log_c50", x_opt)
         if "asymmetry" in self.config.fitting_parameters:

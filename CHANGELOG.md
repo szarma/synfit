@@ -15,6 +15,27 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Fixed
+- **Missing responses (NaN) are excluded consistently from single-drug, joint-
+  marginal, and matrix fits.** ``n_valid``, RSS, R², AIC and BIC now count only
+  observations that enter the likelihood (finite concentration and response,
+  after any caller ``valids`` mask). Data-driven initials and bounds ignore
+  rows with a non-finite concentration or response; ``MatrixFit`` and
+  ``JointMarginalFit`` (new optional ``valids_a`` / ``valids_b``) also leave out
+  cells excluded through their constructor masks. Points excluded via
+  ``SingleDrugFit.fit(valids=...)`` still shape the automatic initials and
+  bounds as before. A fit with too few finite responses raises instead of
+  reporting success with misleading metrics.
+- **`SingleDrugFitWithError` no longer drops all weights when any `y_err` is
+  non-finite.** Per-point errors are checked only on observations that enter
+  the likelihood; invalid errors on included rows raise ``ValueError`` instead
+  of silently falling back to an unweighted fit. Errors on excluded rows are
+  ignored.
+- **Heteroscedastic `SingleDrugFit` response scaling ignores rows with
+  non-finite concentration** (same finite-pair rule as data-derived defaults),
+  so stray NaN-concentration rows no longer inflate variance coefficient
+  bounds and break ``gaussian_linear`` / ``gaussian_quadratic`` fits.
+
 ## [0.6.0] — 2026-09-22
 
 ### Fixed
