@@ -9,7 +9,7 @@ from .data import (
     apply_variance_coefficient_domain,
     variance_anchor_from_asymptotes,
 )
-from .fitting import FitBase, effective_observation_mask
+from .fitting import FitBase, effective_observation_mask, validate_included_y_err
 from .hill import hill_curve
 from .noise import (
     GaussianConstant,
@@ -365,8 +365,14 @@ class SingleDrugFit(FitBase):
                     config.noise = auto.noise
         validate_direction(config.direction)
         if is_heteroscedastic_gaussian(config.noise):
+            finite = effective_observation_mask(
+                None,
+                len(data),
+                data["concentration"].values,
+                data["y"].values,
+            )
             self._response_scale = _robust_response_range(
-                data["y"].dropna().to_numpy()
+                data["y"].values[finite]
             )
             apply_variance_coefficient_domain(
                 config, response_scale=self._response_scale,
@@ -572,11 +578,14 @@ class SingleDrugFitWithError(FitBase):
         y = self.data["y"].values
         y_err = self.data["y_err"].values
         y_pred = hill_curve(conc, **kwargs)
+        mask = valids
+        if mask is None:
+            mask = getattr(self, "_likelihood_mask", None)
         return noise_log_prob(
             y, y_pred,
             self.config.noise,
-            y_err=y_err if np.isfinite(y_err).all() else None,
-            mask=valids,
+            y_err=y_err,
+            mask=mask,
         )
 
     def fit(self, valids: np.ndarray | None = None) -> FitResult:
@@ -586,6 +595,8 @@ class SingleDrugFitWithError(FitBase):
             self.data["concentration"].values,
             self.data["y"].values,
         )
+        validate_included_y_err(self.data["y_err"].values, mask)
+        self._likelihood_mask = mask
         n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
