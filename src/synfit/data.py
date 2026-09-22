@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 import numpy as np
 from scipy.stats import norm as _norm
@@ -217,6 +217,25 @@ class FitConfig:
         if isinstance(self.noise, CompoundAddMult):
             return self.noise.sigma_log_init
         return 0.1
+
+    def copy(self) -> "FitConfig":
+        """Deep copy for fitter working state; leaves the caller's config untouched."""
+        bounds_copy = None
+        if self.bounds is not None:
+            bounds_copy = FitBounds(
+                **{f.name: getattr(self.bounds, f.name) for f in fields(FitBounds)}
+            )
+        return FitConfig(
+            log_c50=self.log_c50,
+            hill=self.hill,
+            effect_0=self.effect_0,
+            effect_inf=self.effect_inf,
+            fitting_parameters=list(self.fitting_parameters),
+            bounds=bounds_copy,
+            noise=self.noise,
+            asymmetry=self.asymmetry,
+            direction=self.direction,
+        )
 
 
 def clamp_fit_bounds_variance(
