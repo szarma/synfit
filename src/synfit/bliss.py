@@ -118,17 +118,29 @@ def bliss_deviation(
 def hsa_reference(
     resp_horizontal: np.ndarray,
     resp_vertical: np.ndarray,
+    *,
+    effect_0: float | None = None,
+    effect_inf: float | None = None,
 ) -> np.ndarray:
     """
     Predicted combination response under Highest Single Agent.
 
-    hsa[i, j] = min(resp_vertical[i], resp_horizontal[j]) — the single agent that
-    produces the stronger (more-inhibited, i.e. lower) response at the matched
-    concentration. Returns shape (len(resp_vertical), len(resp_horizontal)).
+    hsa[i, j] is the response of whichever single agent has the stronger effect
+    at the matched concentrations, i.e. the response closer to ``effect_inf``:
+    the lower one for inhibition (``effect_inf < effect_0``), the higher one for
+    activation (``effect_inf > effect_0``). Without asymptotes the inhibition
+    convention (the lower response) is assumed. Both drugs must act in the same
+    direction; HSA is undefined for an inhibitor combined with an activator.
+    Returns shape (len(resp_vertical), len(resp_horizontal)).
     """
     rh = np.asarray(resp_horizontal, dtype=float)
     rv = np.asarray(resp_vertical, dtype=float)
-    return np.minimum(rv[:, None], rh[None, :])
+    if (effect_0 is None) != (effect_inf is None):
+        raise ValueError("pass both effect_0 and effect_inf, or neither")
+    if effect_0 is not None and effect_0 == effect_inf:
+        raise ValueError("effect_0 and effect_inf must differ")
+    stronger = np.maximum if (effect_0 is not None and effect_inf > effect_0) else np.minimum
+    return stronger(rv[:, None], rh[None, :])
 
 
 def hsa_deviation(
@@ -155,7 +167,9 @@ def hsa_deviation(
     scale = effect_0 - effect_inf
     if scale == 0:
         raise ValueError("effect_0 and effect_inf must differ")
-    hsa = hsa_reference(resp_horizontal, resp_vertical)
+    hsa = hsa_reference(
+        resp_horizontal, resp_vertical, effect_0=effect_0, effect_inf=effect_inf
+    )
     dev = (np.asarray(mean_matrix, dtype=float) - effect_inf) / scale - (hsa - effect_inf) / scale
     if conc_hor is not None and conc_ver is not None:
         ch = np.asarray(conc_hor, dtype=float)
