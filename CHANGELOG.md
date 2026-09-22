@@ -15,6 +15,8 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-09-22
+
 ### Fixed
 - **ZIP now implements the published Yadav et al. 2015 definition** (slice fits
   anchored at the other drug's single-agent effect with free Emax, compared
