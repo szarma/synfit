@@ -41,6 +41,9 @@ if cis and "c50" in cis:
 
 - 4-parameter Hill equation fitting for single-drug dose-response data
 - Drug-drug interaction matrix fitting with Bliss independence comparison
+- Synergy scores: Bliss, HSA, Loewe and ZIP, the latter implementing the
+  published Zero Interaction Potency model (Yadav et al. 2015), unit- and
+  direction-neutral — see [References](#references)
 - Configurable `NoiseSpec` models: constant and heteroscedastic Gaussian and Lognormal
 - Synthetic data generation for testing and validation
 - Static matplotlib plotting (dose-response curves, heatmaps)
@@ -135,6 +138,26 @@ df = generate_single_drug({
     "outliers": [],
 })
 ```
+
+## References
+
+Synergy scores follow their published definitions:
+
+- **ZIP (Zero Interaction Potency)** — Yadav B, Wennerberg K, Aittokallio T, Tang J.
+  *Searching for drug synergy in complex dose–response landscapes using an interaction
+  potency model.* Computational and Structural Biotechnology Journal 13:504–513 (2015).
+  [doi:10.1016/j.csbj.2015.09.001](https://doi.org/10.1016/j.csbj.2015.09.001) —
+  the reference implementation is SynergyFinder. `synfit` reproduces this definition
+  exactly for symmetric (4-parameter) curves; for 5-parameter drugs it keeps the
+  moving drug's asymmetry in the slice fits, which is an extension of the published
+  method and reduces to it when the asymmetry equals 1. See `src/synfit/zip.py`.
+- **Bliss independence** — Bliss CI. *The toxicity of poisons applied jointly.*
+  Annals of Applied Biology 26:585–615 (1939).
+- **Loewe additivity** — Loewe S, Muischnek H. *Über Kombinationswirkungen.*
+  Naunyn-Schmiedeberg's Archiv für experimentelle Pathologie und Pharmakologie
+  114:313–326 (1926).
+
+Sign convention throughout: **negative = synergy**.
 
 ## License
 
