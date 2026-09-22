@@ -6,15 +6,29 @@ import numpy as np
 import pytest
 
 from synfit.bliss import bliss_independence
-from synfit.hill import calculate_concentration_series, hill_curve
+from synfit.hill import hill_curve
 from synfit.matrix import MatrixFit
 from synfit.plotting import zip_heatmap
-from synfit.synthetic import generate_matrix
-from synfit.zip import zip_delta, zip_fitted_surface, zip_reference
+from synfit.zip import zip_delta, zip_fitted_surface, zip_reference, zip_scores
 
 from tests.helpers import PNG_MAGIC, matrix_from_config
 
 REF_JSON = Path(__file__).resolve().parents[1] / "tests" / "data" / "zip_reference_values.json"
+
+
+def _edge_mask(ch: np.ndarray, cv: np.ndarray) -> np.ndarray:
+    return (ch[np.newaxis, :] == 0) | (cv[:, np.newaxis] == 0)
+
+
+def _interior_mask(ch: np.ndarray, cv: np.ndarray) -> np.ndarray:
+    return (ch[np.newaxis, :] > 0) & (cv[:, np.newaxis] > 0)
+
+
+def _assert_zip_delta_mask(d: np.ndarray, ch: np.ndarray, cv: np.ndarray) -> None:
+    assert d.shape == (len(cv), len(ch))
+    assert np.all(np.isnan(d[_edge_mask(ch, cv)]))
+    interior = _interior_mask(ch, cv)
+    assert np.all(np.isfinite(d[interior]))
 
 
 def _bliss_exact_surface(
@@ -50,7 +64,8 @@ class TestZipZeroInteraction:
         # effect_0=1, effect_inf=0: Bliss is the outer product of marginal Hill curves.
         m = _bliss_exact_surface(ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0)
         d = zip_delta(m, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0)
-        assert np.nanmax(np.abs(d)) < 1e-3
+        _assert_zip_delta_mask(d, ch, cv)
+        assert np.max(np.abs(d[_interior_mask(ch, cv)])) < 1e-3
 
     def test_inhibition_elisa_scale(self, grid):
         ch, cv = grid
@@ -59,7 +74,8 @@ class TestZipZeroInteraction:
             ch, cv, 1.0, 2.0, 1.5, 1.0, e0, e_inf
         )
         d = zip_delta(m, ch, cv, 1.0, 2.0, 1.5, 1.0, e0, e_inf)
-        assert np.nanmax(np.abs(d)) < 1e-3
+        _assert_zip_delta_mask(d, ch, cv)
+        assert np.max(np.abs(d[_interior_mask(ch, cv)])) < 1e-3
 
     def test_activation(self, grid):
         ch, cv = grid
@@ -68,20 +84,31 @@ class TestZipZeroInteraction:
             ch, cv, 1.0, 2.0, 1.5, 1.0, e0, e_inf
         )
         d = zip_delta(m, ch, cv, 1.0, 2.0, 1.5, 1.0, e0, e_inf)
-        assert np.nanmax(np.abs(d)) < 1e-3
+        _assert_zip_delta_mask(d, ch, cv)
+        assert np.max(np.abs(d[_interior_mask(ch, cv)])) < 1e-3
 
-    def test_five_parameter_drug(self, grid):
-        ch, cv = grid
-        shape = np.zeros((len(cv), len(ch)))
-        m = zip_reference(
-            shape, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0, asymmetry_hor=0.6
+    @pytest.mark.parametrize(
+        "asymmetry_hor,asymmetry_ver",
+        [
+            (0.2, None),
+            (None, 0.6),
+            (10.0, None),
+            (None, 10.0),
+        ],
+    )
+    def test_five_parameter_null_surface(self, asymmetry_hor, asymmetry_ver):
+        ch = np.concatenate([[0.0], np.logspace(-3, 3, 20)])
+        cv = np.concatenate([[0.0], np.logspace(-3, 3, 20)])
+        m = _bliss_exact_surface(
+            ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0,
+            asymmetry_hor=asymmetry_hor, asymmetry_ver=asymmetry_ver,
         )
         d = zip_delta(
-            m, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0, asymmetry_hor=0.6
+            m, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0,
+            asymmetry_hor=asymmetry_hor, asymmetry_ver=asymmetry_ver,
         )
-        # 3-parameter slice Hills do not exactly reproduce every row of a 5p
-        # zero-interaction surface; residual δ is small but above 1e-3 at 0.6 asymmetry.
-        assert np.nanmax(np.abs(d)) < 3e-3
+        _assert_zip_delta_mask(d, ch, cv)
+        assert np.max(np.abs(d[_interior_mask(ch, cv)])) < 1e-4
 
 
 class TestZipSign:
@@ -138,8 +165,9 @@ class TestZipSign:
         ant_m = self._antagonistic_surface(ch, cv, **kw)
         d_syn = zip_delta(syn_m, ch, cv, **kw)
         d_ant = zip_delta(ant_m, ch, cv, **kw)
-        assert np.nanmean(d_syn) < -0.02
-        assert np.nanmean(d_ant) > 0.02
+        interior = _interior_mask(ch, cv)
+        assert np.mean(d_syn[interior]) < -0.02
+        assert np.mean(d_ant[interior]) > 0.02
 
     def test_synergy_and_antagonism_activation(self):
         ch = np.array([0.0, 0.1, 0.3, 1.0, 3.0, 10.0])
@@ -153,8 +181,9 @@ class TestZipSign:
         ant_m = self._antagonistic_surface(ch, cv, **kw)
         d_syn = zip_delta(syn_m, ch, cv, **kw)
         d_ant = zip_delta(ant_m, ch, cv, **kw)
-        assert np.nanmean(d_syn) < -0.02
-        assert np.nanmean(d_ant) > 0.02
+        interior = _interior_mask(ch, cv)
+        assert np.mean(d_syn[interior]) < -0.02
+        assert np.mean(d_ant[interior]) > 0.02
 
 
 class TestZipUnitInvariance:
@@ -166,6 +195,7 @@ class TestZipUnitInvariance:
         m[2, 3] *= 0.92
         m[3, 2] *= 1.05
         base = zip_delta(m, ch, cv, 1.0, 2.0, 1.5, 1.0, e0, e_inf)
+        interior = _interior_mask(ch, cv)
         for scale in (1e-3, 1e3):
             d = zip_delta(
                 m * scale,
@@ -178,8 +208,7 @@ class TestZipUnitInvariance:
                 e0 * scale,
                 e_inf * scale,
             )
-            interior = np.isfinite(base) & np.isfinite(d)
-            assert np.nanmax(np.abs(base[interior] - d[interior])) < 1e-6
+            assert np.max(np.abs(base[interior] - d[interior])) < 1e-6
 
 
 class TestZipReference:
@@ -197,23 +226,70 @@ class TestZipReference:
 
 
 class TestZipFailedSliceFallback:
-    def test_two_finite_positive_doses_warns_once(self):
+    def test_one_failed_row_uses_column_only(self):
         ch = np.array([0.0, 0.1, 0.3, 1.0, 3.0, 10.0])
         cv = np.array([0.0, 0.2, 0.6, 2.0, 6.0, 20.0])
-        m = bliss_independence(
-            ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0
+        kw = dict(
+            c50_hor=1.0, c50_ver=2.0, hill_hor=1.5, hill_ver=1.0,
+            effect_0=1.0, effect_inf=0.0,
         )
-        # Row 2: only two finite responses at positive horizontal doses.
-        m[2, :] = np.nan
-        m[2, 1] = m[0, 1]
-        m[2, 2] = m[0, 2]
+        bliss = bliss_independence(ch, cv, **kw)
+        fail_row = 2
+        m = bliss.copy()
+        # Row slice needs three positive horizontal doses; two finite points force failure.
+        m[fail_row, :] = np.nan
+        m[fail_row, 1] = bliss[fail_row, 1]
+        m[fail_row, 2] = bliss[fail_row, 2]
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            d = zip_delta(m, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0)
+            result = zip_scores(m, ch, cv, **kw)
         user = [x for x in w if issubclass(x.category, UserWarning)]
         assert len(user) == 1
-        assert "slice fit" in str(user[0].message).lower()
-        assert np.all(np.isfinite(d[np.isfinite(d)]))
+        assert result.failed_rows == (fail_row,)
+        assert result.failed_cols == ()
+        assert result.n_unscored == 0
+
+        interior = _interior_mask(ch, cv)
+        assert np.all(np.isfinite(result.delta[interior]))
+
+        # Column fits use the same observations as on the full Bliss matrix (row is NaN
+        # except at two doses that fail the row slice), so the column-only deviation on
+        # fail_row matches the Bliss reference run.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            bliss_scores = zip_scores(bliss, ch, cv, **kw)
+        row_mask = interior & (np.arange(len(cv))[:, np.newaxis] == fail_row)
+        assert np.allclose(
+            result.delta[row_mask],
+            bliss_scores.delta[row_mask],
+            rtol=1e-9,
+            atol=1e-9,
+        )
+
+    def test_all_slices_fail_3x3(self):
+        ch = np.array([0.0, 0.1, 1.0])
+        cv = np.array([0.0, 0.2, 2.0])
+        kw = dict(
+            c50_hor=1.0, c50_ver=2.0, hill_hor=1.5, hill_ver=1.0,
+            effect_0=1.0, effect_inf=0.0,
+        )
+        m = bliss_independence(ch, cv, **kw)
+        # Strong synergy in the interior so data are not on the null surface.
+        interior = _interior_mask(ch, cv)
+        m[interior] *= 0.5
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = zip_scores(m, ch, cv, **kw)
+        user = [x for x in w if issubclass(x.category, UserWarning)]
+        assert len(user) == 1
+
+        assert result.n_unscored == 4
+        assert np.all(np.isnan(result.delta[interior]))
+        assert np.all(np.isnan(result.fitted[interior]))
+        assert len(result.failed_rows) == 2
+        assert len(result.failed_cols) == 2
 
 
 class TestZipSynergyReferenceJson:
@@ -245,12 +321,11 @@ class TestZipSynergyReferenceJson:
                 case["effect_0"],
                 case["effect_inf"],
             )
-            ch_g = ch[np.newaxis, :]
-            cv_g = cv[:, np.newaxis]
-            interior = (ch_g > 0) & (cv_g > 0)
+            interior = _interior_mask(ch, cv)
+            _assert_zip_delta_mask(d, ch, cv)
             diff = np.abs(d - ref_delta)
-            assert np.nanmax(np.abs(ref_delta[interior])) > 0.03  # real signal
-            assert np.nanmax(diff[interior]) < 1e-3
+            assert np.max(np.abs(ref_delta[interior])) > 0.03  # real signal
+            assert np.max(diff[interior]) < 1e-3
 
 
 class TestZipDelta:
@@ -277,8 +352,8 @@ class TestZipDelta:
             zip_delta(m, np.ones(2), np.ones(2), 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
 
     def test_zip_delta_masks_zero_concentration_edges(self):
-        conc_hor = np.array([0.0, 1.0, 4.0])
-        conc_ver = np.array([0.0, 2.0, 6.0])
+        conc_hor = np.array([0.0, 1.0, 2.0, 4.0])
+        conc_ver = np.array([0.0, 2.0, 4.0, 6.0])
         bliss = bliss_independence(
             conc_hor, conc_ver,
             c50_hor=5.0, c50_ver=8.0,
@@ -302,7 +377,7 @@ class TestZipDelta:
         fit = zip_fitted_surface(m, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0)
         d = zip_delta(m, ch, cv, 1.0, 2.0, 1.5, 1.0, 1.0, 0.0)
         scale = 1.0
-        interior = (ch[np.newaxis, :] > 0) & (cv[:, np.newaxis] > 0)
+        interior = _interior_mask(ch, cv)
         expected = (fit - ref) / scale
         assert np.allclose(d[interior], expected[interior], rtol=1e-9, atol=1e-9)
 
