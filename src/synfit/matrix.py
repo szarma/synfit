@@ -100,7 +100,9 @@ class MatrixFit(FitBase):
         self.conc_horizontal = np.asarray(conc_horizontal, dtype=float)
         self.conc_vertical = np.asarray(conc_vertical, dtype=float)
         self.valids = valids
-        self._observation_masks = matrix_observation_masks(replicates, valids)
+        self._observation_masks = matrix_observation_masks(
+            replicates, valids, self.conc_horizontal, self.conc_vertical,
+        )
         if noise is not None and error_model is not None:
             raise ValueError("Pass either noise or legacy error_model, not both.")
         validate_direction(direction_horizontal, name="direction_horizontal")
@@ -329,14 +331,16 @@ class MatrixFit(FitBase):
         hor_result = FitResult(
             c50=p["c50_hor"], log_c50=np.log10(p["c50_hor"]),
             hill=p["hill_hor"], effect_0=p["effect_0"], effect_inf=p["effect_inf"],
-            success=success, n_valid=len(self._hor_df), n_total=len(self._hor_df),
+            success=success,
+            n_valid=int(self._hor_edge_valids.sum()), n_total=len(self._hor_df),
             direction=self.direction_horizontal,
             error_model=em_str, sigma=sigma_hat,
         )
         ver_result = FitResult(
             c50=p["c50_ver"], log_c50=np.log10(p["c50_ver"]),
             hill=p["hill_ver"], effect_0=p["effect_0"], effect_inf=p["effect_inf"],
-            success=success, n_valid=len(self._ver_df), n_total=len(self._ver_df),
+            success=success,
+            n_valid=int(self._ver_edge_valids.sum()), n_total=len(self._ver_df),
             direction=self.direction_vertical,
             error_model=em_str, sigma=sigma_hat,
         )
