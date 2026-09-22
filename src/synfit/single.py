@@ -23,6 +23,7 @@ from .noise import (
     log_prob as noise_log_prob,
     noise_spec_with_variance_initials,
     require_supported_single_drug_fitting_noise,
+    require_supported_single_drug_with_error_fitting_noise,
     scaled_variance_coefficient_defaults,
     variance_initials_for_noise,
     variance_model_name,
@@ -559,7 +560,7 @@ class SingleDrugFitWithError(FitBase):
             cfg = _init_config_from_data(data)
         else:
             cfg = config.copy()
-        require_supported_single_drug_fitting_noise(cfg.noise)
+        require_supported_single_drug_with_error_fitting_noise(cfg.noise)
         validate_direction(cfg.direction)
         # Honour the bounds=None "derive from data" signal (FitBase readers
         # dereference config.bounds.<param>, so it must be concrete by fit time).
@@ -567,15 +568,6 @@ class SingleDrugFitWithError(FitBase):
             cfg.bounds = _init_config_from_data(
                 data, direction=cfg.direction, noise=cfg.noise,
             ).bounds
-        # Per-point user errors and a fitted σ²(μ) polynomial are mutually
-        # exclusive — log_prob enforces it, but rejecting at construction time
-        # gives a clearer message.
-        if not isinstance(cfg.noise, (GaussianConstant, Lognormal)):
-            raise ValueError(
-                "SingleDrugFitWithError uses per-point y_err — pair it with "
-                "noise.kind='gaussian_constant' or 'lognormal'. To fit a heteroscedastic σ²(μ) "
-                "polynomial, drop y_err and use SingleDrugFit instead."
-            )
         if not cfg.fitting_parameters:
             raise ValueError(
                 "At least one parameter must be listed in fitting_parameters — "

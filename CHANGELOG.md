@@ -41,11 +41,13 @@ tagged `[X.Y.Z]` heading.
   unchanged. You can still adjust ``fitter.config`` after creating the fitter
   and before calling ``fit()`` — those edits apply to the run as before.
 - **Compound additive–multiplicative noise no longer crashes single-drug
-  fitting.** Choosing ``compound_add_mult`` on ``SingleDrugFit`` or
-  ``SingleDrugFitWithError`` (or when deriving defaults via
-  ``default_fit_config``) now raises a clear error listing the noise kinds
-  those fitters support. The compound likelihood remains available for
-  synthetic data and for evaluating ``log_prob`` with fixed scale parameters.
+  fitting.** Choosing ``compound_add_mult`` on ``SingleDrugFit`` (or when
+  deriving defaults via ``default_fit_config`` / ``default_bounds``) now
+  raises a clear error listing constant/linear/quadratic gaussian and lognormal
+  noise. ``SingleDrugFitWithError`` reports its narrower supported set
+  (constant gaussian and lognormal only). The compound likelihood remains
+  available for synthetic data and for evaluating ``log_prob`` with fixed scale
+  parameters.
 
 ## [0.6.0] — 2026-09-22
 
