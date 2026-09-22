@@ -4,7 +4,7 @@ Core numerical functions for drug response curve fitting.
 
 ## Quick start
 
-synfit is not published on PyPI yet. Install a release wheel after building it locally, or install directly from Git:
+The `synfit` name on [PyPI](https://pypi.org/project/synfit/) is reserved by this project (`0.0.0a0` is only a placeholder — do not use it for fitting). The current library release is not published there yet; install from Git or from a built wheel:
 
 ```bash
 # From a built wheel (run `uv build` in the repository first)
@@ -14,7 +14,7 @@ pip install dist/synfit-*.whl
 pip install "synfit @ git+https://github.com/szarma/synfit.git"
 ```
 
-Minimal single-drug fit (inhibition; IC₅₀ is reported as `ic50` for the half-max concentration):
+Minimal single-drug fit (inhibition). Half-max concentration (IC₅₀ / EC₅₀) is `result.half_max`; `ic50` appears only in `result.to_dict()`, not as an attribute:
 
 ```python
 import pandas as pd
