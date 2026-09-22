@@ -35,6 +35,11 @@ tagged `[X.Y.Z]` heading.
   non-finite concentration** (same finite-pair rule as data-derived defaults),
   so stray NaN-concentration rows no longer inflate variance coefficient
   bounds and break ``gaussian_linear`` / ``gaussian_quadratic`` fits.
+- **Reusing the same fit configuration across datasets no longer carries over
+  bounds and starting values from the first curve.** Fitting now works on an
+  internal copy of your settings; the configuration object you pass in is left
+  unchanged. You can still adjust ``fitter.config`` after creating the fitter
+  and before calling ``fit()`` — those edits apply to the run as before.
 
 ## [0.6.0] — 2026-09-22
 
