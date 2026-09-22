@@ -227,45 +227,60 @@ class TestZipReference:
 
 class TestZipFailedSliceFallback:
     def test_one_failed_row_uses_column_only(self):
+        """A failed row slice must be replaced by the column slice alone, checked
+        quantitatively on a surface with real interaction (a null surface would let a
+        zero or halved fallback pass)."""
+        from scipy.optimize import least_squares
+
         ch = np.array([0.0, 0.1, 0.3, 1.0, 3.0, 10.0])
         cv = np.array([0.0, 0.2, 0.6, 2.0, 6.0, 20.0])
         kw = dict(
             c50_hor=1.0, c50_ver=2.0, hill_hor=1.5, hill_ver=1.0,
             effect_0=1.0, effect_inf=0.0,
         )
-        bliss = bliss_independence(ch, cv, **kw)
+        # Synergistic surface: the vertical drug's c50 drops up to 4x as the
+        # horizontal dose rises (responses are surviving fractions, effect_0=1).
+        m = np.empty((len(cv), len(ch)))
+        for j, h in enumerate(ch):
+            c50_v = 2.0 / (1.0 + 3.0 * h / (h + 1.0))
+            m[:, j] = hill_curve(cv, c50_v, 1.0, 1.0, 0.0) * hill_curve(h, 1.0, 1.5, 1.0, 0.0)
         fail_row = 2
-        m = bliss.copy()
-        # Row slice needs three positive horizontal doses; two finite points force failure.
-        m[fail_row, :] = np.nan
-        m[fail_row, 1] = bliss[fail_row, 1]
-        m[fail_row, 2] = bliss[fail_row, 2]
+        m[fail_row, 3:] = np.nan  # two finite positive doses left: the row slice fails
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = zip_scores(m, ch, cv, **kw)
-        user = [x for x in w if issubclass(x.category, UserWarning)]
-        assert len(user) == 1
+        assert len([x for x in w if issubclass(x.category, UserWarning)]) == 1
         assert result.failed_rows == (fail_row,)
         assert result.failed_cols == ()
         assert result.n_unscored == 0
-
         interior = _interior_mask(ch, cv)
         assert np.all(np.isfinite(result.delta[interior]))
 
-        # Column fits use the same observations as on the full Bliss matrix (row is NaN
-        # except at two doses that fail the row slice), so the column-only deviation on
-        # fail_row matches the Bliss reference run.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            bliss_scores = zip_scores(bliss, ch, cv, **kw)
-        row_mask = interior & (np.arange(len(cv))[:, np.newaxis] == fail_row)
-        assert np.allclose(
-            result.delta[row_mask],
-            bliss_scores.delta[row_mask],
-            rtol=1e-9,
-            atol=1e-9,
-        )
+        # Independent column-only expectation: fit each column slice here with
+        # scipy.least_squares (not synfit's optimiser) and score it against the
+        # zero-interaction expectation.
+        f_obs = 1.0 - m
+        f_h = 1.0 - hill_curve(ch, 1.0, 1.5, 1.0, 0.0)
+        f_v = 1.0 - hill_curve(cv, 2.0, 1.0, 1.0, 0.0)
+        expected = []
+        for j in range(1, len(ch)):
+            ok = (cv > 0) & np.isfinite(f_obs[:, j])
+            x, y, f0 = cv[ok], f_obs[ok, j], f_h[j]
+
+            def resid(p):
+                return f0 + (p[2] - f0) * (1 - 1 / (1 + (x / 10 ** p[0]) ** p[1])) - y
+
+            fit = least_squares(resid, [np.log10(2.0), 1.0, 1.0],
+                                bounds=([-3, 0.1, -0.5], [3, 10, 1.0]), xtol=1e-14, ftol=1e-14)
+            lm, lam, emax = fit.x
+            pred = f0 + (emax - f0) * (1 - 1 / (1 + (cv[fail_row] / 10 ** lm) ** lam))
+            f_zip = f_h[j] + f_v[fail_row] - f_h[j] * f_v[fail_row]
+            expected.append(-(pred - f_zip))
+        got = result.delta[fail_row, 1:]
+        expected = np.array(expected)
+        assert np.max(np.abs(expected)) > 0.02  # real interaction on this row
+        np.testing.assert_allclose(got, expected, atol=1e-4, rtol=0)
 
     def test_all_slices_fail_3x3(self):
         ch = np.array([0.0, 0.1, 1.0])

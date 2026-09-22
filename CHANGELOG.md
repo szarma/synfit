@@ -26,7 +26,8 @@ tagged `[X.Y.Z]` heading.
   failed. Failed slices no longer fall back to the null expectation (one
   successful direction is used alone; both failed → NaN interior δ). Slice
   models use each drug's 5-parameter asymmetry as a fixed shape so δ vanishes
-  on exact asymmetric null surfaces.
+  on exact asymmetric null surfaces (a synfit extension of the published
+  symmetric formulation; identical to it for 4-parameter drugs).
 - **HSA is direction-aware.** The stronger single agent is the one whose
   response is closer to ``effect_inf``: the lower response for inhibition, the
   higher one for activation. Previously HSA always took the lower response, so
