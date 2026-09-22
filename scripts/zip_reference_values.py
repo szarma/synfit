@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import importlib.metadata
 import json
 from pathlib import Path
 
@@ -84,14 +85,16 @@ def _case(name: str, mean_matrix: np.ndarray) -> dict:
 
 
 def main() -> None:
+    synergy_version = importlib.metadata.version("synergy")
     bliss = _bliss_surface()
     cases = [
         _case("synergistic", _synergistic_surface(bliss)),
         _case("potentiated", _potentiated_surface()),
     ]
+    payload = {"synergy_package_version": synergy_version, "cases": cases}
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps({"cases": cases}, indent=2) + "\n")
-    print(f"Wrote {OUT}")
+    OUT.write_text(json.dumps(payload, indent=2) + "\n")
+    print(f"Wrote {OUT} (synergy {synergy_version})")
 
 
 if __name__ == "__main__":

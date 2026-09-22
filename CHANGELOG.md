@@ -20,8 +20,13 @@ tagged `[X.Y.Z]` heading.
   anchored at the other drug's single-agent effect with free Emax, compared
   against the zero-interaction expectation). Previously ZIP compared the data
   to its own smoothed slice averages and reported spurious synergy on additive
-  surfaces. ``zip_reference`` now returns the zero-interaction expectation;
-  added ``zip_fitted_surface`` for the averaged slice-fit combination surface.
+  surfaces. ``zip_reference`` returns the zero-interaction expectation;
+  ``zip_fitted_surface`` returns the combination surface; ``zip_scores`` with
+  ``ZipResult`` exposes reference, fitted, δ, and which row/column slice fits
+  failed. Failed slices no longer fall back to the null expectation (one
+  successful direction is used alone; both failed → NaN interior δ). Slice
+  models use each drug's 5-parameter asymmetry as a fixed shape so δ vanishes
+  on exact asymmetric null surfaces.
 - **HSA is direction-aware.** The stronger single agent is the one whose
   response is closer to ``effect_inf``: the lower response for inhibition, the
   higher one for activation. Previously HSA always took the lower response, so
