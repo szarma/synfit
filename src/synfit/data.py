@@ -323,7 +323,12 @@ class FitResult:
             anchor = variance_anchor_from_asymptotes(self.effect_0, self.effect_inf)
             return variance_at(mu, a, b, c, anchor=anchor)
         if self.sigma is not None:
-            return np.full_like(mu, float(self.sigma) ** 2)
+            s = float(self.sigma)
+            if self.error_model == "lognormal":
+                # log(y) ~ N(log(μ), s²) with μ the Hill prediction (median).
+                exp_s2 = np.exp(s * s)
+                return mu * mu * exp_s2 * (exp_s2 - 1.0)
+            return np.full_like(mu, s * s)
         return None
 
     def param_ci(self, alpha: float = 0.05) -> dict[str, tuple[float, float]] | None:
@@ -457,8 +462,9 @@ class FitResult:
         if self.param_cov is None or self.param_names is None:
             return None
 
-        s = self.asymmetry
-        if s is None or s == 1.0:
+        s = self.asymmetry if self.asymmetry is not None else 1.0
+        asym_fitted = "asymmetry" in self.param_names
+        if s is None or (s == 1.0 and not asym_fitted):
             cis = self.param_ci()
             return cis.get("c50") if cis else None
 
@@ -467,14 +473,22 @@ class FitResult:
         # ∂/∂hill    = -(1/h²)·ln(2^(1/s) - 1)
         # ∂/∂s       = (1/h) · [(-ln(2)/s²) · 2^(1/s)] / (2^(1/s) - 1)
         h = self.hill
-        two_over_s = 2.0 ** (1.0 / s)
-        denom = two_over_s - 1.0
-        ln_denom = np.log(denom)
-        grad = {
-            "log_c50": np.log(10.0),
-            "hill": -(1.0 / (h * h)) * ln_denom,
-            "asymmetry": (1.0 / h) * ((-np.log(2.0) / (s * s)) * two_over_s) / denom,
-        }
+        if s == 1.0:
+            # At S=1 the general asymmetry partial is 0/0; limit is −2·ln(2)/h.
+            grad = {
+                "log_c50": np.log(10.0),
+                "hill": 0.0,
+                "asymmetry": -2.0 * np.log(2.0) / h,
+            }
+        else:
+            two_over_s = 2.0 ** (1.0 / s)
+            denom = two_over_s - 1.0
+            ln_denom = np.log(denom)
+            grad = {
+                "log_c50": np.log(10.0),
+                "hill": -(1.0 / (h * h)) * ln_denom,
+                "asymmetry": (1.0 / h) * ((-np.log(2.0) / (s * s)) * two_over_s) / denom,
+            }
         ix = {n: i for i, n in enumerate(self.param_names)}
         g = np.zeros(len(self.param_names))
         for name, val in grad.items():

@@ -617,6 +617,8 @@ class SingleDrugFitWithError(FitBase):
             asymmetry = self.config.asymmetry
         kwargs.pop("asymmetry", None)
 
+        vm_str = variance_model_name(self.config.noise)
+
         return FitResult(
             c50=kwargs["c50"],
             log_c50=float(log_c50),
@@ -629,6 +631,8 @@ class SingleDrugFitWithError(FitBase):
             message=message,
             asymmetry=asymmetry,
             direction=self.config.direction,
+            error_model=error_model_name(self.config.noise),
+            variance_model=vm_str,
             param_cov=pcov,
             param_names=list(self.config.fitting_parameters),
         )

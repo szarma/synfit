@@ -48,6 +48,18 @@ tagged `[X.Y.Z]` heading.
   (constant gaussian and lognormal only). The compound likelihood remains
   available for synthetic data and for evaluating ``log_prob`` with fixed scale
   parameters.
+- **Lognormal prediction variance is now on the response scale.** For
+  multiplicative (lognormal) noise, ``predict_variance`` previously returned the
+  constant log-space variance σ²; it now returns the corresponding response-space
+  variance at each predicted μ (median), so prediction bands and downstream
+  summaries match the documented units.
+- **Half-max (IC₅₀/EC₅₀) confidence intervals when asymmetry is estimated at
+  S = 1.** If asymmetry was a fitted parameter, a point estimate of exactly 1.0
+  no longer reuses the κ (c50) interval; uncertainty in S is propagated even
+  when the half-max equals κ numerically.
+- **`SingleDrugFitWithError` records the configured noise model** on
+  ``FitResult`` (e.g. lognormal vs Gaussian), consistent with
+  ``SingleDrugFit``.
 
 ## [0.6.0] — 2026-09-22
 
