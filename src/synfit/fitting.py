@@ -43,13 +43,25 @@ def effective_observation_mask(
 def matrix_observation_masks(
     replicates: list[np.ndarray],
     valids: list[np.ndarray] | None,
+    conc_horizontal: np.ndarray,
+    conc_vertical: np.ndarray,
 ) -> list[np.ndarray]:
-    """Per-replicate masks: caller valids (if any) and finite matrix responses."""
+    """Per-replicate masks: caller valids (if any), finite concentrations, finite responses."""
     if valids is not None and len(valids) != len(replicates):
         raise ValueError(
             f"valids must have one mask per replicate; got {len(valids)} "
             f"masks for {len(replicates)} replicates."
         )
+    ch = np.asarray(conc_horizontal, dtype=float)
+    cv = np.asarray(conc_vertical, dtype=float)
+    if replicates:
+        n_ver, n_hor = np.asarray(replicates[0]).shape
+        if ch.shape != (n_hor,) or cv.shape != (n_ver,):
+            raise ValueError(
+                f"conc_horizontal length {ch.shape[0]} and conc_vertical length "
+                f"{cv.shape[0]} must match replicate shape ({n_ver}, {n_hor})."
+            )
+    conc_finite = np.isfinite(cv)[:, None] & np.isfinite(ch)[None, :]
     masks: list[np.ndarray] = []
     for i, rep in enumerate(replicates):
         rep_arr = np.asarray(rep)
@@ -63,7 +75,7 @@ def matrix_observation_masks(
                     f"(len(conc_vertical) x len(conc_horizontal))"
                 )
             base = v.astype(bool, copy=False)
-        masks.append(base & np.isfinite(rep_arr))
+        masks.append(base & conc_finite & np.isfinite(rep_arr))
     return masks
 
 

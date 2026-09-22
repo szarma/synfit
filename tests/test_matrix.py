@@ -71,9 +71,50 @@ def test_matrix_fit_nan_edge_well_excluded_from_likelihood_and_edge_prefit():
     valids[0][0, edge_col] = False
     fit_mask = MatrixFit(replicates, conc_hor, conc_ver, valids=valids, error_model="gaussian").fit()
 
+    n_hor_edge = len(conc_hor) * len(replicates)
+    assert fit_nan.horizontal.n_valid == n_hor_edge - 1
+    assert fit_nan.horizontal.n_total == n_hor_edge
+    assert fit_mask.horizontal.n_valid == n_hor_edge - 1
+
     assert fit_nan.sigma == pytest.approx(fit_mask.sigma, rel=1e-9, abs=1e-12)
     assert fit_nan.horizontal.c50 == pytest.approx(fit_mask.horizontal.c50, rel=1e-9)
     assert fit_nan.vertical.c50 == pytest.approx(fit_mask.vertical.c50, rel=1e-9)
+
+
+def test_matrix_fit_non_finite_concentration_row_excluded_like_drop():
+    """A non-finite vertical concentration must match dropping that matrix row."""
+    replicates, conc_hor, conc_ver = matrix_from_config(seed=11)
+    bad_row = 2
+    conc_ver_bad = conc_ver.copy()
+    conc_ver_bad[bad_row] = np.nan
+
+    fitter_bad = MatrixFit(replicates, conc_hor, conc_ver_bad, error_model="gaussian")
+    fit_bad = fitter_bad.fit()
+
+    keep = np.ones(len(conc_ver), dtype=bool)
+    keep[bad_row] = False
+    rep_drop = [r[keep, :] for r in replicates]
+    fitter_drop = MatrixFit(rep_drop, conc_hor, conc_ver[keep], error_model="gaussian")
+    fit_drop = fitter_drop.fit()
+
+    n_matrix_cells = sum(r.size for r in replicates)
+    n_valid_bad = sum(int(m.sum()) for m in fitter_bad._observation_masks)
+    n_valid_drop = sum(int(m.sum()) for m in fitter_drop._observation_masks)
+    assert n_valid_bad == n_valid_drop
+    assert n_valid_bad == n_matrix_cells - len(conc_hor) * len(replicates)
+
+    for attr in ("sigma", "effect_0", "effect_inf"):
+        np.testing.assert_allclose(
+            getattr(fit_bad, attr), getattr(fit_drop, attr), rtol=1e-9, atol=1e-12,
+        )
+    for edge in ("horizontal", "vertical"):
+        for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf"):
+            np.testing.assert_allclose(
+                getattr(getattr(fit_bad, edge), name),
+                getattr(getattr(fit_drop, edge), name),
+                rtol=1e-9,
+                atol=1e-12,
+            )
 
 
 def test_matrix_fit_valids_wrong_replicate_count_raises():
