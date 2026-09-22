@@ -133,14 +133,27 @@ def _init_config_from_data(
 ) -> FitConfig:
     """Derive sensible initial parameters and bounds from data."""
     validate_direction(direction)
-    if data["y"].isna().any():
+    finite = effective_observation_mask(
+        None,
+        len(data),
+        data["concentration"].values,
+        data["y"].values,
+    )
+    if not finite.all():
         warnings.warn(
-            "Response column contains NaN values; those rows will be dropped before fitting.",
+            "Rows with non-finite concentration or response are excluded when "
+            "deriving fit defaults.",
             UserWarning,
             stacklevel=2,
         )
+    data = data.loc[finite]
+    if data.empty:
+        raise ValueError(
+            "Need at least 2 finite (concentration, response) pairs to derive fit defaults; "
+            "got 0."
+        )
 
-    y = data["y"].dropna()
+    y = data["y"]
     conc_nonzero = data.query("concentration > 0")["concentration"]
 
     n = len(y)
@@ -186,7 +199,7 @@ def _init_config_from_data(
 
     ym = ymin + dy / 2
 
-    # find concentration closest to midpoint response
+    # Concentration closest to the midpoint response (finite rows only).
     idx = (data["y"] - ym).abs().sort_values().index[0]
     ic50_init = float(data.loc[idx, "concentration"])
     if ic50_init <= 0:

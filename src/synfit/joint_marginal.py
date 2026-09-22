@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from .data import FitConfig, FitResult, validate_direction, variance_anchor_from_asymptotes
-from .fitting import FitBase, PRIOR_PENALTY_WEIGHT
+from .fitting import FitBase, PRIOR_PENALTY_WEIGHT, effective_observation_mask
 from .hill import hill_curve, log_wall
 from .param_roles import is_variance_param
 from .noise import (
@@ -259,6 +259,8 @@ class JointMarginalFit(FitBase):
         error_model: str | None = None,
         variance_model: str | None = None,
         param_config: dict | None = None,
+        valids_a: np.ndarray | None = None,
+        valids_b: np.ndarray | None = None,
     ):
         for name, df in (("data_a", data_a), ("data_b", data_b)):
             if not {"concentration", "y", "replicate"}.issubset(df.columns):
@@ -274,6 +276,18 @@ class JointMarginalFit(FitBase):
         self.model_b = model_b
         self.direction_a = direction_a
         self.direction_b = direction_b
+        self._mask_a = effective_observation_mask(
+            valids_a,
+            len(data_a),
+            data_a["concentration"].values,
+            data_a["y"].values,
+        )
+        self._mask_b = effective_observation_mask(
+            valids_b,
+            len(data_b),
+            data_b["concentration"].values,
+            data_b["y"].values,
+        )
 
         if noise is not None and (error_model is not None or variance_model is not None):
             raise ValueError("Pass either noise or legacy error_model/variance_model, not both.")
@@ -284,8 +298,12 @@ class JointMarginalFit(FitBase):
         )
         _require_supported_joint_noise(self.noise)
 
-        cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=self.noise)
-        cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=self.noise)
+        cfg_a = _init_config_from_data(
+            data_a.loc[self._mask_a], direction=direction_a, noise=self.noise,
+        )
+        cfg_b = _init_config_from_data(
+            data_b.loc[self._mask_b], direction=direction_b, noise=self.noise,
+        )
 
         # Auto-defaults for each param (init + bounds). User overrides overlay
         # on top via ``param_config``.
@@ -294,7 +312,9 @@ class JointMarginalFit(FitBase):
         self._response_scale = None
         full_names = self._full_param_names(model_a, model_b)
         if is_heteroscedastic_gaussian(self.noise):
-            self._response_scale = _joint_response_scale(data_a, data_b)
+            self._response_scale = _joint_response_scale(
+                data_a, data_b, self._mask_a, self._mask_b,
+            )
             self.noise = clamp_noise_spec_initials(
                 self.noise, response_scale=self._response_scale,
             )
@@ -459,7 +479,9 @@ class JointMarginalFit(FitBase):
             "asymmetry_b": self._get(x, "asymmetry_b") if self.model_b == "5p" else None,
         }
 
-    def _log_prob_data(self, x: np.ndarray, **_) -> float:
+    def _log_prob_data(self, x: np.ndarray, **kwargs) -> float:
+        mask_a = kwargs.get("mask_a", self._mask_a)
+        mask_b = kwargs.get("mask_b", self._mask_b)
         p = self._unpack(x)
         e0_a, einf_a = self._drug_asymptotes(p["top"], p["bottom"], self.direction_a)
         e0_b, einf_b = self._drug_asymptotes(p["top"], p["bottom"], self.direction_b)
@@ -480,12 +502,14 @@ class JointMarginalFit(FitBase):
         ll_a = noise_log_prob(
             self.data_a["y"].values, ya_pred,
             self.config.noise,
+            mask=mask_a,
             variance_params=var_params,
             variance_anchor=anchor,
         )
         ll_b = noise_log_prob(
             self.data_b["y"].values, yb_pred,
             self.config.noise,
+            mask=mask_b,
             variance_params=var_params,
             variance_anchor=anchor,
         )
@@ -499,14 +523,16 @@ class JointMarginalFit(FitBase):
 
     def fit(self) -> JointMarginalResult:
         n_params = len(self._param_names)
-        n_data = int(self.data_a["y"].notna().sum() + self.data_b["y"].notna().sum())
+        n_data = int(self._mask_a.sum() + self._mask_b.sum())
         if n_data < n_params + 1:
             raise ValueError(
                 f"Need at least {n_params + 1} valid data points for {n_params} parameters; "
                 f"got {n_data}."
             )
 
-        x_opt, success, message, pcov = self._run_minimize(self._x0, self._bounds)
+        x_opt, success, message, pcov = self._run_minimize(
+            self._x0, self._bounds, mask_a=self._mask_a, mask_b=self._mask_b,
+        )
         p = self._unpack(x_opt)
 
         em_str = error_model_name(self.noise)
@@ -535,8 +561,9 @@ class JointMarginalFit(FitBase):
         if isinstance(self.noise, (GaussianConstant, Lognormal)):
             y_joint = np.concatenate([self.data_a["y"].values, self.data_b["y"].values])
             y_pred_joint = np.concatenate([ya_pred, yb_pred])
+            mask_joint = np.concatenate([self._mask_a, self._mask_b])
             sigma_hat = fit_noise_scale(
-                y_joint, y_pred_joint, self.config.noise,
+                y_joint, y_pred_joint, self.config.noise, mask=mask_joint,
             )
         else:
             sigma_hat = None
@@ -555,7 +582,8 @@ class JointMarginalFit(FitBase):
         drug_a = FitResult(
             c50=p["c50_a"], log_c50=p["log_c50_a"],
             hill=p["hill_a"], effect_0=e0_a, effect_inf=einf_a,
-            success=success, n_valid=len(self.data_a), n_total=len(self.data_a),
+            success=success,
+            n_valid=int(self._mask_a.sum()), n_total=len(self.data_a),
             message=message, asymmetry=p["asymmetry_a"],
             direction=self.direction_a, error_model=em_str,
             sigma=sigma_hat,
@@ -565,7 +593,8 @@ class JointMarginalFit(FitBase):
         drug_b = FitResult(
             c50=p["c50_b"], log_c50=p["log_c50_b"],
             hill=p["hill_b"], effect_0=e0_b, effect_inf=einf_b,
-            success=success, n_valid=len(self.data_b), n_total=len(self.data_b),
+            success=success,
+            n_valid=int(self._mask_b.sum()), n_total=len(self.data_b),
             message=message, asymmetry=p["asymmetry_b"],
             direction=self.direction_b, error_model=em_str,
             sigma=sigma_hat,
@@ -666,11 +695,16 @@ def _require_supported_joint_noise(noise: NoiseSpec | None) -> None:
         )
 
 
-def _joint_response_scale(data_a: pd.DataFrame, data_b: pd.DataFrame) -> float:
+def _joint_response_scale(
+    data_a: pd.DataFrame,
+    data_b: pd.DataFrame,
+    mask_a: np.ndarray,
+    mask_b: np.ndarray,
+) -> float:
     """Robust response range of the pooled plate (both drugs)."""
     y = np.concatenate([
-        data_a["y"].dropna().to_numpy(),
-        data_b["y"].dropna().to_numpy(),
+        data_a.loc[mask_a, "y"].to_numpy(),
+        data_b.loc[mask_b, "y"].to_numpy(),
     ])
     return _robust_response_range(y)
 
@@ -763,8 +797,18 @@ def default_joint_marginal_config(
 
     coerced = _coerce_noise(noise)
     _require_supported_joint_noise(coerced)
-    cfg_a = _init_config_from_data(data_a, direction=direction_a, noise=coerced)
-    cfg_b = _init_config_from_data(data_b, direction=direction_b, noise=coerced)
+    mask_a = effective_observation_mask(
+        None, len(data_a), data_a["concentration"].values, data_a["y"].values,
+    )
+    mask_b = effective_observation_mask(
+        None, len(data_b), data_b["concentration"].values, data_b["y"].values,
+    )
+    cfg_a = _init_config_from_data(
+        data_a.loc[mask_a], direction=direction_a, noise=coerced,
+    )
+    cfg_b = _init_config_from_data(
+        data_b.loc[mask_b], direction=direction_b, noise=coerced,
+    )
     defaults, bounds = JointMarginalFit._compute_defaults(cfg_a, cfg_b, direction_a, direction_b)
 
     include = ["top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"]
@@ -775,7 +819,7 @@ def default_joint_marginal_config(
 
     if coerced is not None and is_heteroscedastic_gaussian(coerced):
         var_defaults, var_bounds = _variance_coefficient_defaults(
-            coerced, _joint_response_scale(data_a, data_b),
+            coerced, _joint_response_scale(data_a, data_b, mask_a, mask_b),
         )
         defaults.update(var_defaults)
         bounds.update(var_bounds)

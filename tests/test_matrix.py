@@ -59,20 +59,27 @@ class TestMatrixFitParameterRecovery:
         assert set(d["horizontal"].keys()) >= {"ic50", "c50", "hill", "effect_0", "effect_inf", "success"}
 
 
-def test_matrix_fit_nan_well_excluded_from_likelihood():
-    """A NaN well must behave like an explicit valids=False on that cell."""
+def test_matrix_fit_nan_edge_well_excluded_from_likelihood_and_edge_prefit():
+    """A NaN on a horizontal-edge well must match an explicit valids=False there."""
     replicates, conc_hor, conc_ver = matrix_from_config(seed=7)
+    edge_col = 3
     rep_nan = [r.copy() for r in replicates]
-    rep_nan[0][2, 3] = np.nan
+    rep_nan[0][0, edge_col] = np.nan
     fit_nan = MatrixFit(rep_nan, conc_hor, conc_ver, error_model="gaussian").fit()
 
     valids = [np.ones(r.shape, dtype=bool) for r in replicates]
-    valids[0][2, 3] = False
+    valids[0][0, edge_col] = False
     fit_mask = MatrixFit(replicates, conc_hor, conc_ver, valids=valids, error_model="gaussian").fit()
 
     assert fit_nan.sigma == pytest.approx(fit_mask.sigma, rel=1e-9, abs=1e-12)
     assert fit_nan.horizontal.c50 == pytest.approx(fit_mask.horizontal.c50, rel=1e-9)
     assert fit_nan.vertical.c50 == pytest.approx(fit_mask.vertical.c50, rel=1e-9)
+
+
+def test_matrix_fit_valids_wrong_replicate_count_raises():
+    replicates, conc_hor, conc_ver = matrix_from_config(seed=1)
+    with pytest.raises(ValueError, match="one mask per replicate"):
+        MatrixFit(replicates, conc_hor, conc_ver, valids=[np.ones(replicates[0].shape, dtype=bool)])
 
 
 class TestMatrixFitEdgeCases:

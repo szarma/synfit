@@ -45,6 +45,11 @@ def matrix_observation_masks(
     valids: list[np.ndarray] | None,
 ) -> list[np.ndarray]:
     """Per-replicate masks: caller valids (if any) and finite matrix responses."""
+    if valids is not None and len(valids) != len(replicates):
+        raise ValueError(
+            f"valids must have one mask per replicate; got {len(valids)} "
+            f"masks for {len(replicates)} replicates."
+        )
     masks: list[np.ndarray] = []
     for i, rep in enumerate(replicates):
         rep_arr = np.asarray(rep)
