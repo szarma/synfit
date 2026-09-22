@@ -15,6 +15,8 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-09-22
+
 ### Fixed
 - **Missing responses (NaN) are excluded consistently from single-drug, joint-
   marginal, and matrix fits.** ``n_valid``, RSS, R², AIC and BIC now count only
