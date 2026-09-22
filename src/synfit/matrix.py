@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from .data import FitConfig, FitResult, validate_direction
 from .bliss import bliss_independence
-from .fitting import PRIOR_PENALTY_WEIGHT, FitBase
+from .fitting import PRIOR_PENALTY_WEIGHT, FitBase, matrix_observation_masks
 from .hill import log_wall
 from .param_roles import is_log_param
 from .noise import (
@@ -100,6 +100,9 @@ class MatrixFit(FitBase):
         self.conc_horizontal = np.asarray(conc_horizontal, dtype=float)
         self.conc_vertical = np.asarray(conc_vertical, dtype=float)
         self.valids = valids
+        self._observation_masks = matrix_observation_masks(
+            replicates, valids, self.conc_horizontal, self.conc_vertical,
+        )
         if noise is not None and error_model is not None:
             raise ValueError("Pass either noise or legacy error_model, not both.")
         validate_direction(direction_horizontal, name="direction_horizontal")
@@ -152,11 +155,15 @@ class MatrixFit(FitBase):
         # extract edge slices for single-drug pre-fits
         self._hor_df = self._edge_slice(axis="horizontal")
         self._ver_df = self._edge_slice(axis="vertical")
+        self._hor_edge_valids = self._edge_observation_valids(axis="horizontal")
+        self._ver_edge_valids = self._edge_observation_valids(axis="vertical")
 
+        hor_for_init = self._hor_df.loc[self._hor_edge_valids]
+        ver_for_init = self._ver_df.loc[self._ver_edge_valids]
         self.synfit_hor = SingleDrugFit(
             self._hor_df,
             config=_init_config_from_data(
-                self._hor_df,
+                hor_for_init,
                 direction=direction_horizontal,
                 noise=self.noise,
             ),
@@ -164,15 +171,15 @@ class MatrixFit(FitBase):
         self.synfit_ver = SingleDrugFit(
             self._ver_df,
             config=_init_config_from_data(
-                self._ver_df,
+                ver_for_init,
                 direction=direction_vertical,
                 noise=self.noise,
             ),
         )
 
         # pre-fit edge drugs independently
-        self._hor_result = self.synfit_hor.fit()
-        self._ver_result = self.synfit_ver.fit()
+        self._hor_result = self.synfit_hor.fit(valids=self._hor_edge_valids)
+        self._ver_result = self.synfit_ver.fit(valids=self._ver_edge_valids)
 
         # Shared asymptote bounds come from the same data-derived derivation the
         # edge pre-fits already use (`_init_config_from_data`), not a fresh
@@ -240,6 +247,19 @@ class MatrixFit(FitBase):
                 rows.append({"concentration": conc, "y": y, "replicate": "edge"})
         return pd.DataFrame(rows)
 
+    def _edge_observation_valids(self, axis: str) -> np.ndarray:
+        """Per-row mask for an edge pre-fit, aligned with ``_edge_slice``."""
+        flags: list[bool] = []
+        for i, _rep in enumerate(self.replicates):
+            mask = self._observation_masks[i]
+            if axis == "horizontal":
+                row = mask[0, :]
+                flags.extend(bool(v) for v in row)
+            else:
+                col = mask[:, 0]
+                flags.extend(bool(v) for v in col)
+        return np.asarray(flags, dtype=bool)
+
     _PARAM_NAMES = ("log_c50_hor", "log_c50_ver", "hill_hor", "hill_ver", "effect_0", "effect_inf")
 
     def _unpack_x(self, x: np.ndarray) -> dict:
@@ -259,9 +279,10 @@ class MatrixFit(FitBase):
             hill_hor=p["hill_hor"], hill_ver=p["hill_ver"],
             effect_0=p["effect_0"], effect_inf=p["effect_inf"],
         )
+        observation_masks = kwargs.get("observation_masks", self._observation_masks)
         total_Z = 0.0
         for i, rep in enumerate(self.replicates):
-            mask = self.valids[i].ravel() if self.valids else None
+            mask = observation_masks[i].ravel()
             total_Z += noise_log_prob(
                 rep.ravel(), bliss.ravel(),
                 self.noise,
@@ -277,17 +298,17 @@ class MatrixFit(FitBase):
 
     def fit(self) -> MatrixFitResult:
         n_params = 6
-        if self.valids:
-            n_data = int(sum(int(v.sum()) for v in self.valids))
-        else:
-            n_data = int(sum(r.size for r in self.replicates))
+        observation_masks = self._observation_masks
+        n_data = int(sum(int(m.sum()) for m in observation_masks))
         if n_data < n_params + 1:
             raise ValueError(
                 f"Need at least {n_params + 1} valid matrix cells for {n_params} parameters; "
                 f"got {n_data}."
             )
 
-        x_opt, success, message, pcov = self._run_minimize(self._x0, self._bounds)
+        x_opt, success, message, pcov = self._run_minimize(
+            self._x0, self._bounds, observation_masks=observation_masks,
+        )
         p = self._unpack_x(x_opt)
 
         # Pool residuals across all replicates and matrix cells to estimate σ̂
@@ -301,10 +322,7 @@ class MatrixFit(FitBase):
         )
         y_all = np.concatenate([rep.ravel() for rep in self.replicates])
         y_pred_all = np.tile(bliss.ravel(), len(self.replicates))
-        if self.valids:
-            mask_all = np.concatenate([v.ravel() for v in self.valids]).astype(bool)
-        else:
-            mask_all = None
+        mask_all = np.concatenate([m.ravel() for m in observation_masks])
         sigma_hat = fit_noise_scale(
             y_all, y_pred_all, self.noise, mask=mask_all,
         )
@@ -313,14 +331,16 @@ class MatrixFit(FitBase):
         hor_result = FitResult(
             c50=p["c50_hor"], log_c50=np.log10(p["c50_hor"]),
             hill=p["hill_hor"], effect_0=p["effect_0"], effect_inf=p["effect_inf"],
-            success=success, n_valid=len(self._hor_df), n_total=len(self._hor_df),
+            success=success,
+            n_valid=int(self._hor_edge_valids.sum()), n_total=len(self._hor_df),
             direction=self.direction_horizontal,
             error_model=em_str, sigma=sigma_hat,
         )
         ver_result = FitResult(
             c50=p["c50_ver"], log_c50=np.log10(p["c50_ver"]),
             hill=p["hill_ver"], effect_0=p["effect_0"], effect_inf=p["effect_inf"],
-            success=success, n_valid=len(self._ver_df), n_total=len(self._ver_df),
+            success=success,
+            n_valid=int(self._ver_edge_valids.sum()), n_total=len(self._ver_df),
             direction=self.direction_vertical,
             error_model=em_str, sigma=sigma_hat,
         )

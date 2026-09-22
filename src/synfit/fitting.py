@@ -18,6 +18,97 @@ PRIOR_PENALTY_WEIGHT = 1000
 _HESS_EPS = 1e-5
 
 
+def effective_observation_mask(
+    valids: np.ndarray | None,
+    n_rows: int,
+    concentration: np.ndarray,
+    y: np.ndarray,
+) -> np.ndarray:
+    """Boolean mask of rows that enter the likelihood (caller mask and finite data)."""
+    if valids is None:
+        mask = np.ones(n_rows, dtype=bool)
+    else:
+        valids_arr = np.asarray(valids)
+        if valids_arr.ndim != 1 or valids_arr.shape[0] != n_rows:
+            raise ValueError(
+                f"valids must be a 1-D boolean array of length {n_rows}; "
+                f"got shape {valids_arr.shape}."
+            )
+        mask = valids_arr.astype(bool, copy=False)
+    conc = np.asarray(concentration, dtype=float)
+    resp = np.asarray(y, dtype=float)
+    return mask & np.isfinite(conc) & np.isfinite(resp)
+
+
+def validate_included_y_err(y_err: np.ndarray, mask: np.ndarray) -> None:
+    """Raise if any likelihood row has invalid per-point standard error."""
+    err = np.asarray(y_err, dtype=float)
+    obs = np.asarray(mask, dtype=bool)
+    if obs.shape != err.shape:
+        raise ValueError(
+            f"y_err length {err.shape[0]} does not match observation mask length "
+            f"{obs.shape[0]}."
+        )
+    included = np.flatnonzero(obs)
+    if included.size == 0:
+        return
+    err_inc = err[included]
+    non_finite = included[~np.isfinite(err_inc)]
+    finite_nonpos = included[np.isfinite(err_inc) & (err_inc <= 0)]
+    parts: list[str] = []
+    if non_finite.size:
+        parts.append(
+            f"non-finite y_err at row indices {non_finite.tolist()}"
+        )
+    if finite_nonpos.size:
+        parts.append(
+            f"non-positive y_err at row indices {finite_nonpos.tolist()}"
+        )
+    if parts:
+        raise ValueError(
+            "Invalid y_err on observations included in the fit: "
+            + "; ".join(parts)
+        )
+
+
+def matrix_observation_masks(
+    replicates: list[np.ndarray],
+    valids: list[np.ndarray] | None,
+    conc_horizontal: np.ndarray,
+    conc_vertical: np.ndarray,
+) -> list[np.ndarray]:
+    """Per-replicate masks: caller valids (if any), finite concentrations, finite responses."""
+    if valids is not None and len(valids) != len(replicates):
+        raise ValueError(
+            f"valids must have one mask per replicate; got {len(valids)} "
+            f"masks for {len(replicates)} replicates."
+        )
+    ch = np.asarray(conc_horizontal, dtype=float)
+    cv = np.asarray(conc_vertical, dtype=float)
+    if replicates:
+        n_ver, n_hor = np.asarray(replicates[0]).shape
+        if ch.shape != (n_hor,) or cv.shape != (n_ver,):
+            raise ValueError(
+                f"conc_horizontal length {ch.shape[0]} and conc_vertical length "
+                f"{cv.shape[0]} must match replicate shape ({n_ver}, {n_hor})."
+            )
+    conc_finite = np.isfinite(cv)[:, None] & np.isfinite(ch)[None, :]
+    masks: list[np.ndarray] = []
+    for i, rep in enumerate(replicates):
+        rep_arr = np.asarray(rep)
+        if valids is None:
+            base = np.ones(rep_arr.shape, dtype=bool)
+        else:
+            v = np.asarray(valids[i])
+            if v.shape != rep_arr.shape:
+                raise ValueError(
+                    f"valids[{i}] has shape {v.shape}, expected {rep_arr.shape} "
+                    f"(len(conc_vertical) x len(conc_horizontal))"
+                )
+            base = v.astype(bool, copy=False)
+        masks.append(base & conc_finite & np.isfinite(rep_arr))
+    return masks
+
 
 def parameter_scale(
     x0: np.ndarray | list[float],
