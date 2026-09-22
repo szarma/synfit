@@ -326,8 +326,9 @@ class FitResult:
             s = float(self.sigma)
             if self.error_model == "lognormal":
                 # log(y) ~ N(log(μ), s²) with μ the Hill prediction (median).
-                exp_s2 = np.exp(s * s)
-                return mu * mu * exp_s2 * (exp_s2 - 1.0)
+                s2 = s * s
+                exp_s2 = np.exp(s2)
+                return mu * mu * exp_s2 * np.expm1(s2)
             return np.full_like(mu, s * s)
         return None
 
@@ -464,7 +465,7 @@ class FitResult:
 
         s = self.asymmetry if self.asymmetry is not None else 1.0
         asym_fitted = "asymmetry" in self.param_names
-        if s is None or (s == 1.0 and not asym_fitted):
+        if s == 1.0 and not asym_fitted:
             cis = self.param_ci()
             return cis.get("c50") if cis else None
 
@@ -472,23 +473,17 @@ class FitResult:
         # ∂/∂log_c50 = ln(10)
         # ∂/∂hill    = -(1/h²)·ln(2^(1/s) - 1)
         # ∂/∂s       = (1/h) · [(-ln(2)/s²) · 2^(1/s)] / (2^(1/s) - 1)
+        # At S=1 the denominator 2^(1/s) − 1 equals 1, so the asymmetry partial
+        # simplifies to −2·ln(2)/h.
         h = self.hill
-        if s == 1.0:
-            # At S=1 the general asymmetry partial is 0/0; limit is −2·ln(2)/h.
-            grad = {
-                "log_c50": np.log(10.0),
-                "hill": 0.0,
-                "asymmetry": -2.0 * np.log(2.0) / h,
-            }
-        else:
-            two_over_s = 2.0 ** (1.0 / s)
-            denom = two_over_s - 1.0
-            ln_denom = np.log(denom)
-            grad = {
-                "log_c50": np.log(10.0),
-                "hill": -(1.0 / (h * h)) * ln_denom,
-                "asymmetry": (1.0 / h) * ((-np.log(2.0) / (s * s)) * two_over_s) / denom,
-            }
+        two_over_s = 2.0 ** (1.0 / s)
+        denom = np.expm1(np.log(2.0) / s)
+        ln_denom = np.log(denom)
+        grad = {
+            "log_c50": np.log(10.0),
+            "hill": -(1.0 / (h * h)) * ln_denom,
+            "asymmetry": (1.0 / h) * ((-np.log(2.0) / (s * s)) * two_over_s) / denom,
+        }
         ix = {n: i for i, n in enumerate(self.param_names)}
         g = np.zeros(len(self.param_names))
         for name, val in grad.items():

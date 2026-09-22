@@ -101,7 +101,12 @@ class JointMarginalResult:
                 anchor=variance_anchor_from_asymptotes(self.top, self.bottom),
             )
         if self.sigma is not None:
-            return np.full_like(mu, float(self.sigma) ** 2)
+            s = float(self.sigma)
+            if self.error_model == "lognormal":
+                s2 = s * s
+                exp_s2 = np.exp(s2)
+                return mu * mu * exp_s2 * np.expm1(s2)
+            return np.full_like(mu, s * s)
         return None
 
     def to_dict(self) -> dict:
