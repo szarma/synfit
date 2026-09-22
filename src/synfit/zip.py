@@ -14,17 +14,31 @@ Zero-interaction expectation (Bliss on fraction affected):
     f_zip[i, j] = f_h(c_h[j]) + f_v(c_v[i]) - f_h(c_h[j]) * f_v(c_v[i])
 
 Per-slice fits in normalised space with fixed baseline ``f0`` (the other drug's
-single-agent fraction affected) and free ``log10 m``, Hill slope λ, and ``Emax``.
-The fitted combination surface averages row and column slice predictions;
+single-agent fraction affected), fixed asymmetry ``s`` (the slice drug's 5p
+shape, 1 for symmetric 4p), and free ``log10 m``, Hill slope λ, and ``Emax``.
+Row slices use the horizontal drug's asymmetry; column slices use the vertical
+drug's. The fitted combination surface averages successful row/column slice
+predictions (a single direction when the other failed; NaN when both failed).
 δ compares that surface to ``f_zip``. synfit sign convention: **negative = synergy**
 (``delta = -(f_c - f_zip)`` in fraction-affected terms).
 """
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 from scipy.optimize import minimize
 
 from .hill import hill_curve
+
+
+@dataclass(frozen=True)
+class ZipResult:
+    reference: np.ndarray  # zero-interaction expectation, response units
+    fitted: np.ndarray  # fitted combination surface (NaN where no slice succeeded)
+    delta: np.ndarray  # ZIP δ; NaN on zero-dose edges and unscored interior
+    failed_rows: tuple[int, ...]  # vertical-dose indices whose horizontal slice failed
+    failed_cols: tuple[int, ...]  # horizontal-dose indices whose vertical slice failed
+    n_unscored: int  # interior cells with NaN δ because both slice directions failed
 
 
 def _response_to_fraction_affected(
@@ -60,13 +74,26 @@ def _single_agent_fraction_affected(
     return _response_to_fraction_affected(y, effect_0, effect_inf)
 
 
-def _slice_model(conc: np.ndarray, f0: float, log10_m: float, hill: float, emax: float) -> np.ndarray:
-    """g(x) = (f0 + Emax * (x/m)^λ) / (1 + (x/m)^λ)."""
+def _slice_asymmetry(asymmetry: float | None) -> float:
+    return 1.0 if asymmetry is None else float(asymmetry)
+
+
+def _slice_model(
+    conc: np.ndarray,
+    f0: float,
+    log10_m: float,
+    hill: float,
+    emax: float,
+    asymmetry: float | None = None,
+) -> np.ndarray:
+    """g(x) = f0 + (Emax - f0) * (1 - (1 + (x/m)^λ)^(-s)); s=1 gives the 4p form."""
     c = np.asarray(conc, dtype=float)
     m = 10.0 ** log10_m
+    s = _slice_asymmetry(asymmetry)
     with np.errstate(invalid="ignore", divide="ignore"):
         ratio = np.where(c > 0, (c / m) ** hill, 0.0)
-    return (f0 + emax * ratio) / (1.0 + ratio)
+        frac = 1.0 - (1.0 + ratio) ** (-s)
+    return f0 + (emax - f0) * frac
 
 
 def _log10_m_bounds(pos_conc: np.ndarray) -> tuple[float, float]:
@@ -88,9 +115,10 @@ def _fit_slice_normalized(
     f0: float,
     log10_m0: float,
     hill0: float,
+    asymmetry: float | None = None,
 ) -> tuple[float, float, float] | None:
     """
-    Three-parameter slice fit (log10 m, λ, Emax) with fixed f0.
+    Three-parameter slice fit (log10 m, λ, Emax) with fixed f0 and fixed s.
 
     Returns (log10_m, hill, emax) or None if the slice cannot be fit.
     """
@@ -118,7 +146,9 @@ def _fit_slice_normalized(
     x0[1] = float(np.clip(x0[1], bounds[1][0], bounds[1][1]))
 
     def objective(x: np.ndarray) -> float:
-        pred = _slice_model(c_pos, f0, float(x[0]), float(x[1]), float(x[2]))
+        pred = _slice_model(
+            c_pos, f0, float(x[0]), float(x[1]), float(x[2]), asymmetry=asymmetry
+        )
         return float(np.sum((f_pos - pred) ** 2))
 
     res = minimize(objective, x0, method="L-BFGS-B", bounds=bounds)
@@ -164,20 +194,25 @@ def _fraction_affected_zip(
     return f_h, f_v, f_zip
 
 
+def _interior_mask(ch: np.ndarray, cv: np.ndarray) -> np.ndarray:
+    return (ch[np.newaxis, :] > 0) & (cv[:, np.newaxis] > 0)
+
+
 def _zip_slice_fits(
     mean_matrix: np.ndarray,
     ch: np.ndarray,
     cv: np.ndarray,
     f_h: np.ndarray,
     f_v: np.ndarray,
-    f_zip: np.ndarray,
     c50_hor: float,
     c50_ver: float,
     hill_hor: float,
     hill_ver: float,
     effect_0: float,
     effect_inf: float,
-) -> tuple[np.ndarray, int]:
+    asymmetry_hor: float | None,
+    asymmetry_ver: float | None,
+) -> tuple[np.ndarray, tuple[int, ...], tuple[int, ...], int]:
     m = np.asarray(mean_matrix, dtype=float)
     n_ver, n_hor = m.shape
     f_obs = _response_to_fraction_affected(m, effect_0, effect_inf)
@@ -185,41 +220,123 @@ def _zip_slice_fits(
     log10_m_hor0 = np.log10(c50_hor) if c50_hor > 0 else 0.0
     log10_m_ver0 = np.log10(c50_ver) if c50_ver > 0 else 0.0
 
-    n_failed = 0
-    f_row = np.empty_like(f_zip)
+    failed_rows: list[int] = []
+    failed_cols: list[int] = []
+    row_ok = np.zeros(n_ver, dtype=bool)
+    col_ok = np.zeros(n_hor, dtype=bool)
+    row_f = np.full((n_ver, n_hor), np.nan)
+    col_f = np.full((n_ver, n_hor), np.nan)
+
     for i in range(n_ver):
+        if cv[i] <= 0:
+            continue
         f0 = float(f_v[i])
-        fit = _fit_slice_normalized(f_obs[i, :], ch, f0, log10_m_hor0, hill_hor)
-        if fit is None:
-            n_failed += 1
-            f_row[i, :] = f_zip[i, :]
-        else:
-            log10_m, hill, emax = fit
-            f_row[i, :] = _slice_model(ch, f0, log10_m, hill, emax)
-
-    f_col = np.empty_like(f_zip)
-    for j in range(n_hor):
-        f0 = float(f_h[j])
-        fit = _fit_slice_normalized(f_obs[:, j], cv, f0, log10_m_ver0, hill_ver)
-        if fit is None:
-            n_failed += 1
-            f_col[:, j] = f_zip[:, j]
-        else:
-            log10_m, hill, emax = fit
-            f_col[:, j] = _slice_model(cv, f0, log10_m, hill, emax)
-
-    f_c = 0.5 * (f_row + f_col)
-    return f_c, n_failed
-
-
-def _warn_slice_failures(n_failed: int) -> None:
-    if n_failed > 0:
-        warnings.warn(
-            f"ZIP: {n_failed} slice fit(s) failed; using zero-interaction expectation "
-            "for those slice directions.",
-            UserWarning,
-            stacklevel=3,
+        fit = _fit_slice_normalized(
+            f_obs[i, :], ch, f0, log10_m_hor0, hill_hor, asymmetry=asymmetry_hor
         )
+        if fit is None:
+            failed_rows.append(i)
+        else:
+            log10_m, hill, emax = fit
+            row_ok[i] = True
+            row_f[i, :] = _slice_model(
+                ch, f0, log10_m, hill, emax, asymmetry=asymmetry_hor
+            )
+
+    for j in range(n_hor):
+        if ch[j] <= 0:
+            continue
+        f0 = float(f_h[j])
+        fit = _fit_slice_normalized(
+            f_obs[:, j], cv, f0, log10_m_ver0, hill_ver, asymmetry=asymmetry_ver
+        )
+        if fit is None:
+            failed_cols.append(j)
+        else:
+            log10_m, hill, emax = fit
+            col_ok[j] = True
+            col_f[:, j] = _slice_model(
+                cv, f0, log10_m, hill, emax, asymmetry=asymmetry_ver
+            )
+
+    has_row = row_ok[:, np.newaxis]
+    has_col = col_ok[np.newaxis, :]
+    both = has_row & has_col
+    one_row = has_row & ~has_col
+    one_col = ~has_row & has_col
+
+    f_c = np.full((n_ver, n_hor), np.nan)
+    f_c = np.where(both, 0.5 * (row_f + col_f), f_c)
+    f_c = np.where(one_row, row_f, f_c)
+    f_c = np.where(one_col, col_f, f_c)
+
+    interior = _interior_mask(ch, cv)
+    n_unscored = int(np.sum(interior & ~has_row & ~has_col))
+
+    return f_c, tuple(failed_rows), tuple(failed_cols), n_unscored
+
+
+def _warn_slice_failures(
+    failed_rows: tuple[int, ...],
+    failed_cols: tuple[int, ...],
+    n_unscored: int,
+) -> None:
+    if not failed_rows and not failed_cols:
+        return
+    parts: list[str] = []
+    if failed_rows:
+        parts.append(f"rows {list(failed_rows)}")
+    if failed_cols:
+        parts.append(f"columns {list(failed_cols)}")
+    warnings.warn(
+        f"ZIP: slice fit(s) failed for {' and '.join(parts)}; "
+        f"{n_unscored} interior cell(s) unscored.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
+def zip_scores(
+    mean_matrix: np.ndarray,
+    conc_hor: np.ndarray,
+    conc_ver: np.ndarray,
+    c50_hor: float,
+    c50_ver: float,
+    hill_hor: float,
+    hill_ver: float,
+    effect_0: float,
+    effect_inf: float,
+    *,
+    asymmetry_hor: float | None = None,
+    asymmetry_ver: float | None = None,
+) -> ZipResult:
+    """Full ZIP result: reference, fitted surface, δ, and slice-failure metadata."""
+    if effect_0 == effect_inf:
+        raise ValueError("effect_0 and effect_inf must differ")
+    _, _, ch, cv = _validate_matrix_shape(mean_matrix, conc_hor, conc_ver)
+    f_h, f_v, f_zip = _fraction_affected_zip(
+        ch, cv, c50_hor, c50_ver, hill_hor, hill_ver,
+        effect_0, effect_inf, asymmetry_hor, asymmetry_ver,
+    )
+    f_c, failed_rows, failed_cols, n_unscored = _zip_slice_fits(
+        mean_matrix, ch, cv, f_h, f_v,
+        c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
+        asymmetry_hor, asymmetry_ver,
+    )
+    _warn_slice_failures(failed_rows, failed_cols, n_unscored)
+
+    delta = -(f_c - f_zip)
+    edge = (ch[np.newaxis, :] == 0) | (cv[:, np.newaxis] == 0)
+    delta = np.where(edge, np.nan, delta)
+
+    return ZipResult(
+        reference=_fraction_affected_to_response(f_zip, effect_0, effect_inf),
+        fitted=_fraction_affected_to_response(f_c, effect_0, effect_inf),
+        delta=delta,
+        failed_rows=failed_rows,
+        failed_cols=failed_cols,
+        n_unscored=n_unscored,
+    )
 
 
 def zip_reference(
@@ -253,33 +370,6 @@ def zip_reference(
     return _fraction_affected_to_response(f_zip, effect_0, effect_inf)
 
 
-def _zip_fitted_fraction_affected(
-    mean_matrix: np.ndarray,
-    conc_hor: np.ndarray,
-    conc_ver: np.ndarray,
-    c50_hor: float,
-    c50_ver: float,
-    hill_hor: float,
-    hill_ver: float,
-    effect_0: float,
-    effect_inf: float,
-    asymmetry_hor: float | None = None,
-    asymmetry_ver: float | None = None,
-) -> tuple[np.ndarray, np.ndarray, int]:
-    if effect_0 == effect_inf:
-        raise ValueError("effect_0 and effect_inf must differ")
-    _, _, ch, cv = _validate_matrix_shape(mean_matrix, conc_hor, conc_ver)
-    f_h, f_v, f_zip = _fraction_affected_zip(
-        ch, cv, c50_hor, c50_ver, hill_hor, hill_ver,
-        effect_0, effect_inf, asymmetry_hor, asymmetry_ver,
-    )
-    f_c, n_failed = _zip_slice_fits(
-        mean_matrix, ch, cv, f_h, f_v, f_zip,
-        c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
-    )
-    return f_zip, f_c, n_failed
-
-
 def zip_fitted_surface(
     mean_matrix: np.ndarray,
     conc_hor: np.ndarray,
@@ -295,13 +385,11 @@ def zip_fitted_surface(
     asymmetry_ver: float | None = None,
 ) -> np.ndarray:
     """ZIP fitted combination surface ``y(f_c)`` in response units."""
-    _, f_c, n_failed = _zip_fitted_fraction_affected(
+    return zip_scores(
         mean_matrix, conc_hor, conc_ver,
         c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
-        asymmetry_hor, asymmetry_ver,
-    )
-    _warn_slice_failures(n_failed)
-    return _fraction_affected_to_response(f_c, effect_0, effect_inf)
+        asymmetry_hor=asymmetry_hor, asymmetry_ver=asymmetry_ver,
+    ).fitted
 
 
 def zip_delta(
@@ -322,15 +410,10 @@ def zip_delta(
     ZIP δ-score matrix: ``-(f_c - f_zip)`` (negative = synergy).
 
     Cells where either concentration is zero are NaN (single-drug edges).
+    Interior cells are NaN when both the row and column slice fits failed.
     """
-    f_zip, f_c, n_failed = _zip_fitted_fraction_affected(
+    return zip_scores(
         mean_matrix, conc_hor, conc_ver,
         c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
-        asymmetry_hor, asymmetry_ver,
-    )
-    _warn_slice_failures(n_failed)
-    delta = -(f_c - f_zip)
-    ch = np.asarray(conc_hor, dtype=float)
-    cv = np.asarray(conc_ver, dtype=float)
-    edge = (ch[np.newaxis, :] == 0) | (cv[:, np.newaxis] == 0)
-    return np.where(edge, np.nan, delta)
+        asymmetry_hor=asymmetry_hor, asymmetry_ver=asymmetry_ver,
+    ).delta
