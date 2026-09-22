@@ -53,3 +53,12 @@ jobs:
 
       - name: Run README python examples against installed package
         run: /tmp/synfit-smoke-venv/bin/python scripts/check_readme_examples.py
+
+      - name: Run the shipped test suite from the extracted sdist
+        # Downstream packagers (conda-forge, Debian, Nix, Spack) build from the
+        # sdist and run these tests; an incomplete MANIFEST.in breaks them long
+        # before anyone here notices.
+        run: |
+          mkdir -p /tmp/synfit-sdist && tar xzf dist/synfit-*.tar.gz -C /tmp/synfit-sdist --strip-components=1
+          /tmp/synfit-smoke-venv/bin/pip install pytest
+          cd /tmp/synfit-sdist && /tmp/synfit-smoke-venv/bin/python -m pytest -q
