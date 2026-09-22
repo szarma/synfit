@@ -153,6 +153,10 @@ Synergy scores follow their published definitions:
   method and reduces to it when the asymmetry equals 1. See `src/synfit/zip.py`.
 - **Bliss independence** — Bliss CI. *The toxicity of poisons applied jointly.*
   Annals of Applied Biology 26:585–615 (1939).
+- **HSA (Highest Single Agent)** — the combination is compared against whichever
+  single agent acts more strongly; see Berenbaum MC. *What is synergy?*
+  Pharmacological Reviews 41:93–141 (1989) for the reference frames and how they
+  differ. HSA is undefined for an inhibitor combined with an activator.
 - **Loewe additivity** — Loewe S, Muischnek H. *Über Kombinationswirkungen.*
   Naunyn-Schmiedeberg's Archiv für experimentelle Pathologie und Pharmakologie
   114:313–326 (1926).
