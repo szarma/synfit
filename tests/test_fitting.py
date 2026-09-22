@@ -6,7 +6,12 @@ from scipy.stats import norm as _norm
 from synfit.data import FitBounds, FitConfig, FitResult
 from synfit.fitting import FitBase
 from synfit.hill import hill_curve
-from synfit.single import SingleDrugFit, SingleDrugFitWithError, default_fit_config
+from synfit.single import (
+    SingleDrugFit,
+    SingleDrugFitWithError,
+    _robust_response_extrema,
+    default_fit_config,
+)
 from synfit.synthetic import generate_single_drug
 
 
@@ -578,6 +583,34 @@ def test_single_drug_fit_nan_response_excluded_from_metrics():
     for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "rss", "aic", "bic"):
         np.testing.assert_allclose(
             getattr(r_nan, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
+        )
+
+
+def test_single_drug_fit_non_finite_conc_on_midpoint_row_matches_drop():
+    """IC50 seed row must not use a row with non-finite concentration."""
+    conc, y = _case_ab_conc_y()
+    rng = np.random.default_rng(2)
+    y_noisy = y + rng.normal(0, 0.03, 13)
+    ymin, ymax = _robust_response_extrema(y_noisy)
+    ym = ymin + (ymax - ymin) / 2
+    midpoint_idx = int(np.argmin(np.abs(y_noisy - ym)))
+    conc_bad = conc.copy()
+    conc_bad[midpoint_idx] = np.nan
+    df_bad = pd.DataFrame({"concentration": conc_bad, "y": y_noisy, "replicate": 0})
+    df_drop = pd.DataFrame(
+        {
+            "concentration": np.delete(conc, midpoint_idx),
+            "y": np.delete(y_noisy, midpoint_idx),
+            "replicate": 0,
+        },
+    )
+    r_bad = SingleDrugFit(df_bad).fit()
+    r_drop = SingleDrugFit(df_drop).fit()
+    assert r_bad.success and r_drop.success
+    assert r_bad.n_valid == 12
+    for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "rss", "aic", "bic"):
+        np.testing.assert_allclose(
+            getattr(r_bad, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
         )
 
 

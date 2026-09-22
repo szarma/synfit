@@ -595,3 +595,34 @@ def test_joint_marginal_fit_rejects_compound_noise(noise):
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
         JointMarginalFit(data_a, data_b, noise=noise)
+
+
+def test_joint_marginal_nan_response_excluded_from_likelihood_and_counts():
+    data_a, data_b = _two_drug_data()
+    data_a = data_a.copy()
+    drop_idx = 4
+    data_a.loc[drop_idx, "y"] = np.nan
+    data_a_drop = data_a.drop(index=drop_idx).reset_index(drop=True)
+
+    r_nan = JointMarginalFit(data_a, data_b).fit()
+    r_drop = JointMarginalFit(data_a_drop, data_b).fit()
+
+    assert r_nan.drug_a.n_valid == len(data_a) - 1
+    assert r_nan.drug_a.n_total == len(data_a)
+    assert r_nan.n_data == r_drop.n_data
+    assert r_nan.aic == pytest.approx(r_drop.aic, rel=1e-9, abs=1e-12)
+    assert r_nan.drug_a.c50 == pytest.approx(r_drop.drug_a.c50, rel=1e-9, abs=1e-12)
+
+
+def test_joint_marginal_valids_mask_excluded_like_nan():
+    data_a, data_b = _two_drug_data()
+    mask_idx = 3
+    valids_a = np.ones(len(data_a), dtype=bool)
+    valids_a[mask_idx] = False
+    data_a_drop = data_a.drop(index=mask_idx).reset_index(drop=True)
+
+    r_mask = JointMarginalFit(data_a, data_b, valids_a=valids_a).fit()
+    r_drop = JointMarginalFit(data_a_drop, data_b).fit()
+
+    assert r_mask.drug_a.n_valid == len(data_a) - 1
+    assert r_mask.aic == pytest.approx(r_drop.aic, rel=1e-9, abs=1e-12)
