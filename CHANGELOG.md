@@ -15,6 +15,16 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-09-22
+
+### Fixed
+- **The source distribution is complete and self-testable.** Installing or
+  building from the sdist previously shipped test modules without their
+  package init, helpers and fixture data, so the suite could not run — which
+  matters for anyone packaging synfit (conda-forge, Debian, Nix, Spack) or
+  verifying a build. The published README now also names the primary
+  references for the synergy scores (ZIP: Yadav et al. 2015).
+
 ## [0.7.0] — 2026-09-22
 
 ### Fixed
