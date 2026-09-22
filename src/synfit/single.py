@@ -12,7 +12,6 @@ from .data import (
 from .fitting import FitBase, effective_observation_mask, validate_included_y_err
 from .hill import hill_curve
 from .noise import (
-    GaussianConstant,
     Lognormal,
     NoiseSpec,
     error_model_name,
@@ -22,6 +21,8 @@ from .noise import (
     is_heteroscedastic_gaussian,
     log_prob as noise_log_prob,
     noise_spec_with_variance_initials,
+    require_supported_single_drug_fitting_noise,
+    require_supported_single_drug_with_error_fitting_noise,
     scaled_variance_coefficient_defaults,
     variance_initials_for_noise,
     variance_model_name,
@@ -292,7 +293,9 @@ def default_fit_config(
     *editable* bounds in a UI should source their defaults here rather than
     re-deriving them, so the derivation has a single source of truth.
     """
-    return _init_config_from_data(data, direction=direction, noise=_coerce_noise(noise))
+    coerced = _coerce_noise(noise)
+    require_supported_single_drug_fitting_noise(coerced)
+    return _init_config_from_data(data, direction=direction, noise=coerced)
 
 
 def default_bounds(
@@ -301,8 +304,10 @@ def default_bounds(
     noise: NoiseSpec | dict | str | None = None,
 ) -> FitBounds:
     """Data-driven default :class:`FitBounds` for ``data`` (see :func:`default_fit_config`)."""
+    coerced = _coerce_noise(noise)
+    require_supported_single_drug_fitting_noise(coerced)
     return _init_config_from_data(
-        data, direction=direction, noise=_coerce_noise(noise)
+        data, direction=direction, noise=coerced,
     ).bounds
 
 
@@ -330,6 +335,7 @@ class SingleDrugFit(FitBase):
         if config is None:
             config = _init_config_from_data(data)
         else:
+            require_supported_single_drug_fitting_noise(config.noise)
             config = config.copy()
             # Re-derive data-driven defaults for anything the caller left
             # unspecified, using the config's direction heuristics and noise
@@ -553,6 +559,7 @@ class SingleDrugFitWithError(FitBase):
             cfg = _init_config_from_data(data)
         else:
             cfg = config.copy()
+        require_supported_single_drug_with_error_fitting_noise(cfg.noise)
         validate_direction(cfg.direction)
         # Honour the bounds=None "derive from data" signal (FitBase readers
         # dereference config.bounds.<param>, so it must be concrete by fit time).
@@ -560,15 +567,6 @@ class SingleDrugFitWithError(FitBase):
             cfg.bounds = _init_config_from_data(
                 data, direction=cfg.direction, noise=cfg.noise,
             ).bounds
-        # Per-point user errors and a fitted σ²(μ) polynomial are mutually
-        # exclusive — log_prob enforces it, but rejecting at construction time
-        # gives a clearer message.
-        if not isinstance(cfg.noise, (GaussianConstant, Lognormal)):
-            raise ValueError(
-                "SingleDrugFitWithError uses per-point y_err — pair it with "
-                "noise.kind='gaussian_constant' or 'lognormal'. To fit a heteroscedastic σ²(μ) "
-                "polynomial, drop y_err and use SingleDrugFit instead."
-            )
         if not cfg.fitting_parameters:
             raise ValueError(
                 "At least one parameter must be listed in fitting_parameters — "
