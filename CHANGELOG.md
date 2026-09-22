@@ -66,11 +66,12 @@ tagged `[X.Y.Z]` heading.
   ``SingleDrugFit``.
 ### Changed
 - **Documentation and CI for release:** README includes a copy-paste quick start
-  (install from wheel or Git; synfit is not on PyPI yet), corrected Hill
-  parameter names in the synthetic-data example, and an accurate description of
-  the optimiser (single L-BFGS-B solve, not multi-restart). CI now tests Python
-  3.11–3.13 and checks that a built wheel installs cleanly and runs the README
-  examples.
+  (install from wheel or Git; PyPI holds a reserved placeholder only), corrected
+  Hill parameter names in the synthetic-data example, and an accurate description
+  of the optimiser (one L-BFGS-B solve normally, with one targeted
+  variance-initial retry when heteroscedastic init stalls; not multi-restart). CI
+  now tests Python 3.11–3.13 and checks that a built wheel installs cleanly and
+  runs the README examples.
 
 ## [0.6.0] — 2026-09-22
 
