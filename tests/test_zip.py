@@ -218,7 +218,10 @@ class TestZipFailedSliceFallback:
 
 class TestZipSynergyReferenceJson:
     # synfit uses negative=synergy; synergy package reports reference - fit (positive=synergy).
-    # Remaining per-cell gaps vs curve_fit-based slice fits are below 0.01 for these surfaces.
+    # Independent implementation of the same definition (GPL-3, run offline by
+    # scripts/zip_reference_values.py). Both fit the same 3-parameter slice model
+    # with Emax capped at full effect, so they agree to optimiser precision
+    # (observed max 5e-4 against deltas of 0.04-0.09).
 
     @pytest.fixture(scope="class")
     def cases(self):
@@ -246,7 +249,8 @@ class TestZipSynergyReferenceJson:
             cv_g = cv[:, np.newaxis]
             interior = (ch_g > 0) & (cv_g > 0)
             diff = np.abs(d - ref_delta)
-            assert np.nanmax(diff[interior]) < 0.01
+            assert np.nanmax(np.abs(ref_delta[interior])) > 0.03  # real signal
+            assert np.nanmax(diff[interior]) < 1e-3
 
 
 class TestZipDelta:
