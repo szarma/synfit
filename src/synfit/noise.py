@@ -21,9 +21,9 @@ Noise models are represented by ``NoiseSpec`` variants:
     additive Gaussian noise on top — captures assays with a detector floor
     (constant noise at low signal, constant CV at high signal). The marginal
     likelihood has no closed form and is evaluated by Gauss–Hermite quadrature
-    over η. Gaussian variance specs are irrelevant for this family — the two scale
-    parameters (σ_add, σ_log) are inherent to the family and must both be
-    fitted (neither can be profiled out analytically).
+    over η (pass ``compound_params`` to :func:`log_prob`). Public dose-response
+    fitters do not yet estimate these scales — use the likelihood primitive or
+    synthetic data generation with fixed noise parameters.
 
 Gaussian variance specs
 -----------------------
@@ -118,6 +118,62 @@ class CompoundAddMult:
 
 
 NoiseSpec = GaussianConstant | GaussianLinear | GaussianQuadratic | Lognormal | CompoundAddMult
+
+_FITTABLE_GAUSSIAN_LOGNORMAL_NOISE = (
+    GaussianConstant,
+    GaussianLinear,
+    GaussianQuadratic,
+    Lognormal,
+)
+
+
+def require_supported_single_drug_fitting_noise(noise: NoiseSpec | None) -> None:
+    """Reject noise kinds public single-drug fitters cannot estimate.
+
+    Compound additive-multiplicative noise has a likelihood primitive but no
+    bound/initial scheme on :class:`~synfit.data.FitBounds`. Raise after noise
+    coercion and before any bound derivation.
+    """
+    if noise is not None and not isinstance(noise, _FITTABLE_GAUSSIAN_LOGNORMAL_NOISE):
+        raise ValueError(
+            "Single-drug fitting currently supports constant/linear/quadratic "
+            "gaussian and lognormal noise only."
+        )
+
+
+_SINGLE_DRUG_WITH_ERROR_NOISE = (GaussianConstant, Lognormal)
+
+
+def require_supported_single_drug_with_error_fitting_noise(
+    noise: NoiseSpec | None,
+) -> None:
+    """Reject noise kinds :class:`~synfit.single.SingleDrugFitWithError` cannot use."""
+    if noise is None or isinstance(noise, _SINGLE_DRUG_WITH_ERROR_NOISE):
+        return
+    if isinstance(noise, CompoundAddMult):
+        raise ValueError(
+            "SingleDrugFitWithError currently supports gaussian_constant and "
+            "lognormal noise only."
+        )
+    if isinstance(noise, (GaussianLinear, GaussianQuadratic)):
+        raise ValueError(
+            "SingleDrugFitWithError uses per-point y_err — pair it with "
+            "noise.kind='gaussian_constant' or 'lognormal'. To fit a heteroscedastic σ²(μ) "
+            "polynomial, drop y_err and use SingleDrugFit instead."
+        )
+    raise ValueError(
+        "SingleDrugFitWithError currently supports gaussian_constant and "
+        "lognormal noise only."
+    )
+
+
+def require_supported_joint_marginal_fitting_noise(noise: NoiseSpec | None) -> None:
+    """Reject noise kinds :class:`~synfit.joint_marginal.JointMarginalFit` cannot fit."""
+    if noise is not None and not isinstance(noise, _FITTABLE_GAUSSIAN_LOGNORMAL_NOISE):
+        raise ValueError(
+            "JointMarginalFit currently supports constant/linear/quadratic "
+            "gaussian and lognormal noise only."
+        )
 
 
 class ErrorModel(str, Enum):
