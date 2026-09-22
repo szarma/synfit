@@ -1,0 +1,14 @@
+# The sdist must be self-testable: downstream packagers (conda-forge, Debian,
+# Fedora, Nix, Spack) build from it and run the suite against their own NumPy /
+# SciPy. setuptools' legacy default picks up ``test*.py`` only, which drops the
+# test package init, its helpers and its fixture CSVs — the shipped tests then
+# fail to import. Wheels stay test-free (packages are found under src/).
+include CHANGELOG.md
+include LICENSE
+recursive-include tests *.py
+recursive-include tests/data *.csv *.json
+recursive-include scripts *.py
+# Synthetic seed configs/CSVs: the Loewe suite fits them directly.
+recursive-include data *.json *.csv
+global-exclude __pycache__/* *.py[cod]
+prune AGENTS.md
