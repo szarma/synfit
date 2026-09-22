@@ -20,7 +20,11 @@ tagged `[X.Y.Z]` heading.
   marginal, and matrix fits.** ``n_valid``, RSS, R², AIC and BIC now count only
   observations that enter the likelihood (finite concentration and response,
   after any caller ``valids`` mask). Data-driven initials and bounds ignore
-  excluded rows. A fit with too few finite responses raises instead of
+  rows with a non-finite concentration or response; ``MatrixFit`` and
+  ``JointMarginalFit`` (new optional ``valids_a`` / ``valids_b``) also leave out
+  cells excluded through their constructor masks. Points excluded via
+  ``SingleDrugFit.fit(valids=...)`` still shape the automatic initials and
+  bounds as before. A fit with too few finite responses raises instead of
   reporting success with misleading metrics.
 
 ## [0.6.0] — 2026-09-22
