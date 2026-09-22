@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use synfit in research, please cite it as below, and cite the primary references for the synergy scores you report (see README)."
+title: synfit
+abstract: >-
+  Dose-response curve fitting (Hill equation, 4- and 5-parameter) and
+  drug-combination synergy scoring (Bliss, HSA, Loewe, ZIP) for pharmacology,
+  with explicit noise models and direction-neutral parameters for inhibition
+  and activation assays.
+type: software
+authors:
+  - family-names: Sarikas
+    given-names: Srdjan
+    email: develop@synfit.app
+version: 0.7.0
+date-released: "2026-09-22"
+license: MIT
+repository-code: "https://github.com/szarma/synfit"
+url: "https://synfit.app"
+keywords:
+  - pharmacology
+  - dose-response
+  - hill-equation
+  - ic50
+  - ec50
+  - drug-synergy
+  - bliss-independence
+  - loewe-additivity
+  - zip-synergy
+  - curve-fitting

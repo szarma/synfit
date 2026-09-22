@@ -56,3 +56,11 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 
 A change that moves fitted values is ≥ MINOR (see `CHANGELOG.md`). Tag `vX.Y.Z`
 on `main` after merge — never a feature-branch tip.
+
+Releasing, in one commit on `main`, then the tag:
+
+1. `pyproject.toml` `version`
+2. `CITATION.cff` `version` **and** `date-released` — stale values are what
+   people paste into a methods section
+3. `CHANGELOG.md`: promote `[Unreleased]` to a dated `[X.Y.Z]` heading
+4. `uv lock`, then tag `vX.Y.Z` once CI is green on that commit
