@@ -12,7 +12,6 @@ from .data import (
 from .fitting import FitBase, effective_observation_mask, validate_included_y_err
 from .hill import hill_curve
 from .noise import (
-    GaussianConstant,
     Lognormal,
     NoiseSpec,
     error_model_name,
