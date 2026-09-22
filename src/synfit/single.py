@@ -9,7 +9,7 @@ from .data import (
     apply_variance_coefficient_domain,
     variance_anchor_from_asymptotes,
 )
-from .fitting import FitBase
+from .fitting import FitBase, effective_observation_mask
 from .hill import hill_curve
 from .noise import (
     GaussianConstant,
@@ -451,10 +451,13 @@ class SingleDrugFit(FitBase):
         """
         Fit the Hill curve. Optionally pass a boolean array to exclude points.
         """
-        if valids is None:
-            valids = np.ones(len(self.data), dtype=bool)
-
-        n_valid = int(valids.sum())
+        mask = effective_observation_mask(
+            valids,
+            len(self.data),
+            self.data["concentration"].values,
+            self.data["y"].values,
+        )
+        n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
             raise ValueError(
@@ -463,7 +466,7 @@ class SingleDrugFit(FitBase):
             )
 
         x0, bounds = self._get_x0_and_bounds()
-        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=valids)
+        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
         kwargs = self._x_to_kwargs(x_opt)
         var_tuple = self._x_to_variance_params(x_opt)
 
@@ -510,7 +513,7 @@ class SingleDrugFit(FitBase):
             param_names=list(self.config.fitting_parameters),
         )
 
-        self._compute_gof_metrics(result, valids)
+        self._compute_gof_metrics(result, mask)
 
         return result
 
@@ -564,10 +567,13 @@ class SingleDrugFitWithError(FitBase):
         )
 
     def fit(self, valids: np.ndarray | None = None) -> FitResult:
-        if valids is None:
-            valids = np.ones(len(self.data), dtype=bool)
-
-        n_valid = int(valids.sum())
+        mask = effective_observation_mask(
+            valids,
+            len(self.data),
+            self.data["concentration"].values,
+            self.data["y"].values,
+        )
+        n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
             raise ValueError(
@@ -576,7 +582,7 @@ class SingleDrugFitWithError(FitBase):
             )
 
         x0, bounds = self._get_x0_and_bounds()
-        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=valids)
+        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
         kwargs = self._x_to_kwargs(x_opt)
         log_c50 = self._parameter_value("log_c50", x_opt)
         if "asymmetry" in self.config.fitting_parameters:

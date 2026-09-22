@@ -15,6 +15,13 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Fixed
+- **Missing responses (NaN) are excluded consistently from single-drug and matrix
+  fits.** ``n_valid``, RSS, R², AIC and BIC now count only observations that
+  enter the likelihood (finite concentration and response, after any caller
+  ``valids`` mask). A fit with too few finite responses raises instead of
+  reporting success with misleading metrics.
+
 ## [0.6.0] — 2026-09-22
 
 ### Fixed

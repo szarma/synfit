@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from .data import FitConfig, FitResult, validate_direction
 from .bliss import bliss_independence
-from .fitting import PRIOR_PENALTY_WEIGHT, FitBase
+from .fitting import PRIOR_PENALTY_WEIGHT, FitBase, matrix_observation_masks
 from .hill import log_wall
 from .param_roles import is_log_param
 from .noise import (
@@ -259,9 +259,12 @@ class MatrixFit(FitBase):
             hill_hor=p["hill_hor"], hill_ver=p["hill_ver"],
             effect_0=p["effect_0"], effect_inf=p["effect_inf"],
         )
+        observation_masks = kwargs.get("observation_masks")
+        if observation_masks is None:
+            observation_masks = matrix_observation_masks(self.replicates, self.valids)
         total_Z = 0.0
         for i, rep in enumerate(self.replicates):
-            mask = self.valids[i].ravel() if self.valids else None
+            mask = observation_masks[i].ravel()
             total_Z += noise_log_prob(
                 rep.ravel(), bliss.ravel(),
                 self.noise,
@@ -277,17 +280,17 @@ class MatrixFit(FitBase):
 
     def fit(self) -> MatrixFitResult:
         n_params = 6
-        if self.valids:
-            n_data = int(sum(int(v.sum()) for v in self.valids))
-        else:
-            n_data = int(sum(r.size for r in self.replicates))
+        observation_masks = matrix_observation_masks(self.replicates, self.valids)
+        n_data = int(sum(int(m.sum()) for m in observation_masks))
         if n_data < n_params + 1:
             raise ValueError(
                 f"Need at least {n_params + 1} valid matrix cells for {n_params} parameters; "
                 f"got {n_data}."
             )
 
-        x_opt, success, message, pcov = self._run_minimize(self._x0, self._bounds)
+        x_opt, success, message, pcov = self._run_minimize(
+            self._x0, self._bounds, observation_masks=observation_masks,
+        )
         p = self._unpack_x(x_opt)
 
         # Pool residuals across all replicates and matrix cells to estimate σ̂
@@ -301,10 +304,7 @@ class MatrixFit(FitBase):
         )
         y_all = np.concatenate([rep.ravel() for rep in self.replicates])
         y_pred_all = np.tile(bliss.ravel(), len(self.replicates))
-        if self.valids:
-            mask_all = np.concatenate([v.ravel() for v in self.valids]).astype(bool)
-        else:
-            mask_all = None
+        mask_all = np.concatenate([m.ravel() for m in observation_masks])
         sigma_hat = fit_noise_scale(
             y_all, y_pred_all, self.noise, mask=mask_all,
         )
