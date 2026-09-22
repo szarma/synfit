@@ -541,3 +541,77 @@ def test_single_drug_fitters_reject_empty_fitting_parameters(fitter_cls, frame):
     cfg = FitConfig(fitting_parameters=[], bounds=default_fit_config(data).bounds)
     with pytest.raises(ValueError, match="no free parameters"):
         fitter_cls(df, cfg)
+
+
+def _case_ab_conc_y():
+    """13-point curve shared by missing-response regression tests."""
+    conc = np.logspace(-2, 2, 13)
+    y = hill_curve(conc, c50=1.0, hill=1.2, effect_0=1.0, effect_inf=0.0)
+    return conc, y
+
+
+def test_single_drug_fit_raises_when_too_few_finite_responses():
+    conc, y = _case_ab_conc_y()
+    y_a = np.full(13, np.nan)
+    y_a[[3, 9]] = y[[3, 9]]
+    df = pd.DataFrame({"concentration": conc, "y": y_a, "replicate": 0})
+    with pytest.raises(ValueError, match="valid data points"):
+        SingleDrugFit(df).fit()
+
+
+def test_single_drug_fit_nan_response_excluded_from_metrics():
+    conc, y = _case_ab_conc_y()
+    rng = np.random.default_rng(0)
+    y_b = y + rng.normal(0, 0.03, 13)
+    y_b[5] = np.nan
+    df_nan = pd.DataFrame({"concentration": conc, "y": y_b, "replicate": 0})
+    df_drop = df_nan.drop(index=5).reset_index(drop=True)
+
+    r_nan = SingleDrugFit(df_nan).fit()
+    r_drop = SingleDrugFit(df_drop).fit()
+
+    assert r_nan.n_valid == 12
+    assert r_nan.n_total == 13
+    assert np.isfinite(r_nan.rss)
+    assert r_nan.r2 is not None and np.isfinite(r_nan.r2)
+
+    for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "rss", "aic", "bic"):
+        np.testing.assert_allclose(
+            getattr(r_nan, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
+        )
+
+
+def test_single_drug_fit_non_finite_concentration_excluded_like_missing_y():
+    conc, y = _case_ab_conc_y()
+    rng = np.random.default_rng(1)
+    y_noisy = y + rng.normal(0, 0.03, 13)
+    conc_bad = conc.copy()
+    conc_bad[4] = np.nan
+    df_bad = pd.DataFrame({"concentration": conc_bad, "y": y_noisy, "replicate": 0})
+    df_drop = pd.DataFrame(
+        {"concentration": np.delete(conc, 4), "y": np.delete(y_noisy, 4), "replicate": 0},
+    )
+    r_bad = SingleDrugFit(df_bad).fit()
+    r_drop = SingleDrugFit(df_drop).fit()
+    assert r_bad.n_valid == 12
+    assert r_bad.n_total == 13
+    for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "rss", "aic", "bic"):
+        np.testing.assert_allclose(
+            getattr(r_bad, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
+        )
+
+
+def test_single_drug_fit_valids_wrong_length_raises():
+    conc, y = _case_ab_conc_y()
+    df = pd.DataFrame({"concentration": conc, "y": y, "replicate": 0})
+    with pytest.raises(ValueError, match="valids must be a 1-D boolean array"):
+        SingleDrugFit(df).fit(valids=np.ones(5, dtype=bool))
+
+
+def test_single_drug_fit_with_error_nan_y_excluded_from_n_valid():
+    conc, y = _case_ab_conc_y()
+    df = pd.DataFrame({"concentration": conc, "y": y.copy(), "y_err": 0.02, "replicate": 0})
+    df.loc[5, "y"] = np.nan
+    result = SingleDrugFitWithError(df).fit()
+    assert result.n_valid == 12
+    assert result.n_total == 13

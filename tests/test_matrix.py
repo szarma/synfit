@@ -59,6 +59,22 @@ class TestMatrixFitParameterRecovery:
         assert set(d["horizontal"].keys()) >= {"ic50", "c50", "hill", "effect_0", "effect_inf", "success"}
 
 
+def test_matrix_fit_nan_well_excluded_from_likelihood():
+    """A NaN well must behave like an explicit valids=False on that cell."""
+    replicates, conc_hor, conc_ver = matrix_from_config(seed=7)
+    rep_nan = [r.copy() for r in replicates]
+    rep_nan[0][2, 3] = np.nan
+    fit_nan = MatrixFit(rep_nan, conc_hor, conc_ver, error_model="gaussian").fit()
+
+    valids = [np.ones(r.shape, dtype=bool) for r in replicates]
+    valids[0][2, 3] = False
+    fit_mask = MatrixFit(replicates, conc_hor, conc_ver, valids=valids, error_model="gaussian").fit()
+
+    assert fit_nan.sigma == pytest.approx(fit_mask.sigma, rel=1e-9, abs=1e-12)
+    assert fit_nan.horizontal.c50 == pytest.approx(fit_mask.horizontal.c50, rel=1e-9)
+    assert fit_nan.vertical.c50 == pytest.approx(fit_mask.vertical.c50, rel=1e-9)
+
+
 class TestMatrixFitEdgeCases:
     def test_with_valids(self):
         replicates, conc_hor, conc_ver = matrix_from_config()

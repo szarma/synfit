@@ -18,6 +18,49 @@ PRIOR_PENALTY_WEIGHT = 1000
 _HESS_EPS = 1e-5
 
 
+def effective_observation_mask(
+    valids: np.ndarray | None,
+    n_rows: int,
+    concentration: np.ndarray,
+    y: np.ndarray,
+) -> np.ndarray:
+    """Boolean mask of rows that enter the likelihood (caller mask and finite data)."""
+    if valids is None:
+        mask = np.ones(n_rows, dtype=bool)
+    else:
+        valids_arr = np.asarray(valids)
+        if valids_arr.ndim != 1 or valids_arr.shape[0] != n_rows:
+            raise ValueError(
+                f"valids must be a 1-D boolean array of length {n_rows}; "
+                f"got shape {valids_arr.shape}."
+            )
+        mask = valids_arr.astype(bool, copy=False)
+    conc = np.asarray(concentration, dtype=float)
+    resp = np.asarray(y, dtype=float)
+    return mask & np.isfinite(conc) & np.isfinite(resp)
+
+
+def matrix_observation_masks(
+    replicates: list[np.ndarray],
+    valids: list[np.ndarray] | None,
+) -> list[np.ndarray]:
+    """Per-replicate masks: caller valids (if any) and finite matrix responses."""
+    masks: list[np.ndarray] = []
+    for i, rep in enumerate(replicates):
+        rep_arr = np.asarray(rep)
+        if valids is None:
+            base = np.ones(rep_arr.shape, dtype=bool)
+        else:
+            v = np.asarray(valids[i])
+            if v.shape != rep_arr.shape:
+                raise ValueError(
+                    f"valids[{i}] has shape {v.shape}, expected {rep_arr.shape} "
+                    f"(len(conc_vertical) x len(conc_horizontal))"
+                )
+            base = v.astype(bool, copy=False)
+        masks.append(base & np.isfinite(rep_arr))
+    return masks
+
 
 def parameter_scale(
     x0: np.ndarray | list[float],
