@@ -15,6 +15,10 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+### Added
+- **PEP 561 type information.** The installed package now includes a `py.typed`
+  marker so type checkers (mypy, Pyright, etc.) resolve synfit's annotations.
+
 ## [0.7.1] — 2026-09-22
 
 ### Fixed
