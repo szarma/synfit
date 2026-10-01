@@ -64,3 +64,20 @@ Releasing, in one commit on `main`, then the tag:
    people paste into a methods section
 3. `CHANGELOG.md`: promote `[Unreleased]` to a dated `[X.Y.Z]` heading
 4. `uv lock`, then tag `vX.Y.Z` once CI is green on that commit
+
+Publishing to PyPI is a separate, deliberate step: `.github/workflows/publish.yml`
+uploads only when a **GitHub release is published** for a tag, using PyPI trusted
+publishing (no stored token). It refuses to upload when the tag does not match
+`pyproject.toml`'s version, when the tagged commit is not an ancestor of `main`,
+when `twine check --strict` fails, when the installed wheel cannot run the README
+examples, when the shipped suite fails from the extracted sdist, or when the
+`py.typed` marker is missing from either artifact. It also installs *from the
+sdist* and runs the suite the sdist ships, which is what downstream packagers do.
+
+Manual dispatch can only target TestPyPI — production upload is release-only on
+purpose, because a dispatch can run from any ref and would bypass those guards.
+The `pypi` GitHub environment must exist with required reviewers before the
+trusted publisher is enabled (an unreferenced environment is auto-created with no
+protection), and tag `v*` should be protected by a ruleset so a tag cannot be
+moved after its release is published. Actions are pinned to commit SHAs;
+Dependabot proposes updates.
