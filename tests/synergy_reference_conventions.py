@@ -8,7 +8,9 @@ additional cases exercise offset asymptotes and activation.
 Bliss reference (model-based)
     ``synergy.Bliss.E_reference`` is ``E1(d1) * E2(d2)`` on the raw scale. synfit
     ``bliss_independence`` normalises to fractional survival, multiplies, and maps
-    back. Compare **normalised** survival ``(y - effect_inf) / (effect_0 - effect_inf)``
+    back. JSON stores package Hill marginals ``resp_hor_model`` / ``resp_ver_model``;
+    tests build the normalised oracle from those (not synfit ``hill_curve``).
+    Compare **normalised** survival ``(y - effect_inf) / (effect_0 - effect_inf)``
     so offset-asymptote fixtures catch omitted scaling.
 
 Bliss reference (observed marginals)
@@ -19,7 +21,7 @@ Bliss reference (observed marginals)
 Loewe reference surface (``loewe_reference``)
     JSON field ``loewe_reference`` is ``synergy.Loewe.E_reference`` (SciPy
     ``minimize_scalar`` on squared residual; measured max |package − exact|
-    ≈ 1.66e-6 on the standard grid). Field ``loewe_reference_exact`` is mpmath
+    ≈ 1.669e-6 on the standard grid). Field ``loewe_reference_exact`` is mpmath
     (dps=50) ground truth; synfit is checked against that (measured max
     |synfit − exact| ≈ 3.5e-9 on ``loewe_additive``). synfit is also required
     to agree with the package within a measured upper bound (~2e-6).

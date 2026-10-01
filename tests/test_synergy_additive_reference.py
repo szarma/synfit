@@ -29,8 +29,62 @@ REF_JSON = (
     / "bliss_hsa_loewe_reference_values.json"
 )
 
+EXPECTED_CASE_NAMES = frozenset(
+    {
+        "bliss_additive",
+        "synergistic",
+        "antagonistic",
+        "mismatched_slopes_synergistic",
+        "loewe_additive",
+        "offset_inhibition_synergistic",
+        "rectangular_perturbed_marginals",
+        "activation_synergistic",
+    }
+)
+
+_REQUIRED_VERSION_KEYS = (
+    "synergy_package_version",
+    "numpy_version",
+    "scipy_version",
+    "mpmath_version",
+)
+
+_REQUIRED_CASE_KEYS = frozenset(
+    {
+        "name",
+        "conc_hor",
+        "conc_ver",
+        "c50_hor",
+        "c50_ver",
+        "hill_hor",
+        "hill_ver",
+        "effect_0",
+        "effect_inf",
+        "mean_matrix",
+        "resp_hor_model",
+        "resp_ver_model",
+        "bliss_reference",
+        "hsa_reference",
+        "loewe_reference",
+        "bliss_synergy",
+        "hsa_synergy",
+        "loewe_ci",
+        "loewe_reference_exact",
+    }
+)
+
+_TABULATED_CASE_KEYS = frozenset(
+    {
+        "bliss_reference_tabulated",
+        "hsa_reference_tabulated",
+        "hsa_synergy_tabulated",
+        "resp_hor_observed",
+        "resp_ver_observed",
+    }
+)
+
 # Closed-form Hill marginals and analytic Bliss/HSA/Loewe CI — no slice optimiser.
-# Observed max |synfit − package| on committed fixtures is ~1.7e-16; 1e-12 leaves
+# Observed max |synfit − package| on committed fixtures is ~4.44e-16; 1e-12 leaves
 # margin for float evaluation order only (JSON round-trip is exact).
 _CLOSED_FORM_ATOL = 1e-12
 
@@ -39,7 +93,7 @@ _CLOSED_FORM_ATOL = 1e-12
 _LOEWE_REFERENCE_EXACT_ATOL = 1e-8
 
 # synergy.Loewe.E_reference minimises squared residual via scipy minimize_scalar
-# (default xatol=1e-5); measured max |synfit − package| ≈ 1.66e-6 on inhibition grids.
+# (default xatol=1e-5); measured max |synfit − package| ≈ 1.669e-6 on inhibition grids.
 _LOEWE_REFERENCE_PKG_ATOL = 2e-6
 
 # Upstream synergy 1.0.0 Loewe.E_reference cannot solve activation (weakest_E guard).
@@ -48,45 +102,74 @@ _LOEWE_REFERENCE_PKG_EXCLUDED: dict[str, str] = {
     "activation_synergistic": (
         "E_reference uses weakest_E=max(Emax1,Emax2) and skips when either marginal "
         "E < weakest_E (inhibition-only). On this fixture, mode CI/delta_weakest "
-        "returns 1.8 (=Emax) on interior cells where exact is 0.413–2.05 "
+        "returns 1.8 (=Emax) on interior cells where exact is 0.413–1.766 "
         "(max |package−exact| 1.387 at cell (1,1); exact 0.413 vs package 1.8); "
         "delta_nan is all NaN. synfit vs loewe_reference_exact max |Δ| 6.1e-9."
     ),
 }
 
 
-def _hill_normalized_bliss_from_package(
-    ch: np.ndarray,
-    cv: np.ndarray,
-    case: dict,
+def _load_reference_cases() -> list[dict]:
+    with REF_JSON.open() as f:
+        payload = json.load(f)
+    for key in _REQUIRED_VERSION_KEYS:
+        assert key in payload and payload[key], f"fixture missing version field {key!r}"
+    cases = payload["cases"]
+    assert isinstance(cases, list) and cases, "fixture cases must be a non-empty list"
+    names = [case["name"] for case in cases]
+    assert len(names) == len(set(names)), "fixture case names must be unique"
+    assert frozenset(names) == EXPECTED_CASE_NAMES, (
+        f"unexpected case set: got {frozenset(names)!r}"
+    )
+    for case in cases:
+        missing = _REQUIRED_CASE_KEYS - case.keys()
+        assert not missing, f"{case['name']}: missing required keys {missing!r}"
+        if case["name"] == "rectangular_perturbed_marginals":
+            tab_missing = _TABULATED_CASE_KEYS - case.keys()
+            assert not tab_missing, f"{case['name']}: missing tabulated keys {tab_missing!r}"
+    return cases
+
+
+def _normalized_bliss_from_package_marginals(
+    resp_hor: np.ndarray,
+    resp_ver: np.ndarray,
+    e0: float,
+    e_inf: float,
 ) -> np.ndarray:
-    """Normalised Bliss independence from Hill marginals (package E1*E2 mapped to survival)."""
-    e0, e_inf = case["effect_0"], case["effect_inf"]
-    eh = hill_curve(
-        ch,
-        c50=case["c50_hor"],
-        hill=case["hill_hor"],
-        effect_0=e0,
-        effect_inf=e_inf,
-    )
-    ev = hill_curve(
-        cv,
-        c50=case["c50_ver"],
-        hill=case["hill_ver"],
-        effect_0=e0,
-        effect_inf=e_inf,
-    )
-    return np.outer(
-        normalized_survival(ev, e0, e_inf),
-        normalized_survival(eh, e0, e_inf),
-    )
+    nh = np.clip(normalized_survival(resp_hor, e0, e_inf), 0.0, 1.0)
+    nv = np.clip(normalized_survival(resp_ver, e0, e_inf), 0.0, 1.0)
+    return np.outer(nv, nh)
+
+
+def _assert_matching_finite_masks(
+    a: np.ndarray,
+    b: np.ndarray,
+    region: np.ndarray,
+    *,
+    err_msg: str,
+) -> np.ndarray:
+    finite_a = np.isfinite(a) & region
+    finite_b = np.isfinite(b) & region
+    np.testing.assert_array_equal(finite_a, finite_b, err_msg=err_msg)
+    assert finite_a.any(), err_msg + " (no finite cells in region)"
+    return finite_a
+
+
+class TestSynergyReferenceConventionCanary:
+    def test_package_synergy_sign_mapping_scalar(self):
+        # Hand-computed: scale = 2.5 - 0.4 = 2.1; synfit = -package / scale.
+        mapped = package_synergy_to_synfit_deviation(np.array(0.21), 2.5, 0.4)
+        assert float(mapped) == pytest.approx(-0.1)
+
+    def test_normalized_survival_offset_scalar(self):
+        # (1.0 - 0.4) / 2.1 = 2/7 — independent of synfit or synergy implementations.
+        assert normalized_survival(np.array(1.0), 2.5, 0.4) == pytest.approx(2.0 / 7.0)
 
 
 class TestBlissHsaLoeweSynergyReferenceJson:
     @pytest.fixture(scope="class")
     def cases(self):
-        with REF_JSON.open() as f:
-            return json.load(f)["cases"]
+        return _load_reference_cases()
 
     def test_bliss_independence_and_deviation(self, cases):
         for case in cases:
@@ -105,7 +188,9 @@ class TestBlissHsaLoeweSynergyReferenceJson:
                 e_inf,
             )
             norm_syn = normalized_survival(ref_syn, e0, e_inf)
-            norm_pkg = _hill_normalized_bliss_from_package(ch, cv, case)
+            resp_hor = np.array(case["resp_hor_model"])
+            resp_ver = np.array(case["resp_ver_model"])
+            norm_pkg = _normalized_bliss_from_package_marginals(resp_hor, resp_ver, e0, e_inf)
             interior = interior_mask(ch, cv)
             assert np.max(np.abs(norm_syn - norm_pkg)) < _CLOSED_FORM_ATOL
 
@@ -128,9 +213,9 @@ class TestBlissHsaLoeweSynergyReferenceJson:
             ref_tab = np.array(case["bliss_reference_tabulated"])
             ref_syn = bliss_reference(resp_hor, resp_ver, effect_0=e0, effect_inf=e_inf)
             norm_syn = normalized_survival(ref_syn, e0, e_inf)
-            nh = np.clip(normalized_survival(resp_hor, e0, e_inf), 0.0, 1.0)
-            nv = np.clip(normalized_survival(resp_ver, e0, e_inf), 0.0, 1.0)
-            norm_expected = np.outer(nv, nh)
+            norm_expected = _normalized_bliss_from_package_marginals(
+                resp_hor, resp_ver, e0, e_inf
+            )
             assert np.max(np.abs(norm_syn - norm_expected)) < _CLOSED_FORM_ATOL
             assert np.max(np.abs(ref_syn - ref_tab)) < _CLOSED_FORM_ATOL
 
@@ -188,23 +273,31 @@ class TestBlissHsaLoeweSynergyReferenceJson:
                 e0,
                 e_inf,
             )
-            # ``nanmax`` ignores cells that are NaN on either side, so compare the
-            # finite masks first: a regression where synfit stops solving a cell
-            # (returns NaN where the exact reference is finite) would otherwise
-            # slip through as "no disagreement".
             interior = interior_mask(ch, cv)
-            exact_finite = np.isfinite(ref_exact) & interior
-            np.testing.assert_array_equal(
-                np.isfinite(ref_syn) & exact_finite,
-                exact_finite,
-                err_msg=f"{case['name']}: synfit returned NaN where the exact reference is finite",
+            assert np.all(np.isfinite(ref_exact[interior])), (
+                f"{case['name']}: exact Loewe oracle must be finite on all interior cells"
             )
-            assert np.nanmax(np.abs(ref_syn - ref_exact)) < _LOEWE_REFERENCE_EXACT_ATOL
+            compare = _assert_matching_finite_masks(
+                ref_syn,
+                ref_exact,
+                interior,
+                err_msg=f"{case['name']}: synfit vs exact Loewe finite-mask mismatch",
+            )
+            assert (
+                np.max(np.abs(ref_syn[compare] - ref_exact[compare]))
+                < _LOEWE_REFERENCE_EXACT_ATOL
+            )
             ref_pkg = np.array(case["loewe_reference"])
             if case["name"] in _LOEWE_REFERENCE_PKG_EXCLUDED:
                 continue
+            compare_pkg = _assert_matching_finite_masks(
+                ref_syn,
+                ref_pkg,
+                interior,
+                err_msg=f"{case['name']}: synfit vs package Loewe finite-mask mismatch",
+            )
             assert (
-                np.nanmax(np.abs(ref_syn[interior] - ref_pkg[interior]))
+                np.max(np.abs(ref_syn[compare_pkg] - ref_pkg[compare_pkg]))
                 < _LOEWE_REFERENCE_PKG_ATOL
             )
 
@@ -227,9 +320,14 @@ class TestBlissHsaLoeweSynergyReferenceJson:
             )
             ci_pkg = np.array(case["loewe_ci"])
             interior = interior_mask(ch, cv)
+            compare = _assert_matching_finite_masks(
+                ci_syn,
+                ci_pkg,
+                interior,
+                err_msg=f"{case['name']}: synfit vs package Loewe CI finite-mask mismatch",
+            )
             assert (
-                np.nanmax(np.abs(ci_syn[interior] - ci_pkg[interior]))
-                < _CLOSED_FORM_ATOL
+                np.max(np.abs(ci_syn[compare] - ci_pkg[compare])) < _CLOSED_FORM_ATOL
             )
             if case["name"] == "loewe_additive":
-                assert np.max(np.abs(ci_pkg[interior] - 1.0)) < 1e-4
+                assert np.max(np.abs(ci_pkg[compare] - 1.0)) < 1e-4
