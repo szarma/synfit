@@ -55,6 +55,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+synfit = ["py.typed"]
+
 [tool.setuptools.package-dir]
 "" = "src"
 
