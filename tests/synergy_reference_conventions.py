@@ -10,17 +10,18 @@ Bliss reference (model-based)
     multiply, map back — identical when asymptotes are 0 and 1).
 
 Bliss reference (observed marginals)
-    JSON field ``bliss_observed_reference`` is recomputed in the generator from
-    the published Bliss product on clipped matrix edges — not from ``synergy``.
-    Matches synfit ``bliss_reference`` (what production uses when marginals are
-    available). On synergistic/antagonistic fixtures it differs from model-based
-    ``bliss_reference`` only where the fixture surface deviates from Bliss null.
+    synfit ``bliss_reference`` is validated against ``synergy.Bliss.E_reference``
+    on these fixtures: surfaces are noiseless and only interior combination cells
+    deviate from Bliss null, so matrix edges remain exact Hill marginals — the
+    package model reference is independent of synfit's clip-normalise-outer-product
+    implementation.
 
 Loewe reference surface (``loewe_reference``)
-    Not checked against ``synergy.Loewe.E_reference`` here: interior cells differ
-    by ~1.6e-6 on these fixtures (Brent root-finding vs the package). That exceeds
-    the closed-form 1e-9 gate used elsewhere; synfit's own ``test_loewe.py`` covers
-    ``loewe_reference`` algebraically (CI = 1 on the surface, boundary marginals).
+    JSON field ``loewe_reference`` is ``synergy.Loewe.E_reference`` (~1.66e-6 max
+    error vs exact on the standard grid). Field ``loewe_reference_exact`` is
+    mpmath (dps=50) ground truth from the generator; synfit is checked against
+    that (measured max |synfit − exact| ≈ 2.3e-9). Do not align synfit to the
+    package Loewe surface.
 
 HSA reference
     ``synergy.HSA`` defaults to ``stronger_orientation=np.minimum``, i.e. the
@@ -47,7 +48,9 @@ Bliss / HSA deviation
 
 Loewe CI
     Both use ``d1/E_inv(E) + d2/E_inv(E)`` with the same four-parameter Hill
-    inverse. Sign convention already matches (CI < 1 synergy).
+    inverse (closed form, no iterative root find). Sign convention already
+    matches (CI < 1 synergy). A separate mpmath ground-truth column would only
+    duplicate that algebra; package ``fit()`` scores suffice here.
 
 Zero-concentration edges
     synfit masks combination deviations and Loewe CI as NaN when either
