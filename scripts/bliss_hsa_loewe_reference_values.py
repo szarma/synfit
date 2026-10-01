@@ -169,21 +169,24 @@ def _loewe_reference_exact_mpmath(
     from mpmath import findroot, mp
 
     mp.dps = 50
-    e0_m, emax_m = mp.mpf(e0), mp.mpf(emax)
-    scale = e0_m - emax_m
-    e_lo, e_hi = min(e0_m, emax_m), max(e0_m, emax_m)
-    eps = mp.mpf("1e-45") * scale
+    e0_m, einf_m = mp.mpf(e0), mp.mpf(emax)
+    scale = e0_m - einf_m
+    e_lo, e_hi = min(e0_m, einf_m), max(e0_m, einf_m)
+    span = e_hi - e_lo
+    eps = mp.mpf("1e-45") * span
     lo, hi = e_lo + eps, e_hi - eps
 
     def invert_hill(y: mp.mpf, c50: mp.mpf, hill: mp.mpf) -> mp.mpf:
-        u = y - emax_m
+        if not (y > e_lo and y < e_hi):
+            return mp.nan
+        u = y - einf_m
         inner = (scale / u) - mp.mpf(1)
         if inner <= 0:
             return mp.nan
         return c50 * inner ** (mp.mpf(1) / hill)
 
     def hill_at(conc: mp.mpf, c50: mp.mpf, hill: mp.mpf) -> mp.mpf:
-        return emax_m + scale / (mp.mpf(1) + (conc / c50) ** hill)
+        return einf_m + scale / (mp.mpf(1) + (conc / c50) ** hill)
 
     c50_h, c50_v = mp.mpf(c50_hor), mp.mpf(c50_ver)
     h_h, h_v = mp.mpf(hill_hor), mp.mpf(hill_ver)
