@@ -31,8 +31,15 @@ HSA reference
     committed marginal responses.
 
 Loewe reference (activation)
-    On ``activation_synergistic``, package ``Loewe.E_reference`` disagrees with
-    synfit (interior max |Δ| ≈ 1.39); Loewe JSON checks skip that case.
+    ``synergy.Loewe.E_reference`` hard-codes inhibition semantics:
+    ``weakest_E = max(Emax1, Emax2)`` and skips the root find when either
+    marginal response is below ``weakest_E`` (lower response = stronger drug).
+    Under activation that guard fires on nearly every interior cell, so mode
+    ``CI`` / ``delta_weakest`` returns ``Emax`` (1.8 on ``activation_synergistic``)
+    where mpmath exact at (1,1) is 0.413… (max |package − exact| 1.387 on the
+    interior); mode ``delta_nan`` is all NaN there. synfit ``loewe_reference``
+    matches ``loewe_reference_exact`` (max |Δ| ≈ 6.1e-9 on the interior). JSON tests still
+    compare synfit to mpmath on that case; package ``loewe_reference`` is excluded.
 
 Bliss / HSA deviation
     Package: ``synergy = reference - data`` (positive = synergy).

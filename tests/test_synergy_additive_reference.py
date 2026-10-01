@@ -42,8 +42,17 @@ _LOEWE_REFERENCE_EXACT_ATOL = 1e-8
 # (default xatol=1e-5); measured max |synfit − package| ≈ 1.66e-6 on inhibition grids.
 _LOEWE_REFERENCE_PKG_ATOL = 2e-6
 
-# activation_synergistic: package Loewe reference disagrees with synfit (see report).
-_LOEWE_REFERENCE_PKG_SKIP = frozenset({"activation_synergistic"})
+# Upstream synergy 1.0.0 Loewe.E_reference cannot solve activation (weakest_E guard).
+# See tests/synergy_reference_conventions.py — do not widen tolerances to match it.
+_LOEWE_REFERENCE_PKG_EXCLUDED: dict[str, str] = {
+    "activation_synergistic": (
+        "E_reference uses weakest_E=max(Emax1,Emax2) and skips when either marginal "
+        "E < weakest_E (inhibition-only). On this fixture, mode CI/delta_weakest "
+        "returns 1.8 (=Emax) on interior cells where exact is 0.413–2.05 "
+        "(max |package−exact| 1.387 at cell (1,1); exact 0.413 vs package 1.8); "
+        "delta_nan is all NaN. synfit vs loewe_reference_exact max |Δ| 6.1e-9."
+    ),
+}
 
 
 def _hill_normalized_bliss_from_package(
@@ -179,11 +188,10 @@ class TestBlissHsaLoeweSynergyReferenceJson:
                 e0,
                 e_inf,
             )
-            if case["name"] not in _LOEWE_REFERENCE_PKG_SKIP:
-                assert np.nanmax(np.abs(ref_syn - ref_exact)) < _LOEWE_REFERENCE_EXACT_ATOL
+            assert np.nanmax(np.abs(ref_syn - ref_exact)) < _LOEWE_REFERENCE_EXACT_ATOL
             ref_pkg = np.array(case["loewe_reference"])
             interior = interior_mask(ch, cv)
-            if case["name"] in _LOEWE_REFERENCE_PKG_SKIP:
+            if case["name"] in _LOEWE_REFERENCE_PKG_EXCLUDED:
                 continue
             assert (
                 np.nanmax(np.abs(ref_syn[interior] - ref_pkg[interior]))
@@ -209,8 +217,6 @@ class TestBlissHsaLoeweSynergyReferenceJson:
             )
             ci_pkg = np.array(case["loewe_ci"])
             interior = interior_mask(ch, cv)
-            if case["name"] in _LOEWE_REFERENCE_PKG_SKIP:
-                continue
             assert (
                 np.nanmax(np.abs(ci_syn[interior] - ci_pkg[interior]))
                 < _CLOSED_FORM_ATOL
