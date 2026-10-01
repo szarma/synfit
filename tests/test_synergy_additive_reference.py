@@ -10,6 +10,7 @@ import pytest
 from synfit.bliss import (
     bliss_deviation,
     bliss_independence,
+    bliss_reference,
     hsa_deviation,
     hsa_reference,
 )
@@ -39,7 +40,7 @@ class TestBlissHsaLoeweSynergyReferenceJson:
         with REF_JSON.open() as f:
             return json.load(f)["cases"]
 
-    def test_bliss_reference_and_deviation(self, cases):
+    def test_bliss_independence_and_deviation(self, cases):
         for case in cases:
             ch = np.array(case["conc_hor"])
             cv = np.array(case["conc_ver"])
@@ -66,6 +67,16 @@ class TestBlissHsaLoeweSynergyReferenceJson:
             assert np.max(np.abs(dev_syn[interior] - dev_pkg[interior])) < _CLOSED_FORM_ATOL
             if case["name"] != "bliss_additive":
                 assert np.max(np.abs(dev_pkg[interior])) > 0.01
+
+    def test_bliss_observed_reference(self, cases):
+        for case in cases:
+            m = np.array(case["mean_matrix"])
+            e0, e_inf = case["effect_0"], case["effect_inf"]
+            resp_hor = m[0, :]
+            resp_ver = m[:, 0]
+            ref_indep = np.array(case["bliss_observed_reference"])
+            ref_syn = bliss_reference(resp_hor, resp_ver, effect_0=e0, effect_inf=e_inf)
+            assert np.max(np.abs(ref_syn - ref_indep)) < _CLOSED_FORM_ATOL
 
     def test_hsa_reference_and_deviation(self, cases):
         for case in cases:

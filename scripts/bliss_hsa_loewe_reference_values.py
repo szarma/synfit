@@ -66,6 +66,27 @@ def _dose_grids(ch: np.ndarray, cv: np.ndarray) -> tuple[np.ndarray, np.ndarray,
     return ch_grid, cv_grid, ch_grid.ravel(), cv_grid.ravel()
 
 
+def _bliss_from_observed_marginals(
+    mean_matrix: np.ndarray,
+    e0: float,
+    emax: float,
+) -> np.ndarray:
+    """Bliss independence from observed single-drug marginals (NOT from ``synergy``).
+
+    Re-derives the published formula: clip fractional survivals of the matrix
+    edges ``mean_matrix[0, :]`` / ``mean_matrix[:, 0]``, multiply, map back to
+    response scale. ``synergy.Bliss`` only exposes model-based ``E_reference``;
+    production apps use observed marginals (synfit ``bliss_reference``).
+    """
+    scale = e0 - emax
+    resp_hor = mean_matrix[0, :]
+    resp_ver = mean_matrix[:, 0]
+    norm_hor = np.clip((resp_hor - emax) / scale, 0.0, 1.0)
+    norm_ver = np.clip((resp_ver - emax) / scale, 0.0, 1.0)
+    combined = np.outer(norm_ver, norm_hor)
+    return emax + scale * combined
+
+
 def _scores(
     mean_matrix: np.ndarray,
     ch: np.ndarray,
@@ -94,12 +115,18 @@ def _scores(
     loewe = Loewe(mode="CI", drug1_model=drug1, drug2_model=drug2)
     loewe_ci = loewe.fit(d1, d2, e_flat).reshape(n_ver, n_hor)
 
+    bliss_observed = _bliss_from_observed_marginals(mean_matrix, e0, emax)
+
     return {
+        # From synergy 1.x API (Hill model marginals):
         "bliss_reference": bliss_ref.tolist(),
-        "bliss_synergy": bliss_syn.tolist(),
         "hsa_reference": hsa_ref.tolist(),
+        # From synergy fit() on the fixture surface:
+        "bliss_synergy": bliss_syn.tolist(),
         "hsa_synergy": hsa_syn.tolist(),
         "loewe_ci": loewe_ci.tolist(),
+        # Independent re-derivation (observed matrix edges, not synergy):
+        "bliss_observed_reference": bliss_observed.tolist(),
     }
 
 
