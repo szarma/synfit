@@ -20,8 +20,9 @@ Bliss reference (observed marginals)
 
 Loewe reference surface (``loewe_reference``)
     JSON field ``loewe_reference`` is ``synergy.Loewe.E_reference`` (SciPy
-    ``minimize_scalar`` on squared residual; measured max |package − exact|
-    ≈ 1.669e-6 on the standard grid). Field ``loewe_reference_exact`` is mpmath
+    ``minimize_scalar`` on a squared residual with SciPy's default xatol=1e-5,
+    rather than root-finding; measured max |package − exact| ≈ 1.670e-6 on
+    ``offset_inhibition_synergistic``, and max |synfit − package| ≈ 1.669e-6). Field ``loewe_reference_exact`` is mpmath
     (dps=50) ground truth; synfit is checked against that (measured max
     |synfit − exact| ≈ 3.5e-9 on ``loewe_additive``). synfit is also required
     to agree with the package within a measured upper bound (~2e-6).

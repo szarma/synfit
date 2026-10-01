@@ -314,10 +314,33 @@ class TestZipSynergyReferenceJson:
     # with Emax capped at full effect, so they agree to optimiser precision
     # (observed max 5e-4 against deltas of 0.04-0.09).
 
+    # Mirrors the strict loader in test_synergy_additive_reference.py: a truncated
+    # or empty fixture must fail loudly rather than pass by iterating over nothing.
+    EXPECTED_CASE_NAMES = frozenset({"synergistic", "potentiated"})
+    REQUIRED_VERSION_KEYS = ("synergy_package_version", "numpy_version", "scipy_version")
+    REQUIRED_CASE_KEYS = frozenset({
+        "name", "conc_hor", "conc_ver", "c50_hor", "c50_ver", "hill_hor", "hill_ver",
+        "effect_0", "effect_inf", "mean_matrix", "synergy_delta", "zip_reference",
+        "zip_fitted",
+    })
+
     @pytest.fixture(scope="class")
     def cases(self):
         with REF_JSON.open() as f:
-            return json.load(f)["cases"]
+            payload = json.load(f)
+        for key in self.REQUIRED_VERSION_KEYS:
+            assert key in payload and payload[key], f"fixture missing version field {key!r}"
+        cases = payload["cases"]
+        assert isinstance(cases, list) and cases, "fixture cases must be a non-empty list"
+        names = [case["name"] for case in cases]
+        assert len(names) == len(set(names)), "fixture case names must be unique"
+        assert frozenset(names) == self.EXPECTED_CASE_NAMES, (
+            f"unexpected case set: got {frozenset(names)!r}"
+        )
+        for case in cases:
+            missing = self.REQUIRED_CASE_KEYS - case.keys()
+            assert not missing, f"{case['name']}: missing required keys {missing!r}"
+        return cases
 
     def test_agrees_with_synergy_reference(self, cases):
         for case in cases:
