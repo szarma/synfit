@@ -1,66 +1,60 @@
 """Map synfit synergy metrics to the GPL-3 ``synergy`` package reference JSON.
 
-Both libraries work in raw response (fraction-affected) space with Hill
-``E0`` / ``Emax`` matching synfit's ``effect_0`` / ``effect_inf``. For the
-fixtures here that is inhibition with ``effect_0=1``, ``effect_inf=0``.
+Both libraries work in raw response space with Hill ``E0`` / ``Emax`` matching
+synfit's ``effect_0`` / ``effect_inf``. Standard fixtures use fractional
+survival / unaffected response (inhibition with ``effect_0=1``, ``effect_inf=0``);
+additional cases exercise offset asymptotes and activation.
 
 Bliss reference (model-based)
-    ``synergy.Bliss.E_reference`` is ``E1(d1) * E2(d2)`` on that scale, which
-    matches synfit's ``bliss_independence`` (normalise to fractional survival,
-    multiply, map back — identical when asymptotes are 0 and 1).
+    ``synergy.Bliss.E_reference`` is ``E1(d1) * E2(d2)`` on the raw scale. synfit
+    ``bliss_independence`` normalises to fractional survival, multiplies, and maps
+    back. Compare **normalised** survival ``(y - effect_inf) / (effect_0 - effect_inf)``
+    so offset-asymptote fixtures catch omitted scaling.
 
 Bliss reference (observed marginals)
-    synfit ``bliss_reference`` is validated against ``synergy.Bliss.E_reference``
-    on these fixtures: surfaces are noiseless and only interior combination cells
-    deviate from Bliss null, so matrix edges remain exact Hill marginals — the
-    package model reference is independent of synfit's clip-normalise-outer-product
-    implementation.
+    synfit ``bliss_reference`` uses observed matrix edges (clip, normalise, outer
+    product). Independent cases commit perturbed edges and package ``Bliss`` with
+    tabulated marginals at the same doses; compare normalised surfaces.
 
 Loewe reference surface (``loewe_reference``)
-    JSON field ``loewe_reference`` is ``synergy.Loewe.E_reference`` (~1.66e-6 max
-    error vs exact on the standard grid). Field ``loewe_reference_exact`` is
-    mpmath (dps=50) ground truth from the generator; synfit is checked against
-    that (measured max |synfit − exact| ≈ 2.3e-9). Do not align synfit to the
-    package Loewe surface.
+    JSON field ``loewe_reference`` is ``synergy.Loewe.E_reference`` (SciPy
+    ``minimize_scalar`` on squared residual; measured max |package − exact|
+    ≈ 1.66e-6 on the standard grid). Field ``loewe_reference_exact`` is mpmath
+    (dps=50) ground truth; synfit is checked against that (measured max
+    |synfit − exact| ≈ 3.5e-9 on ``loewe_additive``). synfit is also required
+    to agree with the package within a measured upper bound (~2e-6).
 
 HSA reference
-    ``synergy.HSA`` defaults to ``stronger_orientation=np.minimum``, i.e. the
-    stronger inhibitory single-agent response. That matches synfit
-    ``hsa_reference`` when ``effect_inf < effect_0``. Activation assays
-    (``effect_inf > effect_0``) are **not** covered here: synfit switches to
-    ``np.maximum`` but the reference package would need
-    ``HSA(stronger_orientation=np.maximum)``.
+    ``synergy.HSA`` defaults to ``stronger_orientation=np.minimum`` for inhibition;
+    activation fixtures use ``np.maximum``, matching synfit ``hsa_reference`` when
+    ``effect_inf > effect_0``. Perturbed edges use tabulated package ``HSA`` at
+    committed marginal responses.
+
+Loewe reference (activation)
+    On ``activation_synergistic``, package ``Loewe.E_reference`` disagrees with
+    synfit (interior max |Δ| ≈ 1.39); Loewe JSON checks skip that case.
 
 Bliss / HSA deviation
     Package: ``synergy = reference - data`` (positive = synergy).
     synfit: ``deviation = (data - reference) / (effect_0 - effect_inf)``
     (negative = synergy). Hence ``synfit_deviation = -package_synergy / scale``.
-    ``bliss_deviation`` / ``hsa_deviation`` are thin wrappers over that normalised
-    difference plus edge NaN masking; validated here via package ``fit()`` scores
-    with model-based Bliss / model-based HSA references respectively.
 
 ``slope_mismatch_warning``
     Heuristic UX helper (Hill slope ratio threshold); no external reference.
 
 ``zip_scores`` / ZIP helpers
-    Validated separately in ``tests/test_zip.py`` against ``synergy`` reference JSON
-    (``tests/data/zip_synergy_reference_values.json``), not in this fixture file.
+    ``zip_delta`` is validated in ``tests/test_zip.py`` against
+    ``tests/data/zip_reference_values.json``; ``zip_reference`` and
+    ``zip_fitted_surface`` are checked there against the same fixture when
+    ``zip_reference`` / ``zip_fitted`` columns are present.
 
 Loewe CI
-    Both use ``d1/E_inv(E) + d2/E_inv(E)`` with the same four-parameter Hill
-    inverse (closed form, no iterative root find). Sign convention already
-    matches (CI < 1 synergy). A separate mpmath ground-truth column would only
-    duplicate that algebra; package ``fit()`` scores suffice here.
+    Both use the same four-parameter Hill inverse (closed form). Package ``fit()``
+    scores suffice for regression tests.
 
 Zero-concentration edges
     synfit masks combination deviations and Loewe CI as NaN when either
-    concentration is zero. The package sets Bliss/HSA synergy to 0 and Loewe
-    CI to 1 on those cells. Reference JSON tests compare **interior** cells only.
-
-Loewe undefined cells
-    When the observed response is outside the open asymptote band, both
-    implementations yield NaN. synfit's existing tests cover that edge case;
-    fixtures here stay inside the band on interior cells.
+    concentration is zero. Reference JSON tests compare **interior** cells only.
 """
 from __future__ import annotations
 
@@ -76,6 +70,17 @@ def package_synergy_to_synfit_deviation(
     if scale == 0:
         raise ValueError("effect_0 and effect_inf must differ")
     return -np.asarray(package_synergy, dtype=float) / scale
+
+
+def normalized_survival(
+    response: np.ndarray,
+    effect_0: float,
+    effect_inf: float,
+) -> np.ndarray:
+    scale = effect_0 - effect_inf
+    if scale == 0:
+        raise ValueError("effect_0 and effect_inf must differ")
+    return (np.asarray(response, dtype=float) - effect_inf) / scale
 
 
 def interior_mask(conc_hor: np.ndarray, conc_ver: np.ndarray) -> np.ndarray:
