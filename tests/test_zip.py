@@ -324,23 +324,27 @@ class TestZipSynergyReferenceJson:
             ch = np.array(case["conc_hor"])
             cv = np.array(case["conc_ver"])
             m = np.array(case["mean_matrix"])
-            ref_delta = -np.array(case["synergy_delta"])
-            d = zip_delta(
-                m,
-                ch,
-                cv,
-                case["c50_hor"],
-                case["c50_ver"],
-                case["hill_hor"],
-                case["hill_ver"],
-                case["effect_0"],
-                case["effect_inf"],
+            kw = dict(
+                c50_hor=case["c50_hor"],
+                c50_ver=case["c50_ver"],
+                hill_hor=case["hill_hor"],
+                hill_ver=case["hill_ver"],
+                effect_0=case["effect_0"],
+                effect_inf=case["effect_inf"],
             )
+            ref_delta = -np.array(case["synergy_delta"])
+            d = zip_delta(m, ch, cv, **kw)
+            ref_syn = zip_reference(m, ch, cv, **kw)
+            fit_syn = zip_fitted_surface(m, ch, cv, **kw)
+            ref_pkg = np.array(case["zip_reference"])
+            fit_pkg = np.array(case["zip_fitted"])
             interior = _interior_mask(ch, cv)
             _assert_zip_delta_mask(d, ch, cv)
             diff = np.abs(d - ref_delta)
             assert np.max(np.abs(ref_delta[interior])) > 0.03  # real signal
             assert np.max(diff[interior]) < 1e-3
+            assert np.max(np.abs(ref_syn - ref_pkg)) < 1e-3
+            assert np.max(np.abs(fit_syn - fit_pkg)[interior]) < 1e-3
 
 
 class TestZipDelta:
