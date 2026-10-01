@@ -133,19 +133,44 @@ def _bliss_surface(
     return emax + scale * np.outer(nv, nh)
 
 
-def _synergistic_surface(bliss: np.ndarray, ch: np.ndarray, cv: np.ndarray) -> np.ndarray:
+def _normalized_survival(response: np.ndarray, e0: float, emax: float) -> np.ndarray:
+    scale = e0 - emax
+    return np.clip((np.asarray(response, dtype=float) - emax) / scale, 0.0, 1.0)
+
+
+def _from_normalized_survival(ns: np.ndarray, e0: float, emax: float) -> np.ndarray:
+    return emax + (e0 - emax) * np.asarray(ns, dtype=float)
+
+
+def _synergistic_surface(
+    bliss: np.ndarray,
+    ch: np.ndarray,
+    cv: np.ndarray,
+    *,
+    e0: float,
+    emax: float,
+) -> np.ndarray:
     out = bliss.copy()
     for i in range(1, len(cv)):
         for j in range(1, len(ch)):
-            out[i, j] = bliss[i, j] ** 1.25
+            ns = _normalized_survival(bliss[i, j], e0, emax)
+            out[i, j] = _from_normalized_survival(ns ** 1.25, e0, emax)
     return out
 
 
-def _antagonistic_surface(bliss: np.ndarray, ch: np.ndarray, cv: np.ndarray) -> np.ndarray:
+def _antagonistic_surface(
+    bliss: np.ndarray,
+    ch: np.ndarray,
+    cv: np.ndarray,
+    *,
+    e0: float,
+    emax: float,
+) -> np.ndarray:
     out = bliss.copy()
     for i in range(1, len(cv)):
         for j in range(1, len(ch)):
-            out[i, j] = np.minimum(bliss[i, j] ** 0.8, 1.0)
+            ns = _normalized_survival(bliss[i, j], e0, emax)
+            out[i, j] = _from_normalized_survival(np.minimum(ns ** 0.8, 1.0), e0, emax)
     return out
 
 
@@ -263,7 +288,12 @@ def _scores(
         ch, cv, c50_hor, c50_ver, hill_hor, hill_ver, e0, emax
     )
 
+    resp_hor_model = np.asarray(drug1.E(ch), dtype=float)
+    resp_ver_model = np.asarray(drug2.E(cv), dtype=float)
+
     out: dict[str, list] = {
+        "resp_hor_model": resp_hor_model.tolist(),
+        "resp_ver_model": resp_ver_model.tolist(),
         "bliss_reference": bliss_ref.tolist(),
         "hsa_reference": hsa_ref.tolist(),
         "loewe_reference": loewe_ref.tolist(),
@@ -386,7 +416,7 @@ def main() -> None:
     cases.append(
         _case(
             "synergistic",
-            _synergistic_surface(bliss, CH, CV),
+            _synergistic_surface(bliss, CH, CV, e0=E0, emax=EMAX),
             CH,
             CV,
             C50_HOR,
@@ -400,7 +430,7 @@ def main() -> None:
     cases.append(
         _case(
             "antagonistic",
-            _antagonistic_surface(bliss, CH, CV),
+            _antagonistic_surface(bliss, CH, CV, e0=E0, emax=EMAX),
             CH,
             CV,
             C50_HOR,
@@ -419,7 +449,7 @@ def main() -> None:
     cases.append(
         _case(
             "mismatched_slopes_synergistic",
-            _synergistic_surface(bliss_slopes, CH, CV),
+            _synergistic_surface(bliss_slopes, CH, CV, e0=E0, emax=EMAX),
             CH,
             CV,
             C50_HOR,
@@ -464,7 +494,7 @@ def main() -> None:
     cases.append(
         _case(
             "offset_inhibition_synergistic",
-            _synergistic_surface(bliss_offset, CH, CV),
+            _synergistic_surface(bliss_offset, CH, CV, e0=E0_OFFSET, emax=EMAX_OFFSET),
             CH,
             CV,
             C50_HOR,
@@ -486,7 +516,7 @@ def main() -> None:
         e0=E0,
         emax=EMAX,
     )
-    syn_rect = _synergistic_surface(bliss_rect, CH_RECT, CV_RECT)
+    syn_rect = _synergistic_surface(bliss_rect, CH_RECT, CV_RECT, e0=E0, emax=EMAX)
     resp_h, resp_v = _perturbed_marginals(
         CH_RECT,
         CV_RECT,
@@ -527,7 +557,7 @@ def main() -> None:
     cases.append(
         _case(
             "activation_synergistic",
-            _synergistic_surface(bliss_act, CH, CV),
+            _synergistic_surface(bliss_act, CH, CV, e0=E0_ACT, emax=EMAX_ACT),
             CH,
             CV,
             C50_HOR,
