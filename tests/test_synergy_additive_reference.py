@@ -188,9 +188,19 @@ class TestBlissHsaLoeweSynergyReferenceJson:
                 e0,
                 e_inf,
             )
+            # ``nanmax`` ignores cells that are NaN on either side, so compare the
+            # finite masks first: a regression where synfit stops solving a cell
+            # (returns NaN where the exact reference is finite) would otherwise
+            # slip through as "no disagreement".
+            interior = interior_mask(ch, cv)
+            exact_finite = np.isfinite(ref_exact) & interior
+            np.testing.assert_array_equal(
+                np.isfinite(ref_syn) & exact_finite,
+                exact_finite,
+                err_msg=f"{case['name']}: synfit returned NaN where the exact reference is finite",
+            )
             assert np.nanmax(np.abs(ref_syn - ref_exact)) < _LOEWE_REFERENCE_EXACT_ATOL
             ref_pkg = np.array(case["loewe_reference"])
-            interior = interior_mask(ch, cv)
             if case["name"] in _LOEWE_REFERENCE_PKG_EXCLUDED:
                 continue
             assert (
