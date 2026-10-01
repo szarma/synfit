@@ -314,33 +314,60 @@ class TestZipSynergyReferenceJson:
     # with Emax capped at full effect, so they agree to optimiser precision
     # (observed max 5e-4 against deltas of 0.04-0.09).
 
+    # Mirrors the strict loader in test_synergy_additive_reference.py: a truncated
+    # or empty fixture must fail loudly rather than pass by iterating over nothing.
+    EXPECTED_CASE_NAMES = frozenset({"synergistic", "potentiated"})
+    REQUIRED_VERSION_KEYS = ("synergy_package_version", "numpy_version", "scipy_version")
+    REQUIRED_CASE_KEYS = frozenset({
+        "name", "conc_hor", "conc_ver", "c50_hor", "c50_ver", "hill_hor", "hill_ver",
+        "effect_0", "effect_inf", "mean_matrix", "synergy_delta", "zip_reference",
+        "zip_fitted",
+    })
+
     @pytest.fixture(scope="class")
     def cases(self):
         with REF_JSON.open() as f:
-            return json.load(f)["cases"]
+            payload = json.load(f)
+        for key in self.REQUIRED_VERSION_KEYS:
+            assert key in payload and payload[key], f"fixture missing version field {key!r}"
+        cases = payload["cases"]
+        assert isinstance(cases, list) and cases, "fixture cases must be a non-empty list"
+        names = [case["name"] for case in cases]
+        assert len(names) == len(set(names)), "fixture case names must be unique"
+        assert frozenset(names) == self.EXPECTED_CASE_NAMES, (
+            f"unexpected case set: got {frozenset(names)!r}"
+        )
+        for case in cases:
+            missing = self.REQUIRED_CASE_KEYS - case.keys()
+            assert not missing, f"{case['name']}: missing required keys {missing!r}"
+        return cases
 
     def test_agrees_with_synergy_reference(self, cases):
         for case in cases:
             ch = np.array(case["conc_hor"])
             cv = np.array(case["conc_ver"])
             m = np.array(case["mean_matrix"])
-            ref_delta = -np.array(case["synergy_delta"])
-            d = zip_delta(
-                m,
-                ch,
-                cv,
-                case["c50_hor"],
-                case["c50_ver"],
-                case["hill_hor"],
-                case["hill_ver"],
-                case["effect_0"],
-                case["effect_inf"],
+            kw = dict(
+                c50_hor=case["c50_hor"],
+                c50_ver=case["c50_ver"],
+                hill_hor=case["hill_hor"],
+                hill_ver=case["hill_ver"],
+                effect_0=case["effect_0"],
+                effect_inf=case["effect_inf"],
             )
+            ref_delta = -np.array(case["synergy_delta"])
+            d = zip_delta(m, ch, cv, **kw)
+            ref_syn = zip_reference(m, ch, cv, **kw)
+            fit_syn = zip_fitted_surface(m, ch, cv, **kw)
+            ref_pkg = np.array(case["zip_reference"])
+            fit_pkg = np.array(case["zip_fitted"])
             interior = _interior_mask(ch, cv)
             _assert_zip_delta_mask(d, ch, cv)
             diff = np.abs(d - ref_delta)
             assert np.max(np.abs(ref_delta[interior])) > 0.03  # real signal
             assert np.max(diff[interior]) < 1e-3
+            assert np.max(np.abs(ref_syn - ref_pkg)) < 1e-3
+            assert np.max(np.abs(fit_syn - fit_pkg)[interior]) < 1e-3
 
 
 class TestZipDelta:
