@@ -15,6 +15,8 @@ heading.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-07
+
 No fitted value changes from 0.7.2: the optimiser, objective, priors, bounds
 and noise models are untouched, so results are identical.
 
