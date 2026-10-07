@@ -57,6 +57,15 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 A change that moves fitted values is ≥ MINOR (see `CHANGELOG.md`). Tag `vX.Y.Z`
 on `main` after merge — never a feature-branch tip.
 
+## Commit messages
+
+Write for a reader of this repository alone. `synfit` is a standalone library
+here; it is not "the core" of anything, and a scope like `release(core):` only
+means something to a project that vendors it. Use plain conventional-commit
+scopes that name what changed — `fit`, `zip`, `loewe`, `ci`, `docs`, `build` —
+or no scope at all. Earlier commits use `(core)`; that is history, not a pattern
+to follow.
+
 Releasing, in one commit on `main`, then the tag:
 
 1. `pyproject.toml` `version`

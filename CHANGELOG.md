@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **synfit** (the numerical core). Format follows
+All notable changes to **synfit**. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is
 [SemVer](https://semver.org/), with one domain-specific rule:
 
@@ -9,9 +9,9 @@ All notable changes to **synfit** (the numerical core). Format follows
 > shift, even if the public API is unchanged.
 
 The version string lives in `pyproject.toml` and is exported as
-`synfit.__version__`. The consuming app records it per analysis
-(`Analysis.core_version`). A release promotes `[Unreleased]` to a dated,
-tagged `[X.Y.Z]` heading.
+`synfit.__version__`, so a downstream caller can record which version produced
+a given fit. A release promotes `[Unreleased]` to a dated, tagged `[X.Y.Z]`
+heading.
 
 ## [Unreleased]
 
