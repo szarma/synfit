@@ -1,0 +1,136 @@
+name: Publish
+
+# Publishing is release-only: nothing reaches PyPI unless a GitHub release is
+# *published* for a tag. Credentials are never stored — PyPI trusted publishing
+# (OIDC) mints a short-lived, project-scoped token for this workflow.
+#
+# Manual dispatch can ONLY target TestPyPI. Production upload is unreachable by
+# hand on purpose: a dispatch can run from any ref, so it would bypass the
+# tag/version and ancestor-of-main guards below and could publish unmerged code
+# to an index that never allows a version to be replaced.
+#
+# Artifact verification (wheel import, README examples, sdist suite, py.typed)
+# lives in ci.yml's dist-smoke job, which runs on every PR and every push to
+# main. The ancestor guard means a released commit has already been through it,
+# so this workflow only re-checks what is specific to uploading: that the tag
+# names the version being shipped, and that the metadata renders on the index.
+#
+# Actions are pinned to commit SHAs, not moving tags: `download-artifact` and
+# `gh-action-pypi-publish` run inside the OIDC-enabled job, where a retargeted
+# tag could swap the artifact or mint the PyPI token. Pinning means upstream
+# fixes need a deliberate bump (Dependabot is configured to propose them).
+#
+# Setup required BEFORE the first upload (project owner, once):
+#   1. PyPI → synfit → Manage → Publishing → Add a trusted publisher
+#        Owner: szarma   Repository: synfit
+#        Workflow: publish.yml   Environment: pypi
+#      Repeat on test.pypi.org with Environment: testpypi
+#   2. GitHub → Settings → Environments → create `pypi` BEFORE the publisher is
+#      enabled. An environment referenced but not created is auto-created with
+#      NO protection rules, which would leave the workflow itself as the only
+#      control. Set: required reviewers, no admin bypass, and deployment
+#      branches/tags limited to protected tags matching `v*`.
+#   3. GitHub → Settings → Rules → add a ruleset protecting tag `v*` against
+#      creation/update/deletion by non-maintainers, so a tag cannot be moved
+#      after a release is published.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Dry run against TestPyPI (production publishing happens only via a published release)
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi]
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+        with:
+          python-version: "3.12"
+          version: "0.9.26"
+
+      # A release whose tag disagrees with pyproject.toml means the release bump
+      # was missed. Publishing it would put a mislabelled artifact on an index
+      # that forbids re-uploading a version.
+      - name: Tag and project version must agree
+        if: github.event_name == 'release'
+        run: |
+          proj=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "tag=$GITHUB_REF_NAME pyproject=$proj"
+          test "$GITHUB_REF_NAME" = "v$proj" || { echo "::error::tag $GITHUB_REF_NAME != v$proj"; exit 1; }
+
+      # Releases are cut from main (see AGENTS.md). A tag outside main would
+      # publish code that never passed CI, including dist-smoke.
+      - name: Released commit must be on main
+        if: github.event_name == 'release'
+        run: |
+          git fetch -q origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_SHA is not an ancestor of origin/main"; exit 1; }
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      # A README that fails to render is not fixable after upload: the version
+      # is burned and the broken page stays on the project.
+      - name: Check metadata renders on the index
+        run: uvx 'twine==6.2.0' check --strict dist/*
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: distributions
+          path: dist/
+
+  testpypi:
+    name: Upload to TestPyPI
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/synfit
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    name: Upload to PyPI
+    needs: build
+    # Release events only. See the header: a manual dispatch can run from any
+    # ref and would bypass the guards in `build`.
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/synfit
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
