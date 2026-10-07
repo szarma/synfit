@@ -6,7 +6,8 @@ Usage:
     uv run python scripts/generate_seed_datasets.py --check      # CI: verify up-to-date
     uv run python scripts/generate_seed_datasets.py --scenario single_drug_clean
 
-Each scenario lives in data/synthetic/<name>/config.json.
+Each scenario lives in src/synfit/scenarios/<name>/config.json and ships
+with the package.
 For single_drug: generates <name>.csv (concentration, y, replicate).
 For matrix:      generates rep1.csv, rep2.csv, ... (whitespace-separated 2D arrays).
 """
@@ -23,9 +24,7 @@ import pandas as pd
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from synfit.synthetic import generate_single_drug, generate_matrix
-
-SYNTHETIC_DIR = REPO_ROOT / "data" / "synthetic"
+from synfit.synthetic import SCENARIOS_DIR, generate_single_drug, generate_matrix
 
 
 def _csv_float_format(value) -> str:
@@ -146,7 +145,7 @@ def check_scenario(scenario_dir: Path, files: dict[str, bytes], *, kind: str) ->
 
 def discover_scenarios() -> list[Path]:
     return sorted(
-        d for d in SYNTHETIC_DIR.iterdir()
+        d for d in SCENARIOS_DIR.iterdir()
         if d.is_dir() and (d / "config.json").exists()
     )
 
@@ -161,7 +160,7 @@ def main():
 
     scenarios = discover_scenarios()
     if not scenarios:
-        print(f"No scenarios found under {SYNTHETIC_DIR}")
+        print(f"No scenarios found under {SCENARIOS_DIR}")
         sys.exit(1)
 
     if args.scenario:

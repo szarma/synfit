@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import numpy as np
 
@@ -10,9 +9,7 @@ from synfit.loewe import (
     loewe_reference,
     slope_mismatch_warning,
 )
-from synfit.synthetic import generate_matrix
-
-SYNTHETIC_DIR = Path(__file__).resolve().parent.parent / "data" / "synthetic"
+from synfit.synthetic import SCENARIOS_DIR, generate_matrix
 
 
 def test_invert_hill_inside_range():
@@ -200,7 +197,7 @@ def test_ci_unity_on_loewe_additive_synthetic_dataset():
     Uses equal Hill slopes so Loewe additivity is theoretically unambiguous.
     """
     config = json.loads(
-        (SYNTHETIC_DIR / "matrix_loewe_additive" / "config.json").read_text()
+        (SCENARIOS_DIR / "matrix_loewe_additive" / "config.json").read_text()
     )
     replicates, conc_hor, conc_ver = generate_matrix(config)
     mean_matrix = np.mean(replicates, axis=0)
@@ -419,7 +416,7 @@ def test_slope_warning_tolerates_none_and_non_numeric():
 
 def _load_sham_replicates():
     """Load matrix_loewe_sham/{rep1,rep2,rep3}.csv as a list of 2-D arrays."""
-    bundle = SYNTHETIC_DIR / "matrix_loewe_sham"
+    bundle = SCENARIOS_DIR / "matrix_loewe_sham"
     config = json.loads((bundle / "config.json").read_text())
     csv_paths = sorted(bundle.glob("rep*.csv"))
     replicates = [np.loadtxt(p) for p in csv_paths]

@@ -56,7 +56,11 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-synfit = ["py.typed"]
+synfit = [
+    "py.typed",
+    "scenarios/*/config.json",
+    "scenarios/*/*.csv",
+]
 
 [tool.setuptools.package-dir]
 "" = "src"

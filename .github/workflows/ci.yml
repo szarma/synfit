@@ -54,19 +54,45 @@ jobs:
       - name: Run README python examples against installed package
         run: /tmp/synfit-smoke-venv/bin/python scripts/check_readme_examples.py
 
-      - name: Confirm the type marker is shipped
+      - name: Confirm the type marker and the scenarios are shipped
         # PEP 561: without py.typed in BOTH artifacts, mypy silently treats
         # synfit as untyped for every downstream user. Nothing else fails.
+        # The scenarios are package data: a package-data glob that stops
+        # matching drops them from the wheel without any import breaking.
         run: |
           python3 - <<'EOF'
           import glob, zipfile, tarfile, sys
           wheels, sdists = glob.glob("dist/*.whl"), glob.glob("dist/*.tar.gz")
           assert len(wheels) == 1 and len(sdists) == 1, (wheels, sdists)
-          in_wheel = "synfit/py.typed" in zipfile.ZipFile(wheels[0]).namelist()
-          in_sdist = any(n.endswith("src/synfit/py.typed") for n in tarfile.open(sdists[0]).getnames())
+          wheel_names = zipfile.ZipFile(wheels[0]).namelist()
+          sdist_names = tarfile.open(sdists[0]).getnames()
+
+          ok = True
+          in_wheel = "synfit/py.typed" in wheel_names
+          in_sdist = any(n.endswith("src/synfit/py.typed") for n in sdist_names)
           print("py.typed - wheel:", in_wheel, "sdist:", in_sdist)
-          sys.exit(0 if (in_wheel and in_sdist) else 1)
+          ok &= in_wheel and in_sdist
+
+          configs = [n for n in wheel_names if n.startswith("synfit/scenarios/") and n.endswith("config.json")]
+          csvs = [n for n in wheel_names if n.startswith("synfit/scenarios/") and n.endswith(".csv")]
+          print(f"scenarios in wheel - {len(configs)} configs, {len(csvs)} CSVs")
+          ok &= len(configs) >= 20 and len(csvs) >= len(configs)
+          sys.exit(0 if ok else 1)
           EOF
+
+      - name: Confirm the scenarios load from the installed wheel
+        # Run from /tmp: the accessors must resolve package data where it
+        # actually landed, not a path relative to this checkout.
+        run: |
+          cd /tmp && /tmp/synfit-smoke-venv/bin/python -c "
+          from synfit.synthetic import list_scenarios, scenario_config, scenario_dir
+          names = list_scenarios()
+          assert len(names) >= 20, names
+          for name in names:
+              assert scenario_config(name)['kind'] in ('single_drug', 'matrix')
+              assert list(scenario_dir(name).glob('*.csv')), name
+          print(f'{len(names)} scenarios readable from the installed wheel')
+          "
 
       - name: Run the shipped test suite from the extracted sdist
         # Downstream packagers (conda-forge, Debian, Nix, Spack) build from the
