@@ -15,9 +15,26 @@ tagged `[X.Y.Z]` heading.
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-10-07
+
+First release published to PyPI. No fitted value changes from 0.7.1: the only
+code difference is the `py.typed` marker, so results are identical.
+
 ### Added
 - **PEP 561 type information.** The installed package now includes a `py.typed`
   marker so type checkers (mypy, Pyright, etc.) resolve synfit's annotations.
+
+### Documentation
+- **Sign conventions are stated per function.** `bliss_independence`,
+  `bliss_reference`, `hsa_reference`, `loewe_reference`, `zip_reference` and
+  `zip_fitted_surface` give an expected *response surface*; `loewe_ci` gives a
+  combination index, where synergy is below 1; `zip_delta` and `zip_scores` give
+  a signed δ-score, where synergy is negative.
+- **The ZIP validation scope is stated explicitly.** The δ-scores are checked
+  against the independent `synergy` package for two dose–response landscapes,
+  agreeing to better than `1e-3`. synfit implements the published formulation;
+  for 5-parameter drugs it keeps the moving drug's asymmetry in the slice fits,
+  an extension that reduces to the published method when asymmetry equals 1.
 
 ## [0.7.1] — 2026-09-22
 

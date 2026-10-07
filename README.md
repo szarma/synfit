@@ -4,13 +4,15 @@ Core numerical functions for drug response curve fitting.
 
 ## Quick start
 
-The `synfit` name on [PyPI](https://pypi.org/project/synfit/) is reserved by this project (`0.0.0a0` is only a placeholder — do not use it for fitting). The current library release is not published there yet; install from Git or from a built wheel:
+```bash
+pip install synfit
+```
+
+Published on [PyPI](https://pypi.org/project/synfit/) from 0.7.2 onward. (The
+`0.0.0a0` placeholder predates the first real release — do not use it for
+fitting.) To work from a checkout instead:
 
 ```bash
-# From a built wheel (run `uv build` in the repository first)
-pip install dist/synfit-*.whl
-
-# Or from Git
 pip install "synfit @ git+https://github.com/szarma/synfit.git"
 ```
 
