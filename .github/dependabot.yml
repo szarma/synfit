@@ -1,9 +1,18 @@
-# The publish workflow pins actions to commit SHAs so a moved tag cannot swap
-# the artifact or mint a PyPI token. Pinning means upstream fixes do not arrive
-# on their own — Dependabot proposes them for review instead.
+# Both workflows pin actions to commit SHAs so a moved tag cannot swap the
+# artifact or mint a PyPI token. Pinning means upstream fixes do not arrive on
+# their own — Dependabot proposes them for review instead.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    # One grouped PR, never one per action. `upload-artifact` and
+    # `download-artifact` are two halves of one mechanism and their major
+    # versions must match — v3→v4 changed the storage backend, and a mismatched
+    # pair fails at upload time. Separate PRs make it possible to merge one half
+    # alone, and no PR check would catch it: publish.yml runs only on releases
+    # and manual dispatch, so CI never exercises that path.
+    groups:
+      github-actions:
+        patterns: ["*"]
