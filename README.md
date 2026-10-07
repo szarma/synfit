@@ -1,6 +1,8 @@
 # synfit
 
-Core numerical functions for drug response curve fitting.
+Dose–response curve fitting and drug-combination synergy scoring for
+pharmacology: Hill models (4- and 5-parameter), explicit noise models, and
+Bliss, HSA, Loewe and ZIP references for inhibition and activation assays.
 
 ## Quick start
 
