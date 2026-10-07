@@ -15,6 +15,31 @@ heading.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-10-07
+
+No fitted value changes from 0.7.2: the optimiser, objective, priors, bounds
+and noise models are untouched, so results are identical.
+
+### Added
+- **Ready-made scenarios ship with the package.** Twenty datasets — clean and
+  noisy single-drug curves, an activation curve, additive and synergistic
+  matrices, a Loewe sham — install alongside the code, each with the
+  `config.json` that generated it, so the ground truth behind every fit is
+  known. `synfit.synthetic` gains `list_scenarios()`, `scenario_dir(name)`,
+  `scenario_config(name)` and `SCENARIOS_DIR` to reach them; they resolve
+  package data, so they work wherever the package is installed.
+
+### Changed
+- **The scenario files moved from `data/synthetic/` to `src/synfit/scenarios/`**
+  and are declared as package data. Only a source checkout saw the old path —
+  no installed release ever carried `data/`.
+
+### Fixed
+- **`generate_matrix` declared the wrong return type.** It returns
+  `(replicates, conc_horizontal, conc_vertical)`, while its annotation and
+  docstring both claimed a bare `list[np.ndarray]`. Since the package ships
+  `py.typed`, that reached downstream type checkers.
+
 ## [0.7.2] — 2026-10-07
 
 First release published to PyPI. No fitted value changes from 0.7.1: the only

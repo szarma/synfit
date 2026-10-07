@@ -49,8 +49,11 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 5. Parameters are direction-neutral: `effect_0` / `effect_inf` are the low- /
    high-concentration asymptotes, `log_c50` is fitted in log space; the
    `direction` field swaps which asymptote is the displayed IC₅₀ / EC₅₀ top.
-6. Seed CSVs in `data/synthetic/` are committed: edit `config.json` →
-   `just generate-seed-data`; CI's `just check-seed-data` catches drift.
+6. Scenario CSVs in `src/synfit/scenarios/` are committed *and* shipped as
+   package data: edit `config.json` → `just generate-seed-data`; CI's
+   `just check-seed-data` catches drift. They live inside the package so an
+   installed wheel can reach them — keep the `package-data` globs in
+   `pyproject.toml` in step with any new file type added there.
 
 ## Versioning
 

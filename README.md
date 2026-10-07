@@ -93,6 +93,8 @@ synfit/
 │   ├── data.py          # Dataclasses: FitConfig, FitBounds, FitResult
 │   ├── plotting.py      # Static matplotlib: dose-response, heatmaps
 │   ├── synthetic.py     # Synthetic data generation from config dicts
+│   ├── scenarios/       # Ready-made datasets, shipped with the package
+│   │   └── */config.json  # Generation configs, i.e. the ground truth
 │   └── __init__.py      # Public API exports
 ├── tests/
 │   ├── test_hill.py     # Hill equation, concentration series
@@ -101,8 +103,6 @@ synfit/
 │   ├── test_noise.py    # Error models, profiled variance, masking
 │   ├── test_matrix.py   # Matrix fit parameter recovery
 │   └── test_plotting.py # Plot smoke tests (PNG output)
-├── data/                # Synthetic seed datasets (committed, CI-verified)
-│   └── */config.json    # Generation configs with ground truth
 ├── scripts/
 │   ├── generate_seed_datasets.py  # Seed data generator (supports --check)
 │   └── check_readme_examples.py   # Execute README python blocks (CI)
@@ -142,6 +142,29 @@ df = generate_single_drug({
     "outliers": [],
 })
 ```
+
+A set of ready-made scenarios ships with the package, so there is data to fit
+straight after `pip install synfit` — clean and noisy single-drug curves, an
+activation curve, additive and synergistic matrices, and a Loewe sham (a drug
+combined with itself, where the combination index must read 1 everywhere).
+Every scenario keeps the `config.json` that generated it, so the ground truth
+behind each fit is known:
+
+```python
+from synfit.synthetic import list_scenarios, scenario_config, scenario_dir
+
+print(list_scenarios())
+#  ['matrix_antagonism', 'matrix_asymmetric_potency', 'matrix_independent', ...]
+
+path = scenario_dir("single_drug_clean")
+csv = path / "single_drug_clean.csv"           # concentration, y, replicate
+truth = scenario_config("single_drug_clean")   # the generating parameters
+print(truth["hill_params"]["c50"])
+```
+
+Matrix scenarios hold one `rep*.csv` per replicate; single-drug scenarios hold
+one tidy CSV. The CSVs are committed and CI-verified against their configs, so
+a given scenario reads the same on every machine and in every release.
 
 ## References
 

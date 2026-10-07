@@ -8,7 +8,8 @@ include LICENSE
 recursive-include tests *.py
 recursive-include tests/data *.csv *.json
 recursive-include scripts *.py
-# Synthetic seed configs/CSVs: the Loewe suite fits them directly.
-recursive-include data *.json *.csv
+# Shipped scenarios: package data, so wheels carry them too. Spelled out
+# for the sdist because the Loewe suite fits them directly.
+recursive-include src/synfit/scenarios *.json *.csv
 global-exclude __pycache__/* *.py[cod]
 prune AGENTS.md
