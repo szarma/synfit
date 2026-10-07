@@ -69,10 +69,16 @@ Publishing to PyPI is a separate, deliberate step: `.github/workflows/publish.ym
 uploads only when a **GitHub release is published** for a tag, using PyPI trusted
 publishing (no stored token). It refuses to upload when the tag does not match
 `pyproject.toml`'s version, when the tagged commit is not an ancestor of `main`,
-when `twine check --strict` fails, when the installed wheel cannot run the README
-examples, when the shipped suite fails from the extracted sdist, or when the
-`py.typed` marker is missing from either artifact. It also installs *from the
-sdist* and runs the suite the sdist ships, which is what downstream packagers do.
+when there is no successful `ci.yml` run for that exact commit, or when
+`twine check --strict` fails.
+
+Artifact verification itself lives in `ci.yml`'s `dist-smoke` job, not in
+`publish.yml`: installing the wheel in a clean venv, running the README examples,
+installing *from the sdist* and running the suite it ships, and asserting the
+`py.typed` marker is present in both artifacts. `publish.yml` does not repeat
+those checks — it requires that the run which performed them succeeded for the
+released SHA. Ancestry alone would not establish that, which is why the explicit
+run check exists.
 
 Manual dispatch can only target TestPyPI — production upload is release-only on
 purpose, because a dispatch can run from any ref and would bypass those guards.
