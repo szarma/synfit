@@ -1,0 +1,9 @@
+# The publish workflow pins actions to commit SHAs so a moved tag cannot swap
+# the artifact or mint a PyPI token. Pinning means upstream fixes do not arrive
+# on their own — Dependabot proposes them for review instead.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
