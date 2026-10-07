@@ -4,21 +4,19 @@ Dose–response curve fitting and drug-combination synergy scoring for
 pharmacology: Hill models (4- and 5-parameter), explicit noise models, and
 Bliss, HSA, Loewe and ZIP references for inhibition and activation assays.
 
-## Quick start
+## Install
 
 ```bash
 pip install synfit
 ```
 
-Published on [PyPI](https://pypi.org/project/synfit/) from 0.7.2 onward. (The
-`0.0.0a0` placeholder predates the first real release — do not use it for
-fitting.) To work from a checkout instead:
+Python 3.11 or newer. Pure Python — nothing to compile — on top of NumPy,
+SciPy, pandas and Matplotlib.
 
-```bash
-pip install "synfit @ git+https://github.com/szarma/synfit.git"
-```
+## Quick start
 
-Minimal single-drug fit (inhibition). Half-max concentration (IC₅₀ / EC₅₀) is `result.half_max`; `ic50` appears only in `result.to_dict()`, not as an attribute:
+A single-drug inhibition fit. Data goes in as a tidy DataFrame of
+`concentration`, `y` and `replicate`:
 
 ```python
 import pandas as pd
@@ -39,116 +37,53 @@ if cis and "c50" in cis:
     print(f"c50 95% CI: [{lo:.3g}, {hi:.3g}]")
 ```
 
-## Overview
+The half-max concentration is `result.half_max`, reported as IC₅₀ for an
+inhibition fit and EC₅₀ for an activation one. `result.to_dict()` gives the
+full parameter set, confidence intervals and goodness-of-fit statistics in a
+JSON-serialisable form.
 
-`synfit` is a pure Python package (no Django) that provides:
+## What it does
 
-- 4-parameter Hill equation fitting for single-drug dose-response data
-- Drug-drug interaction matrix fitting with Bliss independence comparison
-- Synergy scores: Bliss, HSA, Loewe and ZIP, the latter implementing the
-  published Zero Interaction Potency model (Yadav et al. 2015), unit- and
-  direction-neutral — see [References](#references)
-- Configurable `NoiseSpec` models: constant and heteroscedastic Gaussian and Lognormal
-- Synthetic data generation for testing and validation
-- Static matplotlib plotting (dose-response curves, heatmaps)
+- **Hill fitting** for single-drug dose–response data, 4-parameter or
+  5-parameter (asymmetric), for inhibition and activation assays
+- **Drug-drug interaction matrices** — `MatrixFit` over the full response
+  surface, or `JointMarginalFit` for the two single-agent curves fitted
+  together with shared plate-level asymptotes
+- **Synergy references**: Bliss, HSA, Loewe and ZIP — the last implementing the
+  published Zero Interaction Potency model, unit- and direction-neutral
+- **Explicit noise models**: constant and heteroscedastic Gaussian, and
+  Lognormal, fitted by maximum likelihood rather than assumed
+- **Confidence intervals** for each fitted parameter, from the covariance
+  estimate at the optimum, where the optimiser produced one
+- **Ready-made datasets** with known ground truth, shipped with the package
+- **Plots**: dose–response curves and synergy heatmaps via Matplotlib
 
-## Installation
+## Modules
 
-**End users (installed package):** see [Quick start](#quick-start) above.
+Everything in the table is importable from an installed package. The names in
+the first row are also re-exported from the top-level `synfit` namespace.
 
-**Development checkout:**
+| Module | Holds |
+|---|---|
+| `synfit` | `SingleDrugFit`, `MatrixFit`, `FitConfig`, `FitResult`, `hill_curve`, `loewe_ci`, `zip_delta`, … |
+| `synfit.hill` | the Hill equation, concentration series, the `log_wall` prior |
+| `synfit.single` | single-drug fitters and their default bounds and config |
+| `synfit.matrix` | drug-drug matrix fitting |
+| `synfit.joint_marginal` | two drugs' curves fitted together, sharing plate-level asymptotes |
+| `synfit.noise` | the `NoiseSpec` union, its serialisation and likelihoods |
+| `synfit.bliss` | Bliss independence and HSA references |
+| `synfit.loewe` | Loewe additivity reference and combination index |
+| `synfit.zip` | ZIP reference surface and δ-scores |
+| `synfit.synthetic` | data generation, and the scenarios shipped with the package |
+| `synfit.plotting` | Matplotlib dose–response curves and heatmaps |
 
-```bash
-uv sync --extra dev
-```
+## Datasets included
 
-## Quality Gates
-
-```bash
-# Full quality gate (README examples + all tests)
-just check
-
-# Individual commands
-just test                # Run all tests
-just test-coverage       # Run tests with coverage report
-just check-readme-examples  # Run README ```python blocks
-just generate-seed-data  # Regenerate synthetic seed CSVs
-just check-seed-data     # Verify seed CSVs are up-to-date (CI check)
-
-# Show all available commands
-just help
-```
-
-## Project Structure
-
-```
-synfit/
-├── src/synfit/
-│   ├── hill.py          # Hill equation, log_wall prior, concentration series
-│   ├── bliss.py         # Bliss independence model, deviation calculation
-│   ├── fitting.py       # FitBase: scipy minimize, log-prior, bounded optimization
-│   ├── single.py        # SingleDrugFit, SingleDrugFitWithError
-│   ├── matrix.py        # MatrixFit: drug-drug interaction fitting
-│   ├── noise.py         # NoiseSpec union, serde, profiled/weighted likelihood
-│   ├── data.py          # Dataclasses: FitConfig, FitBounds, FitResult
-│   ├── plotting.py      # Static matplotlib: dose-response, heatmaps
-│   ├── synthetic.py     # Synthetic data generation from config dicts
-│   ├── scenarios/       # Ready-made datasets, shipped with the package
-│   │   └── */config.json  # Generation configs, i.e. the ground truth
-│   └── __init__.py      # Public API exports
-├── tests/
-│   ├── test_hill.py     # Hill equation, concentration series
-│   ├── test_fitting.py  # scipy minimize on synthetic data
-│   ├── test_bliss.py    # Bliss independence
-│   ├── test_noise.py    # Error models, profiled variance, masking
-│   ├── test_matrix.py   # Matrix fit parameter recovery
-│   └── test_plotting.py # Plot smoke tests (PNG output)
-├── scripts/
-│   ├── generate_seed_datasets.py  # Seed data generator (supports --check)
-│   └── check_readme_examples.py   # Execute README python blocks (CI)
-├── pyproject.toml
-└── justfile
-```
-
-## Key Concepts
-
-### Fitting
-
-All fitters inherit from `FitBase`, which provides:
-
-- `scipy.optimize.minimize` (L-BFGS-B) in scale-relative coordinates so fits are stable across response magnitudes
-- A single optional retry with refreshed variance initials when heteroscedastic Gaussian noise stalls at the first iteration
-- Bounded parameter search via `FitBounds`
-- `log_wall` soft boundary prior (smooth penalty near bounds)
-- Profiled variance log-likelihood (MLE variance computed analytically)
-
-### Noise models
-
-Configured via `FitConfig.noise`, a tagged `NoiseSpec` union serialized as JSON (for example `{"kind": "gaussian_linear", "a_init": 0.001, "b_init": 0.0}`). Fittable variants are `GaussianConstant`, `GaussianLinear`, `GaussianQuadratic`, and `Lognormal`. Constant Gaussian and Lognormal profile one variance term analytically; Gaussian linear/quadratic fit response-dependent variance coefficients; per-point `y_err` weights remain available for constant Gaussian/Lognormal fits.
-
-### Synthetic Data
-
-`synfit.synthetic` generates reproducible test data from config dicts:
-
-```python
-from synfit.synthetic import generate_single_drug, generate_matrix
-
-df = generate_single_drug({
-    "seed": 42,
-    "hill_params": {"c50": 5.0, "hill": 1.8, "effect_0": 1.0, "effect_inf": 0.02},
-    "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 3.0, "length": 8, "has_zero": True},
-    "n_replicates": 3,
-    "noise_sigma_log": 0.05,
-    "outliers": [],
-})
-```
-
-A set of ready-made scenarios ships with the package, so there is data to fit
-straight after `pip install synfit` — clean and noisy single-drug curves, an
-activation curve, additive and synergistic matrices, and a Loewe sham (a drug
-combined with itself, where the combination index must read 1 everywhere).
-Every scenario keeps the `config.json` that generated it, so the ground truth
-behind each fit is known:
+Twenty scenarios install with the package, so there is data to fit
+immediately: clean and noisy single-drug curves, an activation curve, additive
+and synergistic matrices, and a Loewe sham — a drug combined with itself, where
+the combination index must read 1 everywhere. Each keeps the `config.json` that
+generated it, so the true parameters behind every fit are known:
 
 ```python
 from synfit.synthetic import list_scenarios, scenario_config, scenario_dir
@@ -163,12 +98,51 @@ print(truth["hill_params"]["c50"])
 ```
 
 Matrix scenarios hold one `rep*.csv` per replicate; single-drug scenarios hold
-one tidy CSV. The CSVs are committed and CI-verified against their configs, so
-a given scenario reads the same on every machine and in every release.
+one tidy CSV. A given scenario reads identically on every machine and in every
+release, so it is a fair fixture to test your own analysis against.
 
-## References
+To generate data to your own specification instead:
 
-Synergy scores follow their published definitions:
+```python
+from synfit.synthetic import generate_single_drug
+
+df = generate_single_drug({
+    "seed": 42,
+    "hill_params": {"c50": 5.0, "hill": 1.8, "effect_0": 1.0, "effect_inf": 0.02},
+    "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 3.0, "length": 8, "has_zero": True},
+    "n_replicates": 3,
+    "noise_sigma_log": 0.05,
+    "outliers": [],
+})
+```
+
+## How the fitting works
+
+Fits run `scipy.optimize.minimize` (L-BFGS-B) in scale-relative coordinates, so
+they are stable across response magnitudes. Parameters are bounded through
+`FitBounds`, with a `log_wall` soft prior that penalises smoothly near a bound
+rather than clipping at it. Variance is profiled out of the likelihood
+analytically where the noise model allows it. When a heteroscedastic Gaussian
+fit stalls on its first iteration, it is retried once with variance initials
+refreshed from the data.
+
+### Noise models
+
+The noise model is part of the fit, configured through `FitConfig.noise` as a
+tagged `NoiseSpec` union that serialises to JSON — for example
+`{"kind": "gaussian_linear", "a_init": 0.001, "b_init": 0.0}`. The fittable
+variants are `GaussianConstant`, `GaussianLinear`, `GaussianQuadratic` and
+`Lognormal`.
+
+Constant Gaussian and Lognormal profile their single variance term
+analytically. The linear and quadratic Gaussians instead fit coefficients of a
+response-dependent variance, σ²(μ) = a + b·μ + c·μ², which is what you want when
+scatter grows with signal. Per-point `y_err` weights remain available for
+constant Gaussian and Lognormal fits.
+
+## Synergy references
+
+Each score follows its published definition:
 
 - **ZIP (Zero Interaction Potency)** — Yadav B, Wennerberg K, Aittokallio T, Tang J.
   *Searching for drug synergy in complex dose–response landscapes using an interaction
@@ -177,7 +151,7 @@ Synergy scores follow their published definitions:
   the best-known implementation of this method is SynergyFinder. `synfit` implements
   the published formulation for symmetric (4-parameter) curves; for 5-parameter drugs
   it keeps the moving drug's asymmetry in the slice fits, which is an extension of the
-  published method and reduces to it when the asymmetry equals 1. See `src/synfit/zip.py`.
+  published method and reduces to it when the asymmetry equals 1.
 
   Tested scope: the δ-scores are checked against fixtures generated by the
   independent [`synergy`](https://pypi.org/project/synergy/) package for two
@@ -209,6 +183,11 @@ A deviation score for Bliss, HSA or Loewe is formed by the caller, by comparing
 an observed response surface against the reference surface; `synfit` exports the
 reference, not the deviation.
 
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/szarma/synfit/blob/main/CONTRIBUTING.md) for the development setup and the test
+and release commands.
+
 ## License
 
-Licensed under the MIT License — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/szarma/synfit/blob/main/LICENSE).

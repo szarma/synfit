@@ -15,6 +15,19 @@ heading.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-10-07
+
+Documentation only. No code changes, so fits are identical to 0.8.0.
+
+### Documentation
+- **The README is written for someone installing the package**: what the
+  library does, the modules it exposes, the datasets it ships, how the fitting
+  works, and the published definition behind each synergy score.
+- **`CONTRIBUTING.md` holds the development setup, the `just` commands, the
+  repository layout, the scenario-regeneration rule and the release process.**
+- **The README's links to `LICENSE` and `CONTRIBUTING.md` are absolute**, so
+  they resolve on the PyPI project page, where neither file is present.
+
 ## [0.8.0] — 2026-10-07
 
 No fitted value changes from 0.7.2: the optimiser, objective, priors, bounds
