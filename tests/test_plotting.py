@@ -143,6 +143,16 @@ class TestSynergyHeatmaps:
         )
         assert result[:4] == PNG_MAGIC
 
+    @pytest.mark.parametrize("conc_hor", [np.float64(2.0), np.ones((1, 4))])
+    def test_non_vector_concentrations_raise_value_error(self, conc_hor):
+        conc_ver = np.array([0.0, 1.0, 4.0, 16.0])
+        with pytest.raises(ValueError, match="one-dimensional"):
+            synergy_heatmaps(
+                np.ones((4, 4)), conc_hor, conc_ver,
+                c50_hor=2.0, c50_ver=4.0, hill_hor=1.2, hill_ver=1.1,
+                effect_0=1.0, effect_inf=0.05,
+            )
+
 
 @pytest.mark.parametrize("direction", ["inhibition", "activation"])
 def test_joint_result_plot_uses_5p_curves_and_direction(direction, monkeypatch):

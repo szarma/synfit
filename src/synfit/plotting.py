@@ -599,10 +599,10 @@ def synergy_heatmaps(
     matrix = np.asarray(mean_matrix, dtype=float)
     ch = np.asarray(conc_horizontal, dtype=float)
     cv = np.asarray(conc_vertical, dtype=float)
-    if matrix.shape != (len(cv), len(ch)):
-        raise ValueError("mean_matrix shape must be (len(conc_vertical), len(conc_horizontal))")
     if ch.ndim != 1 or cv.ndim != 1 or not np.all(np.isfinite(ch)) or not np.all(np.isfinite(cv)):
         raise ValueError("concentration arrays must be one-dimensional and finite")
+    if matrix.shape != (len(cv), len(ch)):
+        raise ValueError("mean_matrix shape must be (len(conc_vertical), len(conc_horizontal))")
     if np.any(ch < 0) or np.any(cv < 0):
         raise ValueError("concentrations must be non-negative")
 
