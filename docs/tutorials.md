@@ -72,9 +72,10 @@ synergy_heatmaps(
 
 ![Four panels show Bliss, HSA, Loewe, and ZIP synergy scores for the non-zero dose combinations of the shipped synthetic matrix.](images/synergy-analysis.png)
 
-The configured generating setup adds inhibition beyond a Bliss reference
-(`synergy_factor=0.3`) and lognormal measurement noise. That injection is a
-simulation parameter, not an expected value for ZIP delta or Loewe CI. The
+The configured generating setup uses a potency shift (`synergy_factor=1.5`)
+to add inhibition beyond a Bliss reference while preserving the single-agent
+edges, then adds lognormal measurement noise. That factor is a simulation
+parameter, not an expected value for ZIP delta or Loewe CI. The
 Bliss and HSA panels use the observed single-agent edges; Loewe and ZIP use the
 fitted marginal curves. Bliss, HSA and ZIP are fractional scores, where
 negative means synergy and positive means antagonism. Loewe is displayed as

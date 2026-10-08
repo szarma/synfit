@@ -1,5 +1,5 @@
 {
-  "description": "Drug-drug matrix with synergy (synergy_factor=0.3). Positive deviation from Bliss independence.",
+  "description": "Drug-drug matrix with synergy (synergy_factor=1.5, peak Bliss excess ≈ 0.14). Positive deviation from Bliss independence.",
   "kind": "matrix",
   "seed": 99,
   "horizontal_drug": {
@@ -33,5 +33,5 @@
   "n_replicates": 3,
   "noise_model": "lognormal",
   "noise_sigma_log": 0.05,
-  "synergy_factor": 0.3
+  "synergy_factor": 1.5
 }

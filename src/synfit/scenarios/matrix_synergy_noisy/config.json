@@ -1,5 +1,5 @@
 {
-  "description": "Synergistic matrix with elevated noise (noise_sigma_log=0.18). Demo-friendly: visible synergy with the fit having to actually work through noise.",
+  "description": "Synergistic matrix with elevated noise (noise_sigma_log=0.18); same synergy as matrix_synergy (synergy_factor=1.5). Demo-friendly: visible synergy with the fit having to actually work through noise.",
   "kind": "matrix",
   "seed": 271,
   "horizontal_drug": {
@@ -33,5 +33,5 @@
   "n_replicates": 3,
   "noise_model": "lognormal",
   "noise_sigma_log": 0.18,
-  "synergy_factor": 0.4
+  "synergy_factor": 1.5
 }

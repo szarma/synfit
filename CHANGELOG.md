@@ -15,6 +15,23 @@ heading.
 
 ## [Unreleased]
 
+The fitters are untouched, but six shipped matrix datasets are regenerated, so
+fits and synergy scores on them move: a **MINOR** change.
+
+### Fixed
+- **`synergy_factor` no longer shifts the single-drug edges of a generated
+  matrix**, so the configured `c50` / `hill` are the true marginals. The old
+  injection made Bliss synergy read as weak antagonism against the observed
+  edges and left Loewe CI at 1.
+
+### Changed
+- **`synergy_factor` is now a potency shift**: each drug acts at
+  `c · (1 + s·f_partner)`, where `f_partner` is the other drug's fractional
+  effect. Positive `s` produces synergy relative to the selected
+  `reference_model`; `s ≤ −1` is rejected.
+- **The six synergy and antagonism scenarios are rescaled** so their strength
+  matches their names, and their seed CSVs are regenerated.
+
 ### Added
 - `dose_response_plot` can draw an optional reference curve, infer appropriate
   logarithmic axes, and label a drug-specific concentration axis.
@@ -27,7 +44,7 @@ heading.
   troubleshooting.
 - Added figures generated directly from the displayed examples: synthetic
   observations with a fitted curve, confidence band and ground truth, and a
-  matrix analysis with reference surfaces and synergy scores.
+  matrix analysis with four synergy score panels.
 - Corrected the README's ZIP return types and score definition, documented the
   lower-asymptote anchor for heteroscedastic variance, and clarified the role of
   the diagnostic matrix null fit.

@@ -1,5 +1,5 @@
 {
-  "description": "Strong synergy (synergy_factor=0.52). Large deviation from Bliss independence.",
+  "description": "Strong synergy (synergy_factor=4.0, peak Bliss excess ≈ 0.24). Large deviation from Bliss independence.",
   "kind": "matrix",
   "seed": 167,
   "horizontal_drug": {
@@ -33,5 +33,5 @@
   "n_replicates": 3,
   "noise_model": "lognormal",
   "noise_sigma_log": 0.05,
-  "synergy_factor": 0.52
+  "synergy_factor": 4.0
 }
