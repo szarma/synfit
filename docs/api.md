@@ -404,17 +404,23 @@ noninteractive Agg backend and sets plotting defaults. [Source](../src/synfit/pl
 ```text
 raw_scatter_plot(data)
 raw_replicate_heatmap(data)
-dose_response_plot(data, result, valids=None)
+dose_response_plot(data, result, valids=None, *, reference=None,
+                   reference_label="Ground truth", x_label=None, title=None)
 matrix_heatmap(matrix, conc_horizontal, conc_vertical, *, vmin=None, vmax=None,
                cmap="viridis", norm=None, cbar_label=None, title=None)
 raw_matrix_heatmap(matrix, conc_horizontal, conc_vertical, label="")
 ```
 
-Single-drug plots use `concentration`, `y`, `replicate` and need positive doses
-for the logarithmic axis. The dose-response plot includes a pointwise 95% curve
-band when covariance is available. Matrix inputs follow the same row/column
-orientation as synergy functions. `matrix_heatmap` accepts a custom Matplotlib
-normalization; use it to plot an already computed score array.
+Single-drug plots use `concentration`, `y`, `replicate` and need at least one
+positive dose. The dose-response plot includes a pointwise 95% curve band when
+covariance is available. It infers a symmetric-log x-axis when zero-dose data
+is present and a log axis otherwise. A lognormal fit uses a log y-axis only if
+every drawn response and confidence limit is strictly positive. Its optional
+`reference` mapping takes `c50`, `hill`, `effect_0`, `effect_inf`, and optionally
+`asymmetry`; it draws a dashed curve, which is useful for known synthetic truth
+or a specified benchmark. Matrix inputs follow the same row/column orientation
+as synergy functions. `matrix_heatmap` accepts a custom Matplotlib normalization;
+use it to plot an already computed score array.
 
 `deviation_heatmap`, `hsa_heatmap`, `zip_heatmap` and `loewe_heatmap` are
 convenience wrappers computing their respective scores before plotting.

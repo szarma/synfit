@@ -1,5 +1,6 @@
 """Static matplotlib figures for synfit results."""
 import io
+from collections.abc import Mapping
 
 # Force the non-interactive Agg backend before any pyplot import. Django's
 # threaded runserver crashes the default TkAgg backend with "main thread is
@@ -40,12 +41,6 @@ _EXCLUDED = "#ef4444"
 
 def _style_axes(ax: plt.Axes) -> None:
     ax.set_facecolor("#fafafa")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    for side in ("bottom", "left"):
-        sp = ax.spines[side]
-        sp.set_linewidth(0.8)
-        sp.set_color("#94a3b8")
 
 
 def _fmt_conc(c: float) -> str:
@@ -57,6 +52,13 @@ def _fmt_conc(c: float) -> str:
         s = np.format_float_scientific(c, precision=0, exp_digits=1)
         return s.replace("e+0", "e").replace("e-0", "e-").replace("E", "e")
     return f"{c:g}"
+
+
+def _symlog_linthresh(min_positive_concentration: float) -> float:
+    """Start the linear region at the lower decade of the smallest dose."""
+    if not np.isfinite(min_positive_concentration) or min_positive_concentration <= 0:
+        raise ValueError("min_positive_concentration must be finite and positive")
+    return float(10.0 ** np.floor(np.log10(min_positive_concentration)))
 
 
 def _save_fig_png(fig: plt.Figure) -> bytes:
@@ -82,7 +84,7 @@ def raw_scatter_plot(data: pd.DataFrame) -> bytes:
     has_zero = (data["concentration"] == 0).any()
 
     if has_zero:
-        linthresh = float(conc_nonzero.min()) / 10.0
+        linthresh = _symlog_linthresh(float(conc_nonzero.min()))
         ax.set_xscale("symlog", linthresh=linthresh)
     else:
         ax.set_xscale("log")
@@ -158,20 +160,63 @@ def dose_response_plot(
     data: pd.DataFrame,
     result: FitResult,
     valids: np.ndarray | None = None,
+    *,
+    reference: Mapping[str, float] | None = None,
+    reference_label: str = "Ground truth",
+    x_label: str | None = None,
+    title: str | None = None,
 ) -> bytes:
     """
-    Dose-response scatter + fitted curve.
+    Dose-response scatter, fitted curve, and optional reference curve.
 
     Returns PNG bytes.
     Expected columns: concentration, y, replicate.
+
+    ``reference`` may contain ``c50``, ``hill``, ``effect_0``, ``effect_inf``
+    and optionally ``asymmetry`` — for example, parameters used to generate a
+    synthetic dataset. It is plotted as a dashed curve. ``x_label``
+    and ``title`` label the finished plot. The x-axis is symmetric-log when
+    data contains zero concentration and log otherwise. A lognormal fit uses a
+    log y-axis only when every plotted response and confidence limit is positive.
     """
+    required_columns = {"concentration", "y", "replicate"}
+    if not required_columns.issubset(data.columns):
+        raise ValueError("data must have columns: concentration, y, replicate")
+
+    concentration = np.asarray(data["concentration"], dtype=float)
+    positive = concentration[np.isfinite(concentration) & (concentration > 0)]
+    if positive.size == 0:
+        raise ValueError("dose_response_plot requires at least one positive concentration")
+
+    if valids is None:
+        valids = np.ones(len(data), dtype=bool)
+    else:
+        valids = np.asarray(valids, dtype=bool)
+        if valids.shape != (len(data),):
+            raise ValueError("valids must be a one-dimensional mask aligned with data")
+
+    reference_kwargs: dict[str, float] | None = None
+    if reference is not None:
+        required_reference = {"c50", "hill", "effect_0", "effect_inf"}
+        missing = required_reference.difference(reference)
+        if missing:
+            raise ValueError(
+                "reference must contain c50, hill, effect_0 and effect_inf; "
+                f"missing {', '.join(sorted(missing))}"
+            )
+        reference_kwargs = {name: float(reference[name]) for name in required_reference}
+        if "asymmetry" in reference:
+            reference_kwargs["asymmetry"] = float(reference["asymmetry"])
+
     fig, ax = plt.subplots(figsize=(5, 3.5))
     _style_axes(ax)
 
-    conc_nonzero = data.query("concentration > 0")["concentration"]
-    has_zero = (data["concentration"] == 0).any()
+    conc_nonzero = positive
+    has_zero = np.any(concentration == 0)
 
     xr = np.geomspace(conc_nonzero.min() * 0.2, conc_nonzero.max() * 4)
+    if has_zero:
+        xr = np.r_[0.0, xr]
     yr = hill_curve(
         xr,
         c50=result.c50,
@@ -182,11 +227,23 @@ def dose_response_plot(
     )
 
     if has_zero:
-        linthresh = float(conc_nonzero.min()) / 10.0
+        linthresh = _symlog_linthresh(float(conc_nonzero.min()))
         ax.set_xscale("symlog", linthresh=linthresh)
-        ax.plot(xr, yr, color=_FIT_BLUE, lw=1.5, label="fit")
+        ax.plot(xr, yr, color=_FIT_BLUE, lw=1.5, label="Fit")
     else:
-        ax.semilogx(xr, yr, color=_FIT_BLUE, lw=1.5, label="fit")
+        ax.semilogx(xr, yr, color=_FIT_BLUE, lw=1.5, label="Fit")
+
+    reference_y: np.ndarray | None = None
+    if reference_kwargs is not None:
+        reference_y = hill_curve(xr, **reference_kwargs)
+        ax.plot(
+            xr,
+            reference_y,
+            color="crimson",
+            lw=1.5,
+            linestyle="--",
+            label=reference_label,
+        )
 
     # Confidence band (delta method)
     ci_band = result.predict_ci(xr)
@@ -194,19 +251,26 @@ def dose_response_plot(
         lo, hi = ci_band
         ax.fill_between(xr, lo, hi, color=_FIT_BLUE, alpha=0.15, linewidth=0, label="95% CI")
 
-    if valids is None:
-        valids = np.ones(len(data), dtype=bool)
+    # Lognormal fits use a multiplicative response model. Show that geometry on
+    # a logarithmic y-axis only when every rendered curve/data value is valid
+    # there; otherwise retain a readable linear scale.
+    y_for_scale = [np.asarray(data["y"], dtype=float), yr]
+    if ci_band is not None:
+        y_for_scale.extend(ci_band)
+    if reference_y is not None:
+        y_for_scale.append(reference_y)
+    finite_y = np.concatenate([values[np.isfinite(values)] for values in y_for_scale])
+    if result.error_model == "lognormal" and finite_y.size and np.all(finite_y > 0):
+        ax.set_yscale("log")
 
-    for rep, grp in data.groupby("replicate"):
-        mask = valids[grp.index.values]
-        ax.scatter(
+    plot_data = data.copy()
+    plot_data["_valid"] = valids
+    for i, (_, grp) in enumerate(plot_data.groupby("replicate")):
+        mask = grp["_valid"].to_numpy()
+        ax.plot(
             grp["concentration"].values[mask],
-            grp["y"].values[mask],
-            s=36,
-            color=_FIT_BLUE,
-            alpha=0.85,
-            edgecolors="white",
-            linewidths=0.6,
+            grp["y"].values[mask], "o", mfc='w', mec='gray',
+            label="Observations" if i == 0 else None,
         )
         if (~mask).any():
             ax.scatter(
@@ -219,8 +283,10 @@ def dose_response_plot(
                 label="excluded",
             )
 
-    ax.set_xlabel("Concentration")
+    ax.set_xlabel("Concentration" if x_label is None else x_label)
     ax.set_ylabel("Response")
+    if title is not None:
+        ax.set_title(title)
 
     cis = result.param_ci()
     if result.direction == "activation":
@@ -245,13 +311,9 @@ def dose_response_plot(
         annotation,
         transform=ax.transAxes,
         va="bottom",
-        fontsize=9,
-        bbox={
-            "facecolor": "#f1f5f9",
-            "edgecolor": "#cbd5e1",
-            "boxstyle": "round,pad=0.35",
-        },
+        fontsize=10,
     )
+    ax.legend(frameon=False, fontsize=9, loc="best")
 
     fig.tight_layout()
     return _save_fig_png(fig)

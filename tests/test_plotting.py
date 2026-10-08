@@ -55,6 +55,30 @@ class TestDoseResponsePlot:
         result = dose_response_plot(single_drug_data, fit_result, valids=valids)
         assert result[:4] == PNG_MAGIC
 
+    def test_with_reference_curve_and_labels(self, single_drug_data, fit_result):
+        result = dose_response_plot(
+            single_drug_data,
+            fit_result,
+            reference={"c50": 5, "hill": 1.5, "effect_0": 1, "effect_inf": 0.02},
+            reference_label="Ground truth",
+            x_label="Test compound concentration [µM]",
+            title="Synthetic fit",
+        )
+        assert result[:4] == PNG_MAGIC
+
+    def test_rejects_incomplete_reference(self, single_drug_data, fit_result):
+        with pytest.raises(ValueError, match="missing effect_inf"):
+            dose_response_plot(single_drug_data, fit_result, reference={"c50": 5, "hill": 1.5, "effect_0": 1})
+
+    def test_lognormal_fit_with_zero_control_produces_png(self, single_drug_data, fit_result):
+        data = pd.concat([
+            single_drug_data,
+            pd.DataFrame({"concentration": [0.0], "y": [1.0], "replicate": ["A"]}),
+        ], ignore_index=True)
+        fit_result.error_model = "lognormal"
+        result = dose_response_plot(data, fit_result)
+        assert result[:4] == PNG_MAGIC
+
 
 class TestMatrixHeatmap:
     def test_produces_png(self, matrix_data):

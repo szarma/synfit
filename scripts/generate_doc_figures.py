@@ -27,10 +27,28 @@ def main() -> None:
         if len(matches) != 1:
             raise ValueError(f"Expected one '# Generates {filename}' block in {markdown}")
         with tempfile.TemporaryDirectory(prefix="synfit-figure-") as workdir:
-            code = matches[0] + (
-                "\nfrom matplotlib import pyplot as _doc_pyplot\n"
-                f"_doc_pyplot.gcf().savefig({filename!r}, dpi={dpi})\n"
-                "_doc_pyplot.close('all')\n"
+            # Rewrite the final expression so a PNG-returning helper can be
+            # captured without adding generator plumbing to the documentation.
+            code = (
+                "import ast\n"
+                f"_doc_source = {matches[0]!r}\n"
+                "_doc_tree = ast.parse(_doc_source)\n"
+                "_doc_last = _doc_tree.body[-1]\n"
+                "if not isinstance(_doc_last, ast.Expr):\n"
+                "    raise TypeError('The figure example must end with a plotting expression')\n"
+                "_doc_tree.body[-1] = ast.Assign(\n"
+                "    targets=[ast.Name(id='_doc_output', ctx=ast.Store())], value=_doc_last.value\n"
+                ")\n"
+                "ast.fix_missing_locations(_doc_tree)\n"
+                f"exec(compile(_doc_tree, {markdown!r}, 'exec'))\n"
+                "from matplotlib import pyplot as _doc_pyplot\n"
+                "if _doc_pyplot.get_fignums():\n"
+                f"    _doc_pyplot.gcf().savefig({filename!r}, dpi={dpi})\n"
+                "    _doc_pyplot.close('all')\n"
+                "elif isinstance(_doc_output, bytes):\n"
+                f"    open({filename!r}, 'wb').write(_doc_output)\n"
+                "else:\n"
+                "    raise TypeError('The plotting expression must return PNG bytes or leave a figure open')\n"
             )
             subprocess.run([sys.executable, "-c", code], cwd=workdir, check=True)
             image = (Path(workdir) / filename).read_bytes()

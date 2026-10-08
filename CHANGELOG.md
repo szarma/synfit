@@ -15,6 +15,10 @@ heading.
 
 ## [Unreleased]
 
+### Added
+- `dose_response_plot` can draw an optional reference curve, infer appropriate
+  logarithmic axes, and label a drug-specific concentration axis.
+
 ### Documentation
 - Added a linked API reference covering fit configuration, results, noise,
   synergy helpers, bundled scenarios and plotting.
