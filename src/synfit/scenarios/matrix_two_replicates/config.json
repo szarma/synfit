@@ -33,5 +33,5 @@
   "n_replicates": 2,
   "noise_model": "lognormal",
   "noise_sigma_log": 0.05,
-  "synergy_factor": 0.15
+  "synergy_factor": 1.0
 }

@@ -139,7 +139,7 @@ class TestMatrixFitEdgeCases:
         assert fitter.synfit_ver.config.error_model == error_model
 
     def test_synergy_scenario_succeeds(self):
-        replicates, conc_hor, conc_ver = matrix_from_config(synergy_factor=0.3, seed=99)
+        replicates, conc_hor, conc_ver = matrix_from_config(synergy_factor=1.5, seed=99)
         fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
         result = fitter.fit()
         assert result.success

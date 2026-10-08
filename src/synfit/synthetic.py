@@ -211,8 +211,16 @@ def generate_matrix(
         synergy_factor:   float  (0 = no deviation from the chosen reference;
                                   positive = extra inhibition on top of the
                                   reference surface; negative = antagonism).
-                                  Applied to both models via the same
-                                  normalised-response shift.
+                                  A potency shift: each drug acts at
+                                  ``c · (1 + s·f_partner)``, where ``f_partner``
+                                  ∈ [0, 1] is the other drug's fractional
+                                  effect at its own concentration — so a
+                                  partner at full effect makes the drug
+                                  ``(1 + s)``-fold more potent. Zero wherever
+                                  either drug is absent: the single-drug edges
+                                  stay exactly on the configured Hill curves.
+                                  Both Bliss and Loewe see the shift. Requires
+                                  ``s > −1``.
         seed:             int
     """
     if rng is None:
@@ -235,39 +243,52 @@ def generate_matrix(
     effect_inf = config.get("effect_inf", 0.0)
     noise_model, noise_params = _parse_noise_config(config)
     synergy_factor = config.get("synergy_factor", 0.0)
+    if synergy_factor <= -1.0:
+        raise ValueError(
+            f"synergy_factor must be > -1 (got {synergy_factor}); at -1 a "
+            "fully effective partner drives the effective concentration to 0"
+        )
     n_replicates = config.get("n_replicates", 3)
     reference_model = config.get("reference_model", "bliss")
 
     if reference_model == "bliss":
-        surface = bliss_independence(
-            conc_hor, conc_ver,
-            c50_hor=h["c50"], c50_ver=v["c50"],
-            hill_hor=h["hill"], hill_ver=v["hill"],
-            effect_0=effect_0, effect_inf=effect_inf,
-        )
+        reference = bliss_independence
     elif reference_model == "loewe":
-        surface = loewe_reference(
-            conc_hor, conc_ver,
-            c50_hor=h["c50"], c50_ver=v["c50"],
-            hill_hor=h["hill"], hill_ver=v["hill"],
-            effect_0=effect_0, effect_inf=effect_inf,
-        )
+        reference = loewe_reference
     else:
         raise ValueError(
             f"Unknown reference_model: {reference_model!r} "
             "(expected 'bliss' or 'loewe')"
         )
+    drug_params = dict(
+        c50_hor=h["c50"], c50_ver=v["c50"],
+        hill_hor=h["hill"], hill_ver=v["hill"],
+        effect_0=effect_0, effect_inf=effect_inf,
+    )
 
-    # Apply synergy: shift normalised response away from the reference, then rescale.
-    if synergy_factor != 0.0:
+    if synergy_factor == 0.0 or effect_0 == effect_inf:
+        surface = reference(conc_hor, conc_ver, **drug_params)
+    else:
+        # Interaction as a potency shift: each drug acts at an effective
+        # concentration raised by the other drug's fractional effect. The
+        # shift is zero wherever the partner is absent, so the single-drug
+        # edges stay on the configured Hill curves. (A shift of the
+        # reference level alone, u − s·u(1−u), moved the edges too: it read
+        # as weak antagonism against an observed-edge Bliss reference and
+        # as no interaction at all under Loewe, which is invariant to any
+        # remapping of the response axis.)
         scale = effect_0 - effect_inf
-        if scale != 0:
-            surf_norm = (surface - effect_inf) / scale
-            # synergy_factor > 0 → more inhibition (lower response)
-            adjusted_norm = np.clip(
-                surf_norm - synergy_factor * surf_norm * (1 - surf_norm), 0, 1
-            )
-            surface = effect_inf + adjusted_norm * scale
+        effect_hor = 1 - (hill_curve(conc_hor, c50=h["c50"], hill=h["hill"],
+                                     effect_0=effect_0, effect_inf=effect_inf) - effect_inf) / scale
+        effect_ver = 1 - (hill_curve(conc_ver, c50=v["c50"], hill=v["hill"],
+                                     effect_0=effect_0, effect_inf=effect_inf) - effect_inf) / scale
+        eff_hor = conc_hor[np.newaxis, :] * (1 + synergy_factor * effect_ver[:, np.newaxis])
+        eff_ver = conc_ver[:, np.newaxis] * (1 + synergy_factor * effect_hor[np.newaxis, :])
+        surface = np.empty((conc_ver.size, conc_hor.size))
+        for i, j in np.ndindex(surface.shape):
+            surface[i, j] = reference(
+                eff_hor[i, j:j + 1], eff_ver[i:i + 1, j], **drug_params,
+            )[0, 0]
 
     replicates = []
     for _ in range(n_replicates):
