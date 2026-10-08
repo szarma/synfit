@@ -5,6 +5,8 @@
 # fail to import. Wheels stay test-free (packages are found under src/).
 include CHANGELOG.md
 include LICENSE
+recursive-include docs *.md
+recursive-include docs/images *.png
 recursive-include tests *.py
 recursive-include tests/data *.csv *.json
 recursive-include scripts *.py

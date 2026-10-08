@@ -32,6 +32,35 @@ fits and synergy scores on them move: a **MINOR** change.
 - **The six synergy and antagonism scenarios are rescaled** so their strength
   matches their names, and their seed CSVs are regenerated.
 
+### Added
+- `synfit.plotting.synergy_heatmaps` draws Bliss, HSA, Loewe CI and ZIP score
+  panels on the combination-dose grid, on fixed color scales shared across
+  matrices.
+- `JointMarginalResult.plot_synergy` draws four score panels using the fitted
+  marginal parameters, including 5p asymmetries.
+- `JointMarginalFit.from_matrix` extracts single-agent edges and counts the
+  shared no-drug well once, with optional exclusions per replicate and well.
+- `dose_response_plot` can draw an optional reference curve, infer appropriate
+  logarithmic axes, and label a drug-specific concentration axis.
+
+### Documentation
+- Added a linked API reference covering fit configuration, results, noise,
+  synergy helpers, bundled scenarios and plotting.
+- Added runnable tutorials for matrix synergy analysis and single-drug
+  configuration, with guidance on data layout, score interpretation and
+  troubleshooting.
+- Added figures generated directly from the displayed examples: synthetic
+  observations with a fitted curve, confidence band and ground truth, and a
+  matrix analysis with four synergy score panels.
+- Corrected the README's ZIP return types and score definition, documented the
+  lower-asymptote anchor for heteroscedastic variance, and clarified the role of
+  the diagnostic matrix null fit.
+- Corrected the publishing instructions: production uploads require a published
+  GitHub release, not just a tag.
+- The Python examples in `docs/` are now executed alongside the README's,
+  including against the installed wheel in CI, and the documentation ships in
+  the source distribution so its test suite can run them.
+
 ## [0.8.1] — 2026-10-07
 
 Documentation only. No code changes, so fits are identical to 0.8.0.

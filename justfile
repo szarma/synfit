@@ -12,9 +12,17 @@ check:
     @just test
     @echo "Quality gate passed!"
 
-# Execute README ```python blocks against the current environment
+# Execute README and tutorial Python blocks against the current environment
 check-readme-examples:
     uv run python scripts/check_readme_examples.py
+
+# Regenerate the figures from the exact snippets shown in the documentation
+generate-doc-figures:
+    uv run python scripts/generate_doc_figures.py
+
+# Generate the PyPI long description with version-pinned public image URLs
+generate-pypi-readme:
+    uv run python scripts/generate_doc_figures.py --generate-pypi-readme
 
 # Install dependencies
 install:

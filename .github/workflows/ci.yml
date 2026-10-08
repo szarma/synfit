@@ -30,7 +30,7 @@ jobs:
         run: uv run pytest -v --tb=short
 
   dist-smoke:
-    name: Installed wheel – import and README examples
+    name: Installed wheel – import and documentation examples
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -40,7 +40,9 @@ jobs:
           python-version: "3.12"
 
       - name: Build sdist and wheel
-        run: uv build
+        run: |
+          uv run python scripts/generate_doc_figures.py --generate-pypi-readme
+          uv build
 
       - name: Install wheel in a clean venv (outside source tree)
         run: |
@@ -51,7 +53,7 @@ jobs:
       - name: Print installed version
         run: /tmp/synfit-smoke-venv/bin/python -c "import synfit; print(synfit.__version__)"
 
-      - name: Run README python examples against installed package
+      - name: Run README and tutorial python examples against installed package
         run: /tmp/synfit-smoke-venv/bin/python scripts/check_readme_examples.py
 
       - name: Confirm the type marker and the scenarios are shipped

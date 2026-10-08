@@ -84,6 +84,36 @@ class JointMarginalResult:
     # non-constant; only the coefficients the model actually fits are present.
     variance_params: dict | None = None
 
+    def plot_synergy(
+        self,
+        mean_matrix: np.ndarray,
+        conc_horizontal: np.ndarray,
+        conc_vertical: np.ndarray,
+        *,
+        x_label: str | None = None,
+        y_label: str | None = None,
+        title: str | None = None,
+    ) -> bytes:
+        """Plot four synergy score panels using this result's fitted curves.
+
+        The matrix and dose grids follow ``synfit.plotting.synergy_heatmaps``.
+        Fitted potencies, slopes, asymmetries and direction-appropriate
+        asymptotes are supplied automatically. Both drugs must have the same
+        direction. Returns PNG bytes.
+        """
+        if self.drug_a.direction != self.drug_b.direction:
+            raise ValueError("Synergy plotting requires both drugs to have the same direction")
+        from .plotting import synergy_heatmaps
+
+        return synergy_heatmaps(
+            mean_matrix, conc_horizontal, conc_vertical,
+            c50_hor=self.drug_a.c50, c50_ver=self.drug_b.c50,
+            hill_hor=self.drug_a.hill, hill_ver=self.drug_b.hill,
+            effect_0=self.drug_a.effect_0, effect_inf=self.drug_a.effect_inf,
+            asymmetry_hor=self.drug_a.asymmetry, asymmetry_ver=self.drug_b.asymmetry,
+            x_label=x_label, y_label=y_label, title=title,
+        )
+
     def predict_variance(self, mu: np.ndarray | float) -> np.ndarray | None:
         """σ²(μ) for this joint fit given a predicted response.
 
@@ -251,6 +281,75 @@ class JointMarginalFit(FitBase):
     # subset whose ``fit`` flag is True actually enters the optimiser.
     _SHARED_NAMES = ("top", "bottom")
     _PER_DRUG_NAMES = ("log_c50", "hill", "asymmetry")
+
+    @classmethod
+    def from_matrix(
+        cls,
+        replicates: list[np.ndarray] | np.ndarray,
+        conc_horizontal: np.ndarray,
+        conc_vertical: np.ndarray,
+        *,
+        model_a: str = "4p",
+        model_b: str = "4p",
+        direction_a: str = "inhibition",
+        direction_b: str = "inhibition",
+        noise: NoiseSpec | dict | str | None = None,
+        param_config: dict | None = None,
+        valids: np.ndarray | None = None,
+    ) -> JointMarginalFit:
+        """Build a joint marginal fitter from replicate combination matrices.
+
+        ``replicates`` has shape (n_replicates, n_vertical, n_horizontal).
+        Each concentration vector must contain exactly one zero dose, at any
+        position, and at least one positive dose. Drug A is horizontal and
+        drug B vertical. Only the zero-dose edges enter the fit.
+
+        Both complete edges are retained in ``data_a`` / ``data_b``. Their
+        shared no-drug well is masked out of drug B's likelihood, so each
+        physical observation contributes once. ``valids`` optionally supplies
+        a Boolean inclusion mask with the same shape as ``replicates``;
+        exclusions apply to both copies of the shared well. Other options
+        follow the two-DataFrame constructor.
+        """
+        ch = np.asarray(conc_horizontal, dtype=float)
+        cv = np.asarray(conc_vertical, dtype=float)
+        for name, conc in (("conc_horizontal", ch), ("conc_vertical", cv)):
+            if conc.ndim != 1 or not np.all(np.isfinite(conc)) or np.any(conc < 0):
+                raise ValueError(f"{name} must be a one-dimensional finite non-negative array")
+            if np.count_nonzero(conc == 0) != 1 or not np.any(conc > 0):
+                raise ValueError(f"{name} must contain one zero dose and positive doses")
+        matrices = np.asarray(replicates, dtype=float)
+        if matrices.ndim != 3 or matrices.shape[0] == 0 or matrices.shape[1:] != (cv.size, ch.size):
+            raise ValueError("replicates must have shape (n_replicates, n_vertical, n_horizontal), with n_replicates > 0")
+        if valids is None:
+            included = np.ones(matrices.shape, dtype=bool)
+        else:
+            included = np.asarray(valids, dtype=bool)
+            if included.shape != matrices.shape:
+                raise ValueError("valids must have the same shape as replicates")
+
+        zero_h = int(np.flatnonzero(ch == 0)[0])
+        zero_v = int(np.flatnonzero(cv == 0)[0])
+        n_reps = matrices.shape[0]
+        data_a = pd.DataFrame({
+            "concentration": np.tile(ch, n_reps),
+            "y": matrices[:, zero_v, :].ravel(),
+            "replicate": np.repeat(np.arange(n_reps), ch.size),
+        })
+        data_b = pd.DataFrame({
+            "concentration": np.tile(cv, n_reps),
+            "y": matrices[:, :, zero_h].ravel(),
+            "replicate": np.repeat(np.arange(n_reps), cv.size),
+        })
+        mask_a = included[:, zero_v, :].ravel()
+        mask_b = included[:, :, zero_h].copy()
+        mask_b[:, zero_v] = False
+        return cls(
+            data_a, data_b, model_a=model_a, model_b=model_b,
+            direction_a=direction_a, direction_b=direction_b,
+            noise=noise, param_config=param_config,
+            valids_a=mask_a, valids_b=mask_b.ravel(),
+        )
 
     def __init__(
         self,

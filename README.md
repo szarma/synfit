@@ -46,9 +46,9 @@ JSON-serialisable form.
 
 - **Hill fitting** for single-drug dose–response data, 4-parameter or
   5-parameter (asymmetric), for inhibition and activation assays
-- **Drug-drug interaction matrices** — `MatrixFit` over the full response
-  surface, or `JointMarginalFit` for the two single-agent curves fitted
-  together with shared plate-level asymptotes
+- **Drug-drug interaction matrices** — `JointMarginalFit` is the recommended
+  marginal path: it fits the two single-agent curves together with shared
+  plate-level asymptotes. `MatrixFit` is a diagnostic Bliss-null surface model.
 - **Synergy references**: Bliss, HSA, Loewe and ZIP — the last implementing the
   published Zero Interaction Potency model, unit- and direction-neutral
 - **Explicit noise models**: constant and heteroscedastic Gaussian, and
@@ -77,12 +77,16 @@ the first row are also re-exported from the top-level `synfit` namespace.
 | `synfit.synthetic` | data generation, and the scenarios shipped with the package |
 | `synfit.plotting` | Matplotlib dose–response curves and heatmaps |
 
+For API details and worked examples, see the
+[API reference](https://github.com/szarma/synfit/blob/main/docs/api.md) and
+[tutorials](https://github.com/szarma/synfit/blob/main/docs/tutorials.md).
+
 ## Datasets included
 
 Twenty scenarios install with the package, so there is data to fit
 immediately: clean and noisy single-drug curves, an activation curve, additive
-and synergistic matrices, and a Loewe sham — a drug combined with itself, where
-the combination index must read 1 everywhere. Each keeps the `config.json` that
+and synergistic matrices, and a Loewe sham — a drug combined with itself, whose
+noise-free combination index is 1 wherever it is defined. Each keeps the `config.json` that
 generated it, so the true parameters behind every fit are known:
 
 ```python
@@ -98,30 +102,56 @@ print(truth["hill_params"]["c50"])
 ```
 
 Matrix scenarios hold one `rep*.csv` per replicate; single-drug scenarios hold
-one tidy CSV. A given scenario reads identically on every machine, so it is a
-fair fixture to test your own analysis against.
+one tidy CSV. The installed CSVs are fixed within a release, so you can use them
+as reproducible fixtures and record `synfit.__version__` with your analysis.
 
-To generate data to your own specification instead:
+### Fit a bundled synthetic dataset
+
+The bundled scenarios make a compact, reproducible starting point. This one
+loads a noisy three-replicate curve and fits it. Its ground truth is available
+because the dataset is synthetic; real experimental data does not have one.
 
 ```python
-from synfit.synthetic import generate_single_drug
+# Generates synthetic-fit.png
+import pandas as pd
+from synfit import FitConfig, SingleDrugFit
+from synfit.plotting import dose_response_plot
+from synfit.synthetic import scenario_config, scenario_dir
 
-df = generate_single_drug({
-    "seed": 42,
-    "hill_params": {"c50": 5.0, "hill": 1.8, "effect_0": 1.0, "effect_inf": 0.02},
-    "concentration_series": {"initial_conc": 100.0, "fold_dilutions": 3.0, "length": 8, "has_zero": True},
-    "n_replicates": 3,
-    "noise_sigma_log": 0.05,
-    "outliers": [],
-})
+# load dataset (here, one of the synthetic ones)
+name = "single_drug_noisy"
+directory = scenario_dir(name)
+data = pd.read_csv(directory / f"{name}.csv")
+truth = scenario_config(name)["hill_params"]
+
+# fit
+result = SingleDrugFit(data, FitConfig(noise="lognormal")).fit()
+
+# plot
+dose_response_plot(
+    data, result, reference=truth, x_label="Concentration [µM]",
+)
 ```
+
+![Synthetic observations with the fitted Hill curve, its 95% pointwise confidence band, and the known generating curve.](docs/images/synthetic-fit.png)
+
+The shaded band is an approximate **confidence interval for the fitted
+curve**, derived from the parameter covariance. It is not a prediction interval
+for individual observations, and it need not contain the whole true curve in
+every experiment. The plotting helper uses a symmetric logarithmic axis when the data
+contains a zero-dose control.
+
+For an observed matrix, reference surfaces, and synergy score heatmaps generated
+by their accompanying code, see the
+[matrix synergy tutorial](https://github.com/szarma/synfit/blob/main/docs/tutorials.md).
 
 ## How the fitting works
 
 Fits run `scipy.optimize.minimize` (L-BFGS-B) in scale-relative coordinates, so
 they are stable across response magnitudes. Parameters are bounded through
-`FitBounds`, with a `log_wall` soft prior that penalises smoothly near a bound
-rather than clipping at it. Variance is profiled out of the likelihood
+`FitBounds`: L-BFGS-B enforces box bounds, and the objective also includes a
+`log_wall` penalty that is zero inside the bounds and rises linearly outside
+them. Variance is profiled out of the likelihood
 analytically where the noise model allows it. When a heteroscedastic Gaussian
 fit stalls on its first iteration, it is retried once with variance initials
 refreshed from the data.
@@ -136,9 +166,10 @@ variants are `GaussianConstant`, `GaussianLinear`, `GaussianQuadratic` and
 
 Constant Gaussian and Lognormal profile their single variance term
 analytically. The linear and quadratic Gaussians instead fit coefficients of a
-response-dependent variance, σ²(μ) = a + b·μ + c·μ², which is what you want when
-scatter grows with signal. Per-point `y_err` weights remain available for
-constant Gaussian and Lognormal fits.
+response-dependent variance, σ²(μ) = a + b·d + c·d², where
+d = μ − min(effect_0, effect_inf). This anchors the variance at the lower
+asymptote when scatter grows with signal. Per-point `y_err` weights remain
+available for constant Gaussian and Lognormal fits.
 
 ## Synergy references
 
@@ -175,13 +206,16 @@ different kinds of quantity, so read the units before reading the sign:
 
 | Function | Returns | Synergy is |
 |---|---|---|
-| `bliss_independence`, `bliss_reference`, `hsa_reference`, `loewe_reference`, `zip_reference`, `zip_fitted_surface` | the **expected response** under that null model, in response units | not a sign — compare against the observed response |
-| `zip_delta`, `zip_scores` | a **signed δ-score**, `-(f_observed - f_zip)` | **negative** |
+| `bliss_independence`, `bliss_reference`, `hsa_reference`, `loewe_reference`, `zip_reference` | the **expected response** under that null model, in response units | not a sign — compare against the observed response |
+| `zip_fitted_surface` | the fitted ZIP **combination** surface, in response units | not a null model |
+| `zip_delta` | a signed δ-score, `-(f_c - f_zip)` in fraction-affected units | **negative** |
+| `zip_scores` | `ZipResult`: reference, fitted surface, δ-score, and slice-failure metadata | δ is **negative** for synergy |
 | `loewe_ci` | a **combination index**, a dimensionless ratio | **below 1** (1 is additive, above 1 antagonistic) |
 
-A deviation score for Bliss, HSA or Loewe is formed by the caller, by comparing
-an observed response surface against the reference surface; `synfit` exports the
-reference, not the deviation.
+The top-level `synfit` namespace exports the reference helpers above.
+`synfit.bliss` also exposes `bliss_deviation` and `hsa_deviation`, which return
+normalised deviations (negative for synergy); see the
+[API reference](https://github.com/szarma/synfit/blob/main/docs/api.md).
 
 ## Contributing
 
