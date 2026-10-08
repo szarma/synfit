@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Runnable tutorials](tutorials.md)
 
-This reference describes synfit 0.8.2. Record `synfit.__version__` with results.
+Record `synfit.__version__` with results.
 Signatures below show the preferred interface; source links include legacy
 compatibility arguments and implementation details. Concentrations use the unit
 you supply, consistently within each drug. Responses retain their assay units.
@@ -227,7 +227,7 @@ same-direction synergy references valid for an inhibitor/activator pair.
 
 `fit_joint_marginal_auto` accepts the model/direction settings above,
 `variance_model="constant"` and `param_config`. It compares Gaussian and
-lognormal AIC (Gaussian alone for nonconstant variance). In 0.8.2 it skips
+lognormal AIC (Gaussian alone for nonconstant variance). It skips
 exceptions but does **not** filter returned fits by `success`; always inspect
 the selected result. AIC comparison also requires the same observations.
 
