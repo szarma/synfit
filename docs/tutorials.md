@@ -38,6 +38,7 @@ from synfit import calculate_concentration_series
 from synfit.joint_marginal import JointMarginalFit
 from synfit.synthetic import scenario_config, scenario_dir
 
+# Load the replicate matrices; here, a bundled synthetic scenario
 cfg = scenario_config("matrix_synergy")
 root = scenario_dir("matrix_synergy")
 ch = calculate_concentration_series(**cfg["horizontal_drug"]["concentration_series"])
@@ -45,10 +46,12 @@ cv = calculate_concentration_series(**cfg["vertical_drug"]["concentration_series
 replicates = [pd.read_csv(root / f"rep{i}.csv", sep="\t", header=None).to_numpy()
               for i in range(1, cfg["n_replicates"] + 1)]
 
+# Fit both single-drug curves from the zero-dose edges
 fit = JointMarginalFit.from_matrix(replicates, ch, cv, noise="lognormal").fit()
 assert fit.success, fit.message
-mean = np.mean(replicates, axis=0)
 
+# Score and plot the interactions on the replicate mean
+mean = np.mean(replicates, axis=0)
 fit.plot_synergy(
     mean, ch, cv,
     x_label="Horizonticlav [µM]",
