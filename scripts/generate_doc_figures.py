@@ -1,6 +1,7 @@
 """Regenerate committed figures from the Python blocks displayed in docs.
 
-The blocks build figures only; this script saves and closes the active figure.
+Each block must end with a synfit plotting call; the PNG bytes it returns are
+written unchanged.
 
 Usage: uv run python scripts/generate_doc_figures.py
 """
@@ -36,12 +37,12 @@ def write_pypi_readme(*, check: bool) -> None:
 
 def main() -> None:
     figures = {
-        "README.md": ("synthetic-fit.png", 160),
-        "docs/tutorials.md": ("synergy-analysis.png", 150),
+        "README.md": "synthetic-fit.png",
+        "docs/tutorials.md": "synergy-analysis.png",
     }
     destination = REPO_ROOT / "docs" / "images"
     destination.mkdir(parents=True, exist_ok=True)
-    for markdown, (filename, dpi) in figures.items():
+    for markdown, filename in figures.items():
         blocks = extract_python_blocks((REPO_ROOT / markdown).read_text(encoding="utf-8"))
         matches = [code for code in blocks if code.startswith(f"# Generates {filename}\n")]
         if len(matches) != 1:
@@ -61,14 +62,9 @@ def main() -> None:
                 ")\n"
                 "ast.fix_missing_locations(_doc_tree)\n"
                 f"exec(compile(_doc_tree, {markdown!r}, 'exec'))\n"
-                "from matplotlib import pyplot as _doc_pyplot\n"
-                "if _doc_pyplot.get_fignums():\n"
-                f"    _doc_pyplot.gcf().savefig({filename!r}, dpi={dpi})\n"
-                "    _doc_pyplot.close('all')\n"
-                "elif isinstance(_doc_output, bytes):\n"
-                f"    open({filename!r}, 'wb').write(_doc_output)\n"
-                "else:\n"
-                "    raise TypeError('The plotting expression must return PNG bytes or leave a figure open')\n"
+                "if not isinstance(_doc_output, bytes):\n"
+                "    raise TypeError('The plotting expression must return PNG bytes')\n"
+                f"open({filename!r}, 'wb').write(_doc_output)\n"
             )
             subprocess.run([sys.executable, "-c", code], cwd=workdir, check=True)
             image = (Path(workdir) / filename).read_bytes()
