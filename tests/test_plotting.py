@@ -62,6 +62,21 @@ class TestDoseResponsePlot:
         result = dose_response_plot(single_drug_data, fit_result, valids=valids)
         assert result[:4] == PNG_MAGIC
 
+    def test_excluded_points_get_one_legend_entry(self, single_drug_data, fit_result, monkeypatch):
+        from synfit import plotting
+
+        captured = {}
+
+        def capture(fig):
+            captured["labels"] = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
+            return PNG_MAGIC
+
+        monkeypatch.setattr(plotting, "_save_fig_png", capture)
+        valids = np.ones(len(single_drug_data), dtype=bool)
+        valids[[0, 8, 16]] = False  # one excluded well in each of the three replicates
+        dose_response_plot(single_drug_data, fit_result, valids=valids)
+        assert captured["labels"].count("excluded") == 1
+
     def test_with_reference_curve_and_labels(self, single_drug_data, fit_result):
         result = dose_response_plot(
             single_drug_data,

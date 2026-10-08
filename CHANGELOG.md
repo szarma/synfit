@@ -33,6 +33,9 @@ fits and synergy scores on them move: a **MINOR** change.
   matches their names, and their seed CSVs are regenerated.
 
 ### Added
+- `synfit.plotting.synergy_heatmaps` draws Bliss, HSA, Loewe CI and ZIP score
+  panels on the combination-dose grid, on fixed color scales shared across
+  matrices.
 - `JointMarginalResult.plot_synergy` draws four score panels using the fitted
   marginal parameters, including 5p asymmetries.
 - `JointMarginalFit.from_matrix` extracts single-agent edges and counts the

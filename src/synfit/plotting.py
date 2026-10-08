@@ -258,6 +258,7 @@ def dose_response_plot(
 
     plot_data = data.copy()
     plot_data["_valid"] = valids
+    excluded_labelled = False
     for i, (_, grp) in enumerate(plot_data.groupby("replicate")):
         mask = grp["_valid"].to_numpy()
         ax.plot(
@@ -273,8 +274,9 @@ def dose_response_plot(
                 color=_EXCLUDED,
                 marker="x",
                 linewidths=1.5,
-                label="excluded",
+                label=None if excluded_labelled else "excluded",
             )
+            excluded_labelled = True
 
     ax.set_xlabel("Concentration" if x_label is None else x_label)
     ax.set_ylabel("Response")
@@ -655,5 +657,5 @@ def synergy_heatmaps(
             colorbar.set_ticks([0.25, 0.5, 1, 2, 4], labels=["0.25", "0.5", "1", "2", "4"])
     if title:
         fig.suptitle(title)
-    plt.subplots_adjust(wspace=.4, hspace=.4)
+    fig.subplots_adjust(wspace=.4, hspace=.4)
     return _save_fig_png(fig)
