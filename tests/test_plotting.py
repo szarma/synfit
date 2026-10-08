@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from synfit.data import FitResult
+from synfit.joint_marginal import JointMarginalResult
 from synfit.plotting import (
     deviation_heatmap,
     dose_response_plot,
@@ -126,3 +127,42 @@ class TestSynergyHeatmaps:
             effect_0=1.0, effect_inf=0.05,
         )
         assert result[:4] == PNG_MAGIC
+
+
+@pytest.mark.parametrize("direction", ["inhibition", "activation"])
+def test_joint_result_plot_uses_5p_curves_and_direction(direction, monkeypatch):
+    from synfit import plotting
+
+    ch = np.array([0.0, 0.5, 2.0, 8.0, 32.0])
+    cv = np.array([0.0, 1.0, 4.0, 16.0, 64.0])
+    e0, einf = (1.0, 0.05) if direction == "inhibition" else (0.05, 1.0)
+    drugs = [FitResult(
+        c50=c50, log_c50=np.log10(c50), hill=hill, asymmetry=asymmetry,
+        effect_0=e0, effect_inf=einf, direction=direction,
+        success=True, n_valid=5, n_total=5,
+    ) for c50, hill, asymmetry in [(2.0, 1.2, 0.7), (4.0, 1.1, 1.5)]]
+    result = JointMarginalResult(
+        drug_a=drugs[0], drug_b=drugs[1], top=1.0, bottom=0.05, success=True,
+    )
+    matrix = bliss_independence(
+        ch, cv, c50_hor=2.0, c50_ver=4.0, hill_hor=1.2, hill_ver=1.1,
+        effect_0=e0, effect_inf=einf, asymmetry_hor=0.7, asymmetry_ver=1.5,
+    )
+    scores = []
+
+    def capture_scores(fig):
+        scores.extend(ax.images[0].get_array() for ax in fig.axes[:4])
+        assert fig.axes[0].get_xlabel() == "Drug A [µM]"
+        assert fig.axes[0].get_ylabel() == "Drug B [µM]"
+        plotting.plt.close(fig)
+        return PNG_MAGIC
+
+    monkeypatch.setattr(plotting, "_save_fig_png", capture_scores)
+    png = result.plot_synergy(matrix, ch, cv, x_label="Drug A [µM]", y_label="Drug B [µM]")
+    assert png == PNG_MAGIC
+    np.testing.assert_allclose(scores[0], 0, atol=1e-12)  # Bliss null
+    np.testing.assert_allclose(scores[3], 0, atol=1e-4)  # ZIP null, with 5p slices
+
+    result.drug_b.direction = "activation" if direction == "inhibition" else "inhibition"
+    with pytest.raises(ValueError, match="same direction"):
+        result.plot_synergy(matrix, ch, cv)

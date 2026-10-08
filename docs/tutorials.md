@@ -23,8 +23,9 @@ for fitting, but they are not combination scores and are omitted from the figure
 
 `JointMarginalFit.from_matrix` extracts the single-agent edges and counts their
 shared no-drug well once per replicate. Fit the marginal curves, average
-replicates for the response surface, then pass the result to `synergy_heatmaps`. The helper
-computes Bliss, HSA, Loewe and ZIP and displays their four score surfaces.
+replicates for the response surface, then call the fitted result's
+`plot_synergy` method. It computes Bliss, HSA, Loewe and ZIP using the fitted
+parameters and displays their four score surfaces.
 `JointMarginalFit` shares physical high/low assay asymptotes while estimating
 potency and slope per drug. Sharing is appropriate when both drugs are measured
 with the same assay and can reach the same signal limits.
@@ -35,7 +36,6 @@ import numpy as np
 import pandas as pd
 from synfit import calculate_concentration_series
 from synfit.joint_marginal import JointMarginalFit
-from synfit.plotting import synergy_heatmaps
 from synfit.synthetic import scenario_config, scenario_dir
 
 cfg = scenario_config("matrix_synergy")
@@ -49,11 +49,8 @@ fit = JointMarginalFit.from_matrix(replicates, ch, cv, noise="lognormal").fit()
 assert fit.success, fit.message
 mean = np.mean(replicates, axis=0)
 
-synergy_heatmaps(
+fit.plot_synergy(
     mean, ch, cv,
-    c50_hor=fit.drug_a.c50, c50_ver=fit.drug_b.c50,
-    hill_hor=fit.drug_a.hill, hill_ver=fit.drug_b.hill,
-    effect_0=fit.drug_a.effect_0, effect_inf=fit.drug_a.effect_inf,
     x_label="Horizonticlav [µM]",
     y_label="Verticalinib [µM]",
     title="Synthetic matrix synergy scores",

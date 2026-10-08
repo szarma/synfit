@@ -33,6 +33,8 @@ fits and synergy scores on them move: a **MINOR** change.
   matches their names, and their seed CSVs are regenerated.
 
 ### Added
+- `JointMarginalResult.plot_synergy` draws four score panels using the fitted
+  marginal parameters, including 5p asymmetries.
 - `JointMarginalFit.from_matrix` extracts single-agent edges and counts the
   shared no-drug well once, with optional exclusions per replicate and well.
 - `dose_response_plot` can draw an optional reference curve, infer appropriate

@@ -209,6 +209,16 @@ the shared noise model. Per-drug results do not carry their own covariance;
 `.to_dict()` derives intervals from the joint covariance and places them in
 `horizontal["ci"]`, `vertical["ci"]` and the shared `ci` dictionary.
 
+```text
+result.plot_synergy(mean_matrix, conc_horizontal, conc_vertical, *,
+                    x_label=None, y_label=None, title=None) -> bytes
+```
+
+This result method delegates to `synergy_heatmaps`, supplying its fitted
+potencies, slopes, asymmetries and direction-appropriate asymptotes. It returns
+PNG bytes for the four score panels. Both drugs must have the same direction;
+mixed-direction results raise `ValueError`.
+
 Directions remap each drug's asymptotes. For activation, use the drug result's
 `effect_0`/`effect_inf` when calling synergy helpers: the serialized top-level
 `effect_0`/`effect_inf` remain `top`/`bottom`, following the inhibition convention.
@@ -449,4 +459,5 @@ then excludes every zero-dose row and column from the four score panels.
 Bliss, HSA and ZIP use a fixed linear color range of −1 to +1; Loewe CI uses
 a logarithmic color range of 0.25 to 4. White denotes the null (0 for fractional
 scores, CI = 1 for Loewe), blue synergy, and red antagonism. The
-[tutorials](tutorials.md) use this helper with a bundled matrix.
+[tutorials](tutorials.md) use it through `JointMarginalResult.plot_synergy`
+with a bundled matrix.

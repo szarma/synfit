@@ -84,6 +84,36 @@ class JointMarginalResult:
     # non-constant; only the coefficients the model actually fits are present.
     variance_params: dict | None = None
 
+    def plot_synergy(
+        self,
+        mean_matrix: np.ndarray,
+        conc_horizontal: np.ndarray,
+        conc_vertical: np.ndarray,
+        *,
+        x_label: str | None = None,
+        y_label: str | None = None,
+        title: str | None = None,
+    ) -> bytes:
+        """Plot four synergy score panels using this result's fitted curves.
+
+        The matrix and dose grids follow ``synfit.plotting.synergy_heatmaps``.
+        Fitted potencies, slopes, asymmetries and direction-appropriate
+        asymptotes are supplied automatically. Both drugs must have the same
+        direction. Returns PNG bytes.
+        """
+        if self.drug_a.direction != self.drug_b.direction:
+            raise ValueError("Synergy plotting requires both drugs to have the same direction")
+        from .plotting import synergy_heatmaps
+
+        return synergy_heatmaps(
+            mean_matrix, conc_horizontal, conc_vertical,
+            c50_hor=self.drug_a.c50, c50_ver=self.drug_b.c50,
+            hill_hor=self.drug_a.hill, hill_ver=self.drug_b.hill,
+            effect_0=self.drug_a.effect_0, effect_inf=self.drug_a.effect_inf,
+            asymmetry_hor=self.drug_a.asymmetry, asymmetry_ver=self.drug_b.asymmetry,
+            x_label=x_label, y_label=y_label, title=title,
+        )
+
     def predict_variance(self, mu: np.ndarray | float) -> np.ndarray | None:
         """σ²(μ) for this joint fit given a predicted response.
 
