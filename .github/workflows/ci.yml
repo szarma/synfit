@@ -40,7 +40,9 @@ jobs:
           python-version: "3.12"
 
       - name: Build sdist and wheel
-        run: uv build
+        run: |
+          uv run python scripts/generate_doc_figures.py --generate-pypi-readme
+          uv build
 
       - name: Install wheel in a clean venv (outside source tree)
         run: |

@@ -20,6 +20,10 @@ check-readme-examples:
 generate-doc-figures:
     uv run python scripts/generate_doc_figures.py
 
+# Generate the PyPI long description with version-pinned public image URLs
+generate-pypi-readme:
+    uv run python scripts/generate_doc_figures.py --generate-pypi-readme
+
 # Install dependencies
 install:
     uv sync --extra dev

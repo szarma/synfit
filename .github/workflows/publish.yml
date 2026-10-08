@@ -100,7 +100,9 @@ jobs:
           test "$n" -ge 1 || { echo "::error::no successful ci.yml run for $GITHUB_SHA"; exit 1; }
 
       - name: Build sdist and wheel
-        run: uv build
+        run: |
+          uv run python scripts/generate_doc_figures.py --generate-pypi-readme
+          uv build
 
       # A README that fails to render is not fixable after upload: the version
       # is burned and the broken page stays on the project.

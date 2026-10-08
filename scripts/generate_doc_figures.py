@@ -9,9 +9,29 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 from check_readme_examples import REPO_ROOT, extract_python_blocks
+
+
+def pypi_readme() -> str:
+    """Return the package README with version-pinned public image URLs."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    image_root = f"https://raw.githubusercontent.com/szarma/synfit/v{version}/"
+    return readme.replace("](docs/images/", f"]({image_root}docs/images/")
+
+
+def write_pypi_readme(*, check: bool) -> None:
+    destination = REPO_ROOT / "README.pypi.md"
+    content = pypi_readme()
+    if check:
+        if not destination.exists() or destination.read_text(encoding="utf-8") != content:
+            raise ValueError("README.pypi.md is out of date; run just generate-doc-figures")
+        return
+    destination.write_text(content, encoding="utf-8")
+    print("Generated README.pypi.md from README.md")
 
 
 def main() -> None:
@@ -54,9 +74,14 @@ def main() -> None:
             image = (Path(workdir) / filename).read_bytes()
         if not image.startswith(b"\x89PNG\r\n\x1a\n"):
             raise ValueError(f"{filename} is not a PNG image")
-        (destination / filename).write_bytes(image)
+        target = destination / filename
+        target.write_bytes(image)
         print(f"Generated docs/images/{filename} from {markdown}")
+    write_pypi_readme(check=False)
 
 
 if __name__ == "__main__":
-    main()
+    if "--generate-pypi-readme" in sys.argv[1:]:
+        write_pypi_readme(check=False)
+    else:
+        main()
