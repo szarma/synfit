@@ -1,14 +1,88 @@
 """Tests for JointMarginalFit — two drugs with shared top/bottom."""
 import numpy as np
+import pandas as pd
 import pytest
 
 from synfit.joint_marginal import JointMarginalFit, fit_joint_marginal_auto, default_joint_marginal_config
 from synfit.noise import CompoundAddMult, GaussianLinear, GaussianQuadratic
 from synfit.synthetic import generate_single_drug
+from tests.helpers import matrix_from_config
 
 
 TOP = 1.0
 BOTTOM = 0.05
+
+
+@pytest.mark.parametrize("noise", ["gaussian_constant", "lognormal"])
+@pytest.mark.parametrize("zero_last", [False, True])
+def test_from_matrix_matches_fit_of_distinct_edge_wells(noise, zero_last):
+    reps, ch, cv = matrix_from_config(synergy_factor=1.5)
+    # A rectangular matrix also makes swapped axes visible.
+    cv = cv[:-1]
+    reps = np.asarray(reps)[:, :-1, :]
+    if zero_last:
+        ch, cv = ch[::-1], cv[::-1]
+        reps = reps[:, ::-1, ::-1]
+    zero_h = list(ch).index(0)
+    zero_v = list(cv).index(0)
+    data_a = pd.DataFrame({
+        "concentration": np.tile(ch, len(reps)),
+        "y": reps[:, zero_v, :].ravel(),
+        "replicate": np.repeat(np.arange(len(reps)), len(ch)),
+    })
+    data_b = pd.DataFrame({
+        "concentration": np.tile(cv[cv > 0], len(reps)),
+        "y": reps[:, :, zero_h][:, cv > 0].ravel(),
+        "replicate": np.repeat(np.arange(len(reps)), len(cv) - 1),
+    })
+    expected = JointMarginalFit(data_a, data_b, noise=noise).fit()
+    fitter = JointMarginalFit.from_matrix(reps, ch, cv, noise=noise)
+    result = fitter.fit()
+
+    assert result.success and expected.success
+    assert len(fitter.data_a) == len(reps) * len(ch)
+    assert len(fitter.data_b) == len(reps) * len(cv)
+    assert result.n_data == len(reps) * (len(ch) + len(cv) - 1)
+    assert result.n_data == expected.n_data
+    assert result.log_likelihood == pytest.approx(expected.log_likelihood, abs=1e-7)
+    assert result.aic == pytest.approx(expected.aic, abs=1e-7)
+    assert result.sigma == pytest.approx(expected.sigma, rel=1e-5)
+    assert result.drug_a.c50 == pytest.approx(expected.drug_a.c50, rel=1e-5)
+    assert result.drug_b.c50 == pytest.approx(expected.drug_b.c50, rel=1e-5)
+
+
+def test_from_matrix_exclusions_apply_to_wells_without_mutating_the_mask():
+    reps, ch, cv = matrix_from_config()
+    reps = np.asarray(reps)
+    valids = np.ones(reps.shape, dtype=bool)
+    valids[0, 0, 0] = False  # shared control
+    valids[1, 0, 2] = False  # horizontal edge
+    valids[2, 3, 0] = False  # vertical edge
+    valids[0, 2, 2] = False  # interior: never enters the marginal fit
+    original = valids.copy()
+    masked = JointMarginalFit.from_matrix(reps, ch, cv, valids=valids).fit()
+    missing = reps.copy()
+    missing[~valids] = np.nan
+    missing[:, 1:, 1:] = 1000  # combination responses must not affect this fit
+    omitted = JointMarginalFit.from_matrix(missing, ch, cv).fit()
+
+    np.testing.assert_array_equal(valids, original)
+    assert masked.success and omitted.success
+    assert masked.n_data == len(reps) * (len(ch) + len(cv) - 1) - 3
+    assert masked.n_data == omitted.n_data
+    assert masked.aic == pytest.approx(omitted.aic, abs=1e-8)
+
+
+def test_from_matrix_requires_single_agent_edges_and_matching_shapes():
+    reps, ch, cv = matrix_from_config()
+    with pytest.raises(ValueError, match="zero dose"):
+        JointMarginalFit.from_matrix(reps, ch + 1, cv)
+    with pytest.raises(ValueError, match="zero dose"):
+        JointMarginalFit.from_matrix(reps, np.zeros_like(ch), cv)
+    with pytest.raises(ValueError, match="replicates must have shape"):
+        JointMarginalFit.from_matrix(np.asarray(reps)[:, :-1, :], ch, cv)
+    with pytest.raises(ValueError, match="valids must have the same shape"):
+        JointMarginalFit.from_matrix(reps, ch, cv, valids=np.ones((len(cv), len(ch))))
 
 
 def _two_drug_data(

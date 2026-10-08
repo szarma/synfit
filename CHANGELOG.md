@@ -33,6 +33,8 @@ fits and synergy scores on them move: a **MINOR** change.
   matches their names, and their seed CSVs are regenerated.
 
 ### Added
+- `JointMarginalFit.from_matrix` extracts single-agent edges and counts the
+  shared no-drug well once, with optional exclusions per replicate and well.
 - `dose_response_plot` can draw an optional reference curve, infer appropriate
   logarithmic axes, and label a drug-specific concentration axis.
 

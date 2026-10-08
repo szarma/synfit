@@ -21,8 +21,9 @@ Array rows represent the vertical drug B; columns represent the horizontal drug 
 The zero-dose edges provide each drug's single-agent observations. They are needed
 for fitting, but they are not combination scores and are omitted from the figure.
 
-Fit the marginal curves from replicate edge observations, average replicates for
-the response surface, then pass the result to `synergy_heatmaps`. The helper
+`JointMarginalFit.from_matrix` extracts the single-agent edges and counts their
+shared no-drug well once per replicate. Fit the marginal curves, average
+replicates for the response surface, then pass the result to `synergy_heatmaps`. The helper
 computes Bliss, HSA, Loewe and ZIP and displays their four score surfaces.
 `JointMarginalFit` shares physical high/low assay asymptotes while estimating
 potency and slope per drug. Sharing is appropriate when both drugs are measured
@@ -44,18 +45,7 @@ cv = calculate_concentration_series(**cfg["vertical_drug"]["concentration_series
 replicates = [pd.read_csv(root / f"rep{i}.csv", sep="\t", header=None).to_numpy()
               for i in range(1, cfg["n_replicates"] + 1)]
 
-def edge_data(concentrations, horizontal):
-    return pd.concat([
-        pd.DataFrame({"concentration": concentrations,
-                      "y": matrix[0, :] if horizontal else matrix[:, 0],
-                      "replicate": i})
-        for i, matrix in enumerate(replicates)
-    ], ignore_index=True)
-
-a_data, b_data = edge_data(ch, True), edge_data(cv, False)
-# Count the shared untreated observation once in the joint likelihood.
-b_data = b_data.loc[b_data["concentration"] > 0].reset_index(drop=True)
-fit = JointMarginalFit(a_data, b_data, noise="lognormal").fit()
+fit = JointMarginalFit.from_matrix(replicates, ch, cv, noise="lognormal").fit()
 assert fit.success, fit.message
 mean = np.mean(replicates, axis=0)
 

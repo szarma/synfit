@@ -170,6 +170,11 @@ JointMarginalFit(data_a, data_b, *, model_a="4p", model_b="4p",
                  direction_a="inhibition", direction_b="inhibition",
                  noise=None, param_config=None, valids_a=None, valids_b=None)
     .fit() -> JointMarginalResult
+JointMarginalFit.from_matrix(replicates, conc_horizontal, conc_vertical, *,
+                             model_a="4p", model_b="4p",
+                             direction_a="inhibition", direction_b="inhibition",
+                             noise=None, param_config=None, valids=None)
+    -> JointMarginalFit
 default_joint_marginal_config(data_a, data_b, *, model_a="4p", model_b="4p",
                               direction_a="inhibition", direction_b="inhibition",
                               noise=None) -> dict
@@ -178,8 +183,15 @@ default_joint_marginal_config(data_a, data_b, *, model_a="4p", model_b="4p",
 Both inputs use the raw replicate DataFrame schema above. The fitter estimates
 two dose-response curves with shared physical high/low asymptotes `top` and
 `bottom`; it does not fit combination cells. This is the recommended starting
-point for marginal fits used in synergy analysis. See the [matrix tutorial](tutorials.md#from-a-shipped-matrix-to-interaction-results)
-for extracting edges and avoiding double-counting the shared untreated control.
+point for marginal fits used in synergy analysis.
+
+`from_matrix` extracts the two single-agent edges from arrays of shape
+`(n_replicates, n_vertical, n_horizontal)`. Each concentration vector must
+contain one zero dose and positive doses; ordering is arbitrary. Both complete
+edges are kept, but the shared no-drug well contributes to the fit only once.
+An optional Boolean `valids` array of the same shape excludes individual wells;
+non-finite responses are also excluded. Combination cells do not enter the fit.
+See the [matrix tutorial](tutorials.md#from-a-shipped-matrix-to-interaction-results).
 
 Choose `"4p"` or `"5p"` independently per drug. `param_config` overrides have
 the form `{name: {"init": value, "lo": lower, "hi": upper, "fit": True}}`.
