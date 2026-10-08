@@ -19,32 +19,18 @@ The fitters are untouched, but six shipped matrix datasets are regenerated, so
 fits and synergy scores on them move: a **MINOR** change.
 
 ### Fixed
-- **`synergy_factor` no longer changes the single-drug edges of a generated
-  matrix.** The injection shifted the normalised reference level
-  (`u − s·u(1−u)`), which also moved the zero-concentration row and column:
-  in `matrix_synergy` the edges followed c50 ≈ 4.1 / 6.2 instead of the
-  configured 5 / 8. Against a Bliss reference built from those observed edges
-  the injected synergy read as weak *antagonism*, and under
-  `reference_model="loewe"` it was invisible, because Loewe additivity does
-  not change when the response axis is remapped.
+- **`synergy_factor` no longer shifts the single-drug edges of a generated
+  matrix**, so the configured `c50` / `hill` are the true marginals. The old
+  injection made Bliss synergy read as weak antagonism against the observed
+  edges and left Loewe CI at 1.
 
 ### Changed
-- **`synergy_factor` is now a potency shift.** Each drug acts at
+- **`synergy_factor` is now a potency shift**: each drug acts at
   `c · (1 + s·f_partner)`, where `f_partner` is the other drug's fractional
-  effect. The shift vanishes when either drug is absent, so the configured
-  `c50` / `hill` are the true marginals at any `s`. Positive `s` reads as
-  synergy against both Bliss and Loewe, and negative `s` as antagonism.
-  `s ≤ −1` is rejected.
-- **The synergy scenarios are rescaled to match their names** under the new
-  injection. Peak Bliss excess on noise-free data:
-  `matrix_subtle_synergy` 0.09 → 0.35 (≈ 0.05, near the noise floor),
-  `matrix_two_replicates` 0.15 → 1.0 (≈ 0.11),
-  `matrix_synergy` 0.3 → 1.5 (≈ 0.14),
-  `matrix_synergy_noisy` 0.4 → 1.5 (same signal as `matrix_synergy`, heavier
-  noise), `matrix_strong_synergy` 0.52 → 4.0 (≈ 0.24) and
-  `matrix_antagonism` −0.22 → −0.6 (≈ 0.14 the other way: a 0.4× potency
-  factor, the mirror of `matrix_synergy`'s 2.5×). Their seed CSVs are
-  regenerated.
+  effect. Positive `s` produces synergy relative to the selected
+  `reference_model`; `s ≤ −1` is rejected.
+- **The six synergy and antagonism scenarios are rescaled** so their strength
+  matches their names, and their seed CSVs are regenerated.
 
 ## [0.8.1] — 2026-10-07
 

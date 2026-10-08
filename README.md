@@ -98,8 +98,8 @@ print(truth["hill_params"]["c50"])
 ```
 
 Matrix scenarios hold one `rep*.csv` per replicate; single-drug scenarios hold
-one tidy CSV. A given scenario reads identically on every machine and in every
-release, so it is a fair fixture to test your own analysis against.
+one tidy CSV. A given scenario reads identically on every machine, so it is a
+fair fixture to test your own analysis against.
 
 To generate data to your own specification instead:
 
