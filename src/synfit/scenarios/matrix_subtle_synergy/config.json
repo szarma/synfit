@@ -1,5 +1,5 @@
 {
-  "description": "Mild synergy (synergy_factor=0.09). Small but non-zero departure from independence.",
+  "description": "Mild synergy (synergy_factor=0.35, peak Bliss excess ≈ 0.05). Small but non-zero departure from independence, near the noise floor.",
   "kind": "matrix",
   "seed": 173,
   "horizontal_drug": {
@@ -33,5 +33,5 @@
   "n_replicates": 3,
   "noise_model": "lognormal",
   "noise_sigma_log": 0.04,
-  "synergy_factor": 0.09
+  "synergy_factor": 0.35
 }

@@ -35,9 +35,16 @@ fits and synergy scores on them move: a **MINOR** change.
   `c50` / `hill` are the true marginals at any `s`. Positive `s` reads as
   synergy against both Bliss and Loewe, and negative `s` as antagonism.
   `s ≤ −1` is rejected.
-- **Regenerated seed data** for `matrix_antagonism`, `matrix_strong_synergy`,
-  `matrix_subtle_synergy`, `matrix_synergy`, `matrix_synergy_noisy` and
-  `matrix_two_replicates`. Their configs are unchanged.
+- **The synergy scenarios are rescaled to match their names** under the new
+  injection. Peak Bliss excess on noise-free data:
+  `matrix_subtle_synergy` 0.09 → 0.35 (≈ 0.05, near the noise floor),
+  `matrix_two_replicates` 0.15 → 1.0 (≈ 0.11),
+  `matrix_synergy` 0.3 → 1.5 (≈ 0.14),
+  `matrix_synergy_noisy` 0.4 → 1.5 (same signal as `matrix_synergy`, heavier
+  noise), `matrix_strong_synergy` 0.52 → 4.0 (≈ 0.24) and
+  `matrix_antagonism` −0.22 → −0.6 (≈ 0.14 the other way: a 0.4× potency
+  factor, the mirror of `matrix_synergy`'s 2.5×). Their seed CSVs are
+  regenerated.
 
 ## [0.8.1] — 2026-10-07
 
