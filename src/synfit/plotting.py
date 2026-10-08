@@ -19,7 +19,7 @@ import pandas as pd
 
 from .hill import hill_curve
 from .data import FitResult
-from .bliss import bliss_independence, bliss_deviation, hsa_deviation
+from .bliss import bliss_independence, bliss_deviation, bliss_reference, hsa_deviation
 from .loewe import loewe_ci
 from .zip import zip_delta
 
@@ -44,14 +44,8 @@ def _style_axes(ax: plt.Axes) -> None:
 
 
 def _fmt_conc(c: float) -> str:
-    """Axis tick label for a concentration (scientific if |c| < 0.01 and nonzero)."""
-    if c == 0:
-        return "0"
-    ac = abs(c)
-    if ac < 0.01:
-        s = np.format_float_scientific(c, precision=0, exp_digits=1)
-        return s.replace("e+0", "e").replace("e-0", "e-").replace("E", "e")
-    return f"{c:g}"
+    """Axis tick label for a concentration, rounded to three significant digits."""
+    return f"{c:.3g}"
 
 
 def _symlog_linthresh(min_positive_concentration: float) -> float:
@@ -127,11 +121,10 @@ def raw_replicate_heatmap(data: pd.DataFrame) -> bytes:
     m = np.ma.masked_invalid(pivot.values.astype(float))
     im = ax.imshow(m, aspect="auto", cmap="viridis")
 
-    xlabels = [_fmt_conc(float(c)) for c in pivot.columns]
     ax.set_xticks(range(pivot.shape[1]))
-    ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=7)
+    ax.set_xticklabels([_fmt_conc(float(c)) for c in pivot.columns], rotation=45, ha="right", fontsize=7)
     ax.set_yticks(range(pivot.shape[0]))
-    ax.set_yticklabels([str(r) for r in pivot.index], fontsize=7)
+    ax.set_yticklabels([str(rep) for rep in pivot.index], fontsize=7)
     ax.set_xlabel("Concentration")
     ax.set_ylabel("Replicate")
 
@@ -573,3 +566,91 @@ def loewe_heatmap(
         cmap="bwr",
         cbar_label="Combination Index",
     )
+
+
+def synergy_heatmaps(
+    mean_matrix: np.ndarray,
+    conc_horizontal: np.ndarray,
+    conc_vertical: np.ndarray,
+    *,
+    c50_hor: float,
+    c50_ver: float,
+    hill_hor: float,
+    hill_ver: float,
+    effect_0: float,
+    effect_inf: float,
+    asymmetry_hor: float | None = None,
+    asymmetry_ver: float | None = None,
+    x_label: str | None = None,
+    y_label: str | None = None,
+    title: str | None = None,
+) -> bytes:
+    """Plot Bliss, HSA, Loewe and ZIP scores on the combination-dose grid.
+
+    The observed zero-dose matrix edges provide the Bliss and HSA single-agent
+    responses.  Zero-dose rows and columns are excluded from every panel,
+    because they are single-agent observations rather than combination scores.
+    Negative values denote synergy in the Bliss, HSA and ZIP panels; Loewe is
+    shown as ``log2(CI)``, so negative likewise denotes synergy.
+    """
+    matrix = np.asarray(mean_matrix, dtype=float)
+    ch = np.asarray(conc_horizontal, dtype=float)
+    cv = np.asarray(conc_vertical, dtype=float)
+    if matrix.shape != (len(cv), len(ch)):
+        raise ValueError("mean_matrix shape must be (len(conc_vertical), len(conc_horizontal))")
+    if ch.ndim != 1 or cv.ndim != 1 or not np.all(np.isfinite(ch)) or not np.all(np.isfinite(cv)):
+        raise ValueError("concentration arrays must be one-dimensional and finite")
+    if np.any(ch < 0) or np.any(cv < 0):
+        raise ValueError("concentrations must be non-negative")
+
+    zero_hor = np.flatnonzero(ch == 0)
+    zero_ver = np.flatnonzero(cv == 0)
+    if len(zero_hor) != 1 or len(zero_ver) != 1:
+        raise ValueError("synergy_heatmaps requires one zero-dose row and column")
+    interior_hor = ch > 0
+    interior_ver = cv > 0
+    if not np.any(interior_hor) or not np.any(interior_ver):
+        raise ValueError("synergy_heatmaps requires positive doses for both drugs")
+
+    resp_horizontal = matrix[zero_ver[0], :]
+    resp_vertical = matrix[:, zero_hor[0]]
+    bliss = bliss_reference(resp_horizontal, resp_vertical, effect_0, effect_inf)
+    bliss_delta = bliss_deviation(matrix, bliss, effect_0, effect_inf, ch, cv)
+    hsa_delta = hsa_deviation(matrix, resp_horizontal, resp_vertical, effect_0, effect_inf, ch, cv)
+    loewe = loewe_ci(
+        ch, cv, c50_hor, c50_ver, hill_hor, hill_ver, matrix, effect_0, effect_inf,
+        asymmetry_hor=1.0 if asymmetry_hor is None else asymmetry_hor,
+        asymmetry_ver=1.0 if asymmetry_ver is None else asymmetry_ver,
+    )
+    with np.errstate(divide="ignore", invalid="ignore"):
+        loewe_log = np.where(loewe > 0, np.log2(loewe), np.nan)
+    zip_score = zip_delta(
+        matrix, ch, cv, c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
+        asymmetry_hor=asymmetry_hor, asymmetry_ver=asymmetry_ver,
+    )
+
+    panels = [
+        (bliss_delta, "Bliss", "Fractional deviation", mcolors.TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)),
+        (hsa_delta, "HSA", "Fractional deviation", mcolors.TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)),
+        (loewe_log, "Loewe", "log₂(CI)", mcolors.TwoSlopeNorm(vmin=-2, vcenter=0, vmax=2)),
+        (zip_score, "ZIP", "Fractional delta", mcolors.TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)),
+    ]
+    fig, axes = plt.subplots(2, 2, figsize=(9, 8))
+    x_values, y_values = ch[interior_hor], cv[interior_ver]
+    for ax, (values, panel_title, colorbar_label, norm) in zip(axes.flat, panels):
+        _style_axes(ax)
+        colors = plt.colormaps["RdBu"].copy()
+        colors.set_bad("#d1d5db")
+        interior = values[np.ix_(interior_ver, interior_hor)]
+        image = ax.imshow(np.ma.masked_invalid(interior), origin="lower", aspect="auto", cmap=colors, norm=norm)
+        ax.set_box_aspect(interior.shape[0] / interior.shape[1])
+        ax.set_title(panel_title)
+        ax.set_xticks(range(len(x_values)), [_fmt_conc(float(x)) for x in x_values], rotation=45, ha="right", fontsize=7)
+        ax.set_yticks(range(len(y_values)), [_fmt_conc(float(y)) for y in y_values], fontsize=7)
+        ax.set_xlabel(x_label or "Horizontal drug concentration")
+        ax.set_ylabel(y_label or "Vertical drug concentration")
+        fig.colorbar(image, ax=ax, shrink=0.82, label=colorbar_label, extend="both")
+    if title:
+        fig.suptitle(title)
+    plt.subplots_adjust(wspace=.4, hspace=.4)
+    return _save_fig_png(fig)

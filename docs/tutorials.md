@@ -18,26 +18,23 @@ below as `docs/images/synergy-analysis.png`.
 The bundled `matrix_synergy` scenario contains three headerless **tab-separated**
 replicate CSVs. Concentrations come from its configuration, not the file headers.
 Array rows represent the vertical drug B; columns represent the horizontal drug A.
-Both axes are ascending here: row zero is A alone, column zero is B alone,
-and their intersection is the untreated control.
+The zero-dose edges provide each drug's single-agent observations. They are needed
+for fitting, but they are not combination scores and are omitted from the figure.
 
-Use the replicate edge observations to fit the marginals, then average replicates
-for the response surface. `JointMarginalFit` shares physical high/low assay
-asymptotes and estimates each drug's potency and slope separately. Sharing is
-appropriate for drugs measured with the same assay and controls when they can
-reach the same signal limits. It requires scientific justification if drugs have
-different maximal effects. `MatrixFit` instead fits a six-parameter Bliss null
-surface to the entire matrix; it is a diagnostic model and can absorb interaction
-signal into its fitted parameters.
+Fit the marginal curves from replicate edge observations, average replicates for
+the response surface, then pass the result to `synergy_heatmaps`. The helper
+computes Bliss, HSA, Loewe and ZIP and displays their four score surfaces.
+`JointMarginalFit` shares physical high/low assay asymptotes while estimating
+potency and slope per drug. Sharing is appropriate when both drugs are measured
+with the same assay and can reach the same signal limits.
 
 ```python
 # Generates synergy-analysis.png
 import numpy as np
 import pandas as pd
-from synfit import calculate_concentration_series, loewe_ci, loewe_reference, zip_scores
-from synfit.bliss import bliss_reference, bliss_deviation, hsa_reference, hsa_deviation
+from synfit import calculate_concentration_series
 from synfit.joint_marginal import JointMarginalFit
-from synfit.plotting import raw_matrix_heatmap
+from synfit.plotting import synergy_heatmaps
 from synfit.synthetic import scenario_config, scenario_dir
 
 cfg = scenario_config("matrix_synergy")
@@ -46,108 +43,52 @@ ch = calculate_concentration_series(**cfg["horizontal_drug"]["concentration_seri
 cv = calculate_concentration_series(**cfg["vertical_drug"]["concentration_series"])
 replicates = [pd.read_csv(root / f"rep{i}.csv", sep="\t", header=None).to_numpy()
               for i in range(1, cfg["n_replicates"] + 1)]
-assert all(m.shape == (len(cv), len(ch)) for m in replicates)
-assert ch[0] == cv[0] == 0
 
-def edge_data(axis, horizontal):
+def edge_data(concentrations, horizontal):
     return pd.concat([
-        pd.DataFrame({"concentration": axis,
-                      "y": m[0, :] if horizontal else m[:, 0],
+        pd.DataFrame({"concentration": concentrations,
+                      "y": matrix[0, :] if horizontal else matrix[:, 0],
                       "replicate": i})
-        for i, m in enumerate(replicates)
+        for i, matrix in enumerate(replicates)
     ], ignore_index=True)
 
 a_data, b_data = edge_data(ch, True), edge_data(cv, False)
-# Count each shared untreated observation once in the joint likelihood.
+# Count the shared untreated observation once in the joint likelihood.
 b_data = b_data.loc[b_data["concentration"] > 0].reset_index(drop=True)
 fit = JointMarginalFit(a_data, b_data, noise="lognormal").fit()
 assert fit.success, fit.message
 mean = np.mean(replicates, axis=0)
-e0, einf = fit.drug_a.effect_0, fit.drug_a.effect_inf
-bliss = bliss_reference(mean[0, :], mean[:, 0], e0, einf)
-hsa = hsa_reference(mean[0, :], mean[:, 0], effect_0=e0, effect_inf=einf)
-bliss_delta = bliss_deviation(mean, bliss, e0, einf, ch, cv)
-hsa_delta = hsa_deviation(mean, mean[0, :], mean[:, 0], e0, einf, ch, cv)
-params = dict(c50_hor=fit.drug_a.c50, c50_ver=fit.drug_b.c50,
-              hill_hor=fit.drug_a.hill, hill_ver=fit.drug_b.hill,
-              effect_0=e0, effect_inf=einf)
-loewe = loewe_reference(ch, cv, **params)
-ci = loewe_ci(ch, cv, mean_matrix=mean, **params)
-zip_result = zip_scores(mean, ch, cv, **params)
-assert all(x.shape == mean.shape for x in
-           (bliss, hsa, bliss_delta, hsa_delta, loewe, ci, zip_result.delta))
-assert np.isnan(bliss_delta[0, :]).all()
-assert np.isfinite(bliss_delta[1:, 1:]).all()
-png = raw_matrix_heatmap(mean, ch, cv)
-assert png.startswith(b"\x89PNG\r\n\x1a\n")
-print("Mean Bliss delta:", np.nanmean(bliss_delta))
-print("ZIP failed slices:", zip_result.failed_rows, zip_result.failed_cols)
-print("ZIP unscored cells:", zip_result.n_unscored)
 
-# Plot each model in its own units; exclude controls from interaction panels.
-import matplotlib.pyplot as plt
-from matplotlib import colormaps
-from matplotlib.colors import Normalize, TwoSlopeNorm
-fig, axes = plt.subplots(2, 3, figsize=(13, 8), constrained_layout=True)
-response_norm = Normalize(vmin=min(e0, einf), vmax=max(e0, einf))
-score_norm = TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)
-ci_log = np.full_like(ci, np.nan)
-positive_ci = np.isfinite(ci) & (ci > 0)
-ci_log[positive_ci] = np.log2(ci[positive_ci])
-ci_log[0, :] = np.nan
-ci_log[:, 0] = np.nan
-panels = [
-    (mean, "Observed mean response", "Response (assay units)", response_norm, "viridis"),
-    (bliss, "Bliss reference (observed edges)", "Response (assay units)", response_norm, "viridis"),
-    (bliss_delta, "Bliss deviation", "Fractional deviation", score_norm, "RdBu"),
-    (hsa_delta, "HSA deviation", "Fractional deviation", score_norm, "RdBu"),
-    (ci_log, "Loewe combination index", "log₂(CI); 0 = additive",
-     TwoSlopeNorm(vmin=-2, vcenter=0, vmax=2), "RdBu"),
-    (zip_result.delta, "ZIP delta", "Fractional delta", score_norm, "RdBu"),
-]
-for ax, (values, title, label, norm, cmap) in zip(axes.flat, panels):
-    colors = colormaps[cmap].copy()
-    colors.set_bad("#d1d5db")  # controls / unscored cells differ from zero (white)
-    im = ax.imshow(np.ma.masked_invalid(values), origin="lower",
-                   aspect="auto", norm=norm, cmap=colors)
-    ax.set_title(title, fontsize=11)
-    ax.set_xticks(range(len(ch)), [f"{x:.2g}" for x in ch], rotation=45)
-    ax.set_yticks(range(len(cv)), [f"{x:.2g}" for x in cv])
-    ax.set_xlabel(f"Drug A ({cfg['horizontal_drug']['unit']})")
-    ax.set_ylabel(f"Drug B ({cfg['vertical_drug']['unit']})")
-    fig.colorbar(im, ax=ax, shrink=0.85, label=label, extend="both")
-fig.suptitle("Synthetic matrix analysis\nScores: red = synergy · blue = antagonism · gray = excluded / unscored", fontsize=13)
+synergy_heatmaps(
+    mean, ch, cv,
+    c50_hor=fit.drug_a.c50, c50_ver=fit.drug_b.c50,
+    hill_hor=fit.drug_a.hill, hill_ver=fit.drug_b.hill,
+    effect_0=fit.drug_a.effect_0, effect_inf=fit.drug_a.effect_inf,
+    x_label=f"{cfg['horizontal_drug']['name']} [{cfg['horizontal_drug']['unit']}]",
+    y_label=f"{cfg['vertical_drug']['name']} [{cfg['vertical_drug']['unit']}]",
+    title="Synthetic matrix synergy scores",
+)
 ```
 
-![Six panels show the shipped synthetic matrix, its Bliss reference, Bliss and HSA fractional deviations, Loewe combination indices on a log scale, and ZIP delta. Interaction panels exclude zero-dose controls.](images/synergy-analysis.png)
+![Four panels show Bliss, HSA, Loewe, and ZIP synergy scores for the non-zero dose combinations of the shipped synthetic matrix.](images/synergy-analysis.png)
 
 The configured generating setup adds inhibition beyond a Bliss reference
 (`synergy_factor=0.3`) and lognormal measurement noise. That injection is a
 simulation parameter, not an expected value for ZIP delta or Loewe CI. The
-panels compare distinct interaction models; they do not supply confidence
-intervals for synergy scores. Response panels share a color scale. Fractional
-score panels share a −0.25 to +0.25 scale; the Loewe panel instead shows
-log₂(CI), from −2 to +2, with white at CI = 1. Colorbar extensions mark values
-beyond the displayed range. Gray cells are excluded or unscored, never zero
-interaction. Cells are evenly spaced by dose index; tick labels give the
-actual concentrations.
+Bliss and HSA panels use the observed single-agent edges; Loewe and ZIP use the
+fitted marginal curves. Bliss, HSA and ZIP are fractional scores, where
+negative means synergy and positive means antagonism. Loewe is displayed as
+`log₂(CI)`, so its negative values also mean synergy, zero is additive, and
+positive values mean antagonism. Gray cells are unscored, never zero
+interaction. Colorbar extensions mark values beyond the displayed range.
 
-Bliss and HSA references above use **observed** edges; Loewe and ZIP use the
-fitted single-agent curves. Reference surfaces are in response units. Bliss/HSA
-deviations and ZIP `delta` are fractional, dimensionless quantities: −0.1 means
-an extra effect of ten percentage points on the asymptote-normalized scale.
-Negative means synergy and positive means antagonism, including activation
-when its asymptotes are supplied correctly. ZIP compares a fitted combination
-surface with its reference, rather than subtracting the raw measurements.
-Loewe CI is a dose-equivalence ratio: below 1 indicates synergy, above 1
-antagonism, and 1 additivity. Unequal slopes warrant care in interpreting Loewe.
-
-Zero-dose edges are not combination scores and are masked in deviations when
-both axes are passed. Loewe CI can be NaN for responses outside the invertible
-single-agent range; ZIP can be NaN when neither slice fit succeeds. A NaN is
-unscored, not zero interaction. Inspect ZIP failure metadata before summarizing
-with `nanmean`. Incomplete matrices require the same scrutiny; observed-edge
-references cannot reconstruct missing marginal responses.
+`MatrixFit` instead fits a six-parameter Bliss null surface to the entire
+matrix. It is useful diagnostically, but it can absorb interaction signal into
+its fitted parameters. Loewe CI can be NaN for responses outside the invertible
+single-agent range; ZIP can be NaN when neither slice fit succeeds. Inspect ZIP
+failure metadata before summarizing scores with `nanmean`. Incomplete matrices
+need the same scrutiny because observed-edge references cannot reconstruct
+missing marginal responses.
 
 ## Activation, five parameters, explicit bounds, and pins
 

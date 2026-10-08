@@ -409,6 +409,10 @@ dose_response_plot(data, result, valids=None, *, reference=None,
 matrix_heatmap(matrix, conc_horizontal, conc_vertical, *, vmin=None, vmax=None,
                cmap="viridis", norm=None, cbar_label=None, title=None)
 raw_matrix_heatmap(matrix, conc_horizontal, conc_vertical, label="")
+synergy_heatmaps(mean_matrix, conc_horizontal, conc_vertical, *,
+                 c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
+                 asymmetry_hor=None, asymmetry_ver=None,
+                 x_label=None, y_label=None, title=None)
 ```
 
 Single-drug plots use `concentration`, `y`, `replicate` and need at least one
@@ -426,5 +430,9 @@ use it to plot an already computed score array.
 convenience wrappers computing their respective scores before plotting.
 The model-based wrappers do not accept 5p asymmetry arguments: for 5p, compute
 scores with explicit asymmetries and pass them to `matrix_heatmap`. The
-[tutorials](tutorials.md) demonstrate both library PNG helpers and custom
-Matplotlib figures displaying truth, fitted curves and interaction surfaces.
+`synergy_heatmaps` is the compact four-panel alternative: it computes Bliss,
+HSA, Loewe and ZIP from a mean response matrix and fitted marginal parameters.
+It requires one zero-dose row and column to obtain observed single-agent edges,
+then excludes every zero-dose row and column from the four score panels. Loewe
+is shown as `log₂(CI)`; negative values in every panel denote synergy. The
+[tutorials](tutorials.md) use this helper with a bundled matrix.

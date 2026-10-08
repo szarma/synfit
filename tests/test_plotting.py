@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 from synfit.data import FitResult
-from synfit.plotting import dose_response_plot, matrix_heatmap, deviation_heatmap
+from synfit.plotting import (
+    deviation_heatmap,
+    dose_response_plot,
+    matrix_heatmap,
+    raw_replicate_heatmap,
+    synergy_heatmaps,
+)
 from synfit.hill import hill_curve
 from synfit.bliss import bliss_independence
 
@@ -86,6 +92,10 @@ class TestMatrixHeatmap:
         result = matrix_heatmap(matrix, conc_hor, conc_ver, vmin=0.0, vmax=1.0)
         assert result[:4] == PNG_MAGIC
 
+    def test_raw_replicate_heatmap_accepts_string_replicate_labels(self, single_drug_data):
+        result = raw_replicate_heatmap(single_drug_data)
+        assert result[:4] == PNG_MAGIC
+
 
 class TestDeviationHeatmap:
     def test_produces_png(self, matrix_data):
@@ -95,5 +105,24 @@ class TestDeviationHeatmap:
             c50_hor=5.0, c50_ver=8.0,
             hill_hor=1.5, hill_ver=1.2,
             effect_0=1.0, effect_inf=0.02,
+        )
+        assert result[:4] == PNG_MAGIC
+
+
+class TestSynergyHeatmaps:
+    def test_produces_four_score_png_without_zero_dose_edges(self):
+        conc_hor = np.array([0.0, 0.5, 2.0, 8.0])
+        conc_ver = np.array([0.0, 1.0, 4.0, 16.0])
+        matrix = bliss_independence(
+            conc_hor, conc_ver,
+            c50_hor=2.0, c50_ver=4.0,
+            hill_hor=1.2, hill_ver=1.1,
+            effect_0=1.0, effect_inf=0.05,
+        )
+        result = synergy_heatmaps(
+            matrix, conc_hor, conc_ver,
+            c50_hor=2.0, c50_ver=4.0,
+            hill_hor=1.2, hill_ver=1.1,
+            effect_0=1.0, effect_inf=0.05,
         )
         assert result[:4] == PNG_MAGIC
