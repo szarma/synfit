@@ -57,11 +57,9 @@ fits and synergy scores on them move: a **MINOR** change.
   the diagnostic matrix null fit.
 - Corrected the publishing instructions: production uploads require a published
   GitHub release, not just a tag.
-
-### Checks
-- Extended the README example check to execute Python examples in `docs/` too,
-  including against the installed wheel in CI. Documentation is included in the
-  source distribution so its shipped test suite can run these examples.
+- The Python examples in `docs/` are now executed alongside the README's,
+  including against the installed wheel in CI, and the documentation ships in
+  the source distribution so its test suite can run them.
 
 ## [0.8.1] — 2026-10-07
 
