@@ -81,7 +81,10 @@ passes on that release commit. PyPI publishing occurs only when a GitHub
 release for that tag is published, through trusted publishing — never a local
 token. Before uploading, the workflow checks that the tag matches the project
 version, the released commit is on `main`, and `ci.yml` succeeded for that
-exact SHA.
+exact SHA. That CI run is what verified the artifacts (`dist-smoke`), so
+`publish.yml` does not repeat those checks. Manual dispatch targets TestPyPI
+only. The `pypi` environment requires a reviewer, and `v*` tags are protected
+so a released tag cannot move.
 
 ## Commit messages
 
