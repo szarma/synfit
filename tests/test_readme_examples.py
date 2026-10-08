@@ -2,18 +2,21 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts.check_readme_examples import extract_python_blocks
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_readme_has_runnable_python_blocks():
-    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+@pytest.mark.parametrize("relative_path", ["README.md", "docs/tutorials.md"])
+def test_documentation_has_runnable_python_blocks(relative_path):
+    text = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
     blocks = extract_python_blocks(text)
-    assert blocks, "README should contain at least one ```python block"
+    assert blocks, f"{relative_path} should contain at least one ```python block"
 
 
-def test_readme_python_blocks_execute():
+def test_documentation_python_blocks_execute():
     script = REPO_ROOT / "scripts" / "check_readme_examples.py"
     proc = subprocess.run(
         [sys.executable, str(script)],

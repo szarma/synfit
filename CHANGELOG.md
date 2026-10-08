@@ -15,6 +15,26 @@ heading.
 
 ## [Unreleased]
 
+### Documentation
+- Added a linked API reference covering fit configuration, results, noise,
+  synergy helpers, bundled scenarios and plotting.
+- Added runnable tutorials for matrix synergy analysis and single-drug
+  configuration, with guidance on data layout, score interpretation and
+  troubleshooting.
+- Added figures generated directly from the displayed examples: synthetic
+  observations with a fitted curve, confidence band and ground truth, and a
+  matrix analysis with reference surfaces and synergy scores.
+- Corrected the README's ZIP return types and score definition, documented the
+  lower-asymptote anchor for heteroscedastic variance, and clarified the role of
+  the diagnostic matrix null fit.
+- Corrected the publishing instructions: production uploads require a published
+  GitHub release, not just a tag.
+
+### Checks
+- Extended the README example check to execute Python examples in `docs/` too,
+  including against the installed wheel in CI. Documentation is included in the
+  source distribution so its shipped test suite can run these examples.
+
 ## [0.8.1] — 2026-10-07
 
 Documentation only. No code changes, so fits are identical to 0.8.0.

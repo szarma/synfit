@@ -44,6 +44,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://synfit.app"
+Documentation = "https://github.com/szarma/synfit/blob/main/docs/api.md"
 Source = "https://github.com/szarma/synfit"
 Issues = "https://github.com/szarma/synfit/issues"
 
