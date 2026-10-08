@@ -15,6 +15,30 @@ heading.
 
 ## [Unreleased]
 
+The fitters are untouched, but six shipped matrix datasets are regenerated, so
+fits and synergy scores on them move: a **MINOR** change.
+
+### Fixed
+- **`synergy_factor` no longer changes the single-drug edges of a generated
+  matrix.** The injection shifted the normalised reference level
+  (`u − s·u(1−u)`), which also moved the zero-concentration row and column:
+  in `matrix_synergy` the edges followed c50 ≈ 4.1 / 6.2 instead of the
+  configured 5 / 8. Against a Bliss reference built from those observed edges
+  the injected synergy read as weak *antagonism*, and under
+  `reference_model="loewe"` it was invisible, because Loewe additivity does
+  not change when the response axis is remapped.
+
+### Changed
+- **`synergy_factor` is now a potency shift.** Each drug acts at
+  `c · (1 + s·f_partner)`, where `f_partner` is the other drug's fractional
+  effect. The shift vanishes when either drug is absent, so the configured
+  `c50` / `hill` are the true marginals at any `s`. Positive `s` reads as
+  synergy against both Bliss and Loewe, and negative `s` as antagonism.
+  `s ≤ −1` is rejected.
+- **Regenerated seed data** for `matrix_antagonism`, `matrix_strong_synergy`,
+  `matrix_subtle_synergy`, `matrix_synergy`, `matrix_synergy_noisy` and
+  `matrix_two_replicates`. Their configs are unchanged.
+
 ## [0.8.1] — 2026-10-07
 
 Documentation only. No code changes, so fits are identical to 0.8.0.
