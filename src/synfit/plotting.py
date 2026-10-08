@@ -590,8 +590,9 @@ def synergy_heatmaps(
     The observed zero-dose matrix edges provide the Bliss and HSA single-agent
     responses.  Zero-dose rows and columns are excluded from every panel,
     because they are single-agent observations rather than combination scores.
-    Negative values denote synergy in the Bliss, HSA and ZIP panels; Loewe is
-    shown as ``log2(CI)``, so negative likewise denotes synergy.
+    Bliss, HSA and ZIP use a fixed linear range [-1, 1], with negative values
+    denoting synergy. Loewe CI uses a logarithmic range [0.25, 4], with CI < 1
+    denoting synergy. Blue denotes synergy, white the null and red antagonism.
     """
     matrix = np.asarray(mean_matrix, dtype=float)
     ch = np.asarray(conc_horizontal, dtype=float)
@@ -622,25 +623,25 @@ def synergy_heatmaps(
         asymmetry_hor=1.0 if asymmetry_hor is None else asymmetry_hor,
         asymmetry_ver=1.0 if asymmetry_ver is None else asymmetry_ver,
     )
-    with np.errstate(divide="ignore", invalid="ignore"):
-        loewe_log = np.where(loewe > 0, np.log2(loewe), np.nan)
     zip_score = zip_delta(
         matrix, ch, cv, c50_hor, c50_ver, hill_hor, hill_ver, effect_0, effect_inf,
         asymmetry_hor=asymmetry_hor, asymmetry_ver=asymmetry_ver,
     )
 
     panels = [
-        (bliss_delta, "Bliss", "Fractional deviation", mcolors.TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)),
-        (hsa_delta, "HSA", "Fractional deviation", mcolors.TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)),
-        (loewe_log, "Loewe", "log₂(CI)", mcolors.TwoSlopeNorm(vmin=-2, vcenter=0, vmax=2)),
-        (zip_score, "ZIP", "Fractional delta", mcolors.TwoSlopeNorm(vmin=-0.25, vcenter=0, vmax=0.25)),
+        (bliss_delta, "Bliss", "Fractional deviation", mcolors.TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1)),
+        (hsa_delta, "HSA", "Fractional deviation", mcolors.TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1)),
+        (loewe, "Loewe", "Combination Index", mcolors.LogNorm(vmin=0.25, vmax=4)),
+        (zip_score, "ZIP", "Fractional delta", mcolors.TwoSlopeNorm(vmin=-1, vcenter=0, vmax=1)),
     ]
+    colors = mcolors.LinearSegmentedColormap.from_list(
+        "synergy", ["#1b3a8c", "#ffffff", "#a31515"], N=256,
+    )
+    colors.set_bad("#d4d4d4")
     fig, axes = plt.subplots(2, 2, figsize=(9, 8))
     x_values, y_values = ch[interior_hor], cv[interior_ver]
     for ax, (values, panel_title, colorbar_label, norm) in zip(axes.flat, panels):
         _style_axes(ax)
-        colors = plt.colormaps["RdBu"].copy()
-        colors.set_bad("#d1d5db")
         interior = values[np.ix_(interior_ver, interior_hor)]
         image = ax.imshow(np.ma.masked_invalid(interior), origin="lower", aspect="auto", cmap=colors, norm=norm)
         ax.set_box_aspect(interior.shape[0] / interior.shape[1])
@@ -649,7 +650,9 @@ def synergy_heatmaps(
         ax.set_yticks(range(len(y_values)), [_fmt_conc(float(y)) for y in y_values], fontsize=7)
         ax.set_xlabel(x_label or "Horizontal drug concentration")
         ax.set_ylabel(y_label or "Vertical drug concentration")
-        fig.colorbar(image, ax=ax, shrink=0.82, label=colorbar_label, extend="both")
+        colorbar = fig.colorbar(image, ax=ax, shrink=0.82, label=colorbar_label, extend="both")
+        if isinstance(norm, mcolors.LogNorm):
+            colorbar.set_ticks([0.25, 0.5, 1, 2, 4], labels=["0.25", "0.5", "1", "2", "4"])
     if title:
         fig.suptitle(title)
     plt.subplots_adjust(wspace=.4, hspace=.4)

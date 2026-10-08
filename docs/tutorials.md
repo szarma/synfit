@@ -64,8 +64,8 @@ synergy_heatmaps(
     c50_hor=fit.drug_a.c50, c50_ver=fit.drug_b.c50,
     hill_hor=fit.drug_a.hill, hill_ver=fit.drug_b.hill,
     effect_0=fit.drug_a.effect_0, effect_inf=fit.drug_a.effect_inf,
-    x_label=f"{cfg['horizontal_drug']['name']} [{cfg['horizontal_drug']['unit']}]",
-    y_label=f"{cfg['vertical_drug']['name']} [{cfg['vertical_drug']['unit']}]",
+    x_label="Horizonticlav [µM]",
+    y_label="Verticalinib [µM]",
     title="Synthetic matrix synergy scores",
 )
 ```
@@ -78,10 +78,12 @@ edges, then adds lognormal measurement noise. That factor is a simulation
 parameter, not an expected value for ZIP delta or Loewe CI. The
 Bliss and HSA panels use the observed single-agent edges; Loewe and ZIP use the
 fitted marginal curves. Bliss, HSA and ZIP are fractional scores, where
-negative means synergy and positive means antagonism. Loewe is displayed as
-`log₂(CI)`, so its negative values also mean synergy, zero is additive, and
-positive values mean antagonism. Gray cells are unscored, never zero
-interaction. Colorbar extensions mark values beyond the displayed range.
+negative means synergy and positive means antagonism, displayed on a fixed
+linear color scale from −1 to +1. Loewe CI uses a logarithmic color scale from
+0.25 to 4: CI < 1 means synergy, CI = 1 is additive, and CI > 1 means antagonism.
+Blue indicates synergy, white the null, and red antagonism. Gray cells are
+unscored, never zero interaction. Colorbar extensions mark values beyond the
+displayed range.
 
 `MatrixFit` instead fits a six-parameter Bliss null surface to the entire
 matrix. It is useful diagnostically, but it can absorb interaction signal into

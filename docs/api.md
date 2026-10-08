@@ -429,10 +429,12 @@ use it to plot an already computed score array.
 `deviation_heatmap`, `hsa_heatmap`, `zip_heatmap` and `loewe_heatmap` are
 convenience wrappers computing their respective scores before plotting.
 The model-based wrappers do not accept 5p asymmetry arguments: for 5p, compute
-scores with explicit asymmetries and pass them to `matrix_heatmap`. The
+scores with explicit asymmetries and pass them to `matrix_heatmap`.
 `synergy_heatmaps` is the compact four-panel alternative: it computes Bliss,
 HSA, Loewe and ZIP from a mean response matrix and fitted marginal parameters.
 It requires one zero-dose row and column to obtain observed single-agent edges,
-then excludes every zero-dose row and column from the four score panels. Loewe
-is shown as `log₂(CI)`; negative values in every panel denote synergy. The
+then excludes every zero-dose row and column from the four score panels.
+Bliss, HSA and ZIP use a fixed linear color range of −1 to +1; Loewe CI uses
+a logarithmic color range of 0.25 to 4. White denotes the null (0 for fractional
+scores, CI = 1 for Loewe), blue synergy, and red antagonism. The
 [tutorials](tutorials.md) use this helper with a bundled matrix.
