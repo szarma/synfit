@@ -15,8 +15,11 @@ heading.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-10-08
+
 The fitters are untouched, but six shipped matrix datasets are regenerated, so
-fits and synergy scores on them move: a **MINOR** change.
+fits and synergy scores on them move: a **MINOR** change. Also adds synergy
+plotting, `JointMarginalFit.from_matrix`, and an API reference with tutorials.
 
 ### Fixed
 - **`synergy_factor` no longer shifts the single-drug edges of a generated
