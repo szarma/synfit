@@ -199,6 +199,14 @@ Each score follows its published definition:
   Naunyn-Schmiedeberg's Archiv für experimentelle Pathologie und Pharmakologie
   114:313–326 (1926).
 
+Bliss, HSA and Loewe are checked against `synergy` the same way, on eight
+landscapes — additive, synergistic, antagonistic, mismatched slopes, offset
+asymptotes, a rectangular grid and an activation case. Bliss, HSA and the
+combination index agree to `1e-12`. The Loewe reference agrees to `2e-6`, the
+tolerance of the package's own solver, and to `1e-8` with a high-precision
+(mpmath) solution. `synergy` 1.0.0 cannot compute a Loewe reference for
+activation, so that case is checked against mpmath alone.
+
 ### What each function returns
 
 The synergy helpers do not share one sign convention — they return three
