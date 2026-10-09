@@ -238,11 +238,48 @@ def n_likelihood_admitted(
     return int(np.sum(np.isfinite(y_m) & np.isfinite(mu_m)))
 
 
-def standardised_covariance(param_cov: np.ndarray, param_names: list[str]) -> np.ndarray:
-    se = np.sqrt(np.maximum(np.diag(param_cov), 0.0))
-    denom = np.outer(se, se)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.where(denom > 0, param_cov / denom, 0.0)
+def covariance_issues(ref: np.ndarray, cur: np.ndarray, *, tol: float = 2e-2) -> list[str]:
+    """Differences between two covariances in units of the reference SEs.
+
+    Rows the reference fixes at zero (bound-active parameters) must be zero in
+    ``cur`` too; standardising them by a zero SE would hide any corruption.
+    """
+    ref = np.asarray(ref, dtype=float)
+    cur = np.asarray(cur, dtype=float)
+    if ref.shape != cur.shape:
+        return [f"param_cov shape {ref.shape} vs {cur.shape}"]
+    ref_se = np.sqrt(np.maximum(np.diag(ref), 0.0))
+    zero = ref_se == 0
+    issues = []
+    if np.any(cur[zero, :] != 0) or np.any(cur[:, zero] != 0):
+        issues.append("param_cov: non-zero entries where the reference row is zero")
+    keep = ~zero
+    denom = np.outer(ref_se[keep], ref_se[keep])
+    diff = np.abs(cur[np.ix_(keep, keep)] - ref[np.ix_(keep, keep)]) / denom
+    if np.any(~np.isfinite(diff)) or np.any(diff > tol):
+        issues.append(f"param_cov: max standardised difference {np.nanmax(diff):.3g}")
+    return issues
+
+
+def assert_param_cov_equivariant(
+    native: FitResult,
+    scaled: FitResult,
+    s: float,
+    *,
+    tol: float = 2e-2,
+) -> None:
+    """Scaled covariance, back-transformed to native units, matches the native one."""
+    if (native.param_cov is None) ^ (scaled.param_cov is None):
+        raise AssertionError(
+            f"param_cov presence mismatch: native={native.param_cov is not None}, "
+            f"scaled={scaled.param_cov is not None}"
+        )
+    if native.param_cov is None:
+        return
+    assert native.param_names is not None and scaled.param_names is not None
+    fac = np.array([_param_scale_factor(n, s) for n in native.param_names], dtype=float)
+    issues = covariance_issues(native.param_cov, scaled.param_cov / np.outer(fac, fac), tol=tol)
+    assert not issues, "; ".join(issues)
 
 
 def _compare_drug_shape_and_asymptotes(
@@ -262,6 +299,21 @@ def _compare_drug_shape_and_asymptotes(
     np.testing.assert_allclose(scaled.c50, native.c50, rtol=rtol)
 
 
+def _assert_same_presence(native, scaled, fields) -> None:
+    """A metric missing on one side only is a difference, not something to skip."""
+    for name in fields:
+        assert (getattr(native, name) is None) == (getattr(scaled, name) is None), (
+            f"{name} presence differs: native={getattr(native, name)!r}, "
+            f"scaled={getattr(scaled, name)!r}"
+        )
+
+
+def _assert_success_and_scale(native, scaled, s: float) -> None:
+    assert native.success, f"native fit failed: {native.message}"
+    assert scaled.success, f"scaled fit failed: {scaled.message}"
+    np.testing.assert_allclose(scaled.response_scale, native.response_scale * s, rtol=1e-9)
+
+
 def compare_single_results(
     native: FitResult,
     scaled: FitResult,
@@ -272,6 +324,11 @@ def compare_single_results(
     check_covariance: bool = True,
 ) -> None:
     """Assert scaled fit matches native under response rescaling conventions."""
+    _assert_success_and_scale(native, scaled, s)
+    _assert_same_presence(
+        native, scaled,
+        ("sigma", "variance_params", "log_likelihood", "aic", "bic", "rss", "r2"),
+    )
     np.testing.assert_allclose(scaled.log_c50, native.log_c50, rtol=rtol)
     np.testing.assert_allclose(scaled.hill, native.hill, rtol=rtol)
     if native.asymmetry is not None:
@@ -280,7 +337,7 @@ def compare_single_results(
     np.testing.assert_allclose(scaled.effect_inf, native.effect_inf * s, rtol=rtol)
     np.testing.assert_allclose(scaled.c50, native.c50, rtol=rtol)
 
-    if native.sigma is not None and scaled.sigma is not None:
+    if native.sigma is not None:
         sf = _sigma_scale_factor(native.error_model, s)
         np.testing.assert_allclose(scaled.sigma, native.sigma * sf, rtol=rtol)
 
@@ -295,21 +352,21 @@ def compare_single_results(
             )
 
     n = native.n_valid
-    if native.log_likelihood is not None and scaled.log_likelihood is not None:
+    if native.log_likelihood is not None:
         np.testing.assert_allclose(
             scaled.log_likelihood,
             native.log_likelihood - n * np.log(s),
             rtol=1e-4,
             atol=1e-4,
         )
-    if native.aic is not None and scaled.aic is not None:
+    if native.aic is not None:
         np.testing.assert_allclose(
             scaled.aic,
             native.aic + 2 * n * np.log(s),
             rtol=1e-4,
             atol=1e-4,
         )
-    if native.bic is not None and scaled.bic is not None:
+    if native.bic is not None:
         np.testing.assert_allclose(
             scaled.bic,
             native.bic + 2 * n * np.log(s),
@@ -317,19 +374,17 @@ def compare_single_results(
             atol=1e-4,
         )
 
-    if native.rss is not None and scaled.rss is not None:
+    if native.rss is not None:
         np.testing.assert_allclose(scaled.rss, native.rss * s * s, rtol=rtol)
-    if native.r2 is not None and scaled.r2 is not None:
+    if native.r2 is not None:
         np.testing.assert_allclose(scaled.r2, native.r2, atol=1e-5)
 
     assert scaled.n_valid == native.n_valid
     assert scaled.n_total == native.n_total
     assert scaled.n_params == native.n_params
 
-    if check_covariance and native.param_cov is not None and scaled.param_cov is not None:
-        std_native = standardised_covariance(native.param_cov, native.param_names)
-        std_scaled = standardised_covariance(scaled.param_cov, scaled.param_names)
-        np.testing.assert_allclose(std_scaled, std_native, rtol=cov_rtol, atol=cov_rtol)
+    if check_covariance:
+        assert_param_cov_equivariant(native, scaled, s, tol=cov_rtol)
 
     d_native = native.to_dict()
     d_scaled = scaled.to_dict()
@@ -345,12 +400,16 @@ def compare_joint_results(
     cov_rtol: float = 2e-2,
     check_covariance: bool = True,
 ) -> None:
+    _assert_success_and_scale(native, scaled, s)
+    _assert_same_presence(
+        native, scaled, ("sigma", "variance_params", "log_likelihood", "aic"),
+    )
     np.testing.assert_allclose(scaled.top, native.top * s, rtol=rtol)
     np.testing.assert_allclose(scaled.bottom, native.bottom * s, rtol=rtol)
     _compare_drug_shape_and_asymptotes(native.drug_a, scaled.drug_a, s, rtol=rtol)
     _compare_drug_shape_and_asymptotes(native.drug_b, scaled.drug_b, s, rtol=rtol)
 
-    if native.sigma is not None and scaled.sigma is not None:
+    if native.sigma is not None:
         sf = _sigma_scale_factor(native.error_model, s)
         np.testing.assert_allclose(scaled.sigma, native.sigma * sf, rtol=rtol)
 
@@ -380,10 +439,8 @@ def compare_joint_results(
             atol=1e-4,
         )
 
-    if check_covariance and native.param_cov is not None and scaled.param_cov is not None:
-        std_native = standardised_covariance(native.param_cov, native.param_names)
-        std_scaled = standardised_covariance(scaled.param_cov, scaled.param_names)
-        np.testing.assert_allclose(std_scaled, std_native, rtol=cov_rtol, atol=cov_rtol)
+    if check_covariance:
+        assert_param_cov_equivariant(native, scaled, s, tol=cov_rtol)
 
     d_native = native.to_dict()
     d_scaled = scaled.to_dict()
@@ -399,21 +456,123 @@ def compare_matrix_results(
     cov_rtol: float = 2e-2,
     check_covariance: bool = True,
 ) -> None:
+    _assert_success_and_scale(native.horizontal, scaled.horizontal, s)
+    _assert_success_and_scale(native.vertical, scaled.vertical, s)
+    assert native.success and scaled.success
+    _assert_same_presence(native, scaled, ("sigma",))
     np.testing.assert_allclose(scaled.effect_0, native.effect_0 * s, rtol=rtol)
     np.testing.assert_allclose(scaled.effect_inf, native.effect_inf * s, rtol=rtol)
     _compare_drug_shape_and_asymptotes(native.horizontal, scaled.horizontal, s, rtol=rtol)
     _compare_drug_shape_and_asymptotes(native.vertical, scaled.vertical, s, rtol=rtol)
-    if native.sigma is not None and scaled.sigma is not None:
+    if native.sigma is not None:
         sf = _sigma_scale_factor(
             native.horizontal.error_model if native.horizontal.sigma else "gaussian",
             s,
         )
         np.testing.assert_allclose(scaled.sigma, native.sigma * sf, rtol=rtol)
 
-    if check_covariance and native.param_cov is not None and scaled.param_cov is not None:
-        std_native = standardised_covariance(native.param_cov, native.param_names)
-        std_scaled = standardised_covariance(scaled.param_cov, scaled.param_names)
-        np.testing.assert_allclose(std_scaled, std_native, rtol=cov_rtol, atol=cov_rtol)
+    if check_covariance:
+        assert_param_cov_equivariant(native, scaled, s, tol=cov_rtol)
+
+
+def _compare_scalar_values(
+    path: str,
+    ref,
+    cur,
+    rtol: float,
+    atol: float,
+) -> list[str]:
+    if ref is None and cur is None:
+        return []
+    if ref is None or cur is None:
+        return [f"{path}: {ref!r} -> {cur!r}"]
+    if isinstance(ref, bool) or isinstance(ref, str):
+        if ref != cur:
+            return [f"{path}: {ref!r} -> {cur!r}"]
+        return []
+    if isinstance(ref, (int, float)) and isinstance(cur, (int, float)):
+        r_tol, a_tol = rtol, atol
+        if path.endswith(("log_likelihood", "aic", "bic")):
+            r_tol, a_tol = 0.0, 1e-4
+        elif path.endswith("r2"):
+            r_tol, a_tol = 0.0, 1e-5
+        if not np.isclose(ref, cur, rtol=r_tol, atol=a_tol):
+            return [f"{path}: {ref} -> {cur}"]
+        return []
+    return []
+
+
+def _compare_nested(ref, cur, path: str = "", *, rtol: float, atol: float) -> list[str]:
+    issues: list[str] = []
+    if isinstance(ref, dict) and isinstance(cur, dict):
+        if set(ref.keys()) != set(cur.keys()):
+            issues.append(f"{path}keys {sorted(ref.keys())} vs {sorted(cur.keys())}")
+            return issues
+        for key in ref:
+            if key == "param_cov":  # compared separately, on its own tolerance
+                continue
+            issues.extend(
+                _compare_nested(ref[key], cur[key], f"{path}{key}.", rtol=rtol, atol=atol)
+            )
+        return issues
+    if isinstance(ref, list) and isinstance(cur, list):
+        if len(ref) != len(cur):
+            issues.append(f"{path}: len {len(ref)} vs {len(cur)}")
+            return issues
+        for i, (a, b) in enumerate(zip(ref, cur)):
+            issues.extend(_compare_nested(a, b, f"{path}[{i}]", rtol=rtol, atol=atol))
+        return issues
+    issues.extend(_compare_scalar_values(path.rstrip("."), ref, cur, rtol, atol))
+    return issues
+
+
+def compare_param_cov_baseline(ref: list, cur: list, *, tol: float = 2e-2) -> list[str]:
+    return covariance_issues(np.asarray(ref, dtype=float), np.asarray(cur, dtype=float), tol=tol)
+
+
+def compare_baseline_snapshots(reference: dict, current: dict) -> list[str]:
+    """Return human-readable diffs between two baseline JSON payloads."""
+    issues: list[str] = []
+    ref_cases = reference["cases"]
+    cur_cases = current["cases"]
+    if set(ref_cases) != set(cur_cases):
+        issues.append(f"case ids differ: {set(ref_cases)} vs {set(cur_cases)}")
+        return issues
+    for case_id in sorted(ref_cases):
+        prefix = f"{case_id}: "
+        rc, cc = ref_cases[case_id], cur_cases[case_id]
+        if rc.get("fingerprint") != cc.get("fingerprint"):
+            issues.append(prefix + "input fingerprint changed")
+        issues.extend(
+            _compare_nested(rc["to_dict"], cc["to_dict"], prefix + "to_dict.", rtol=5e-4, atol=1e-7)
+        )
+        pc_r, pc_c = rc.get("param_ci"), cc.get("param_ci")
+        if (pc_r is None) ^ (pc_c is None):
+            issues.append(prefix + f"param_ci presence: {pc_r!r} vs {pc_c!r}")
+        elif pc_r is not None and pc_c is not None:
+            for name in pc_r:
+                lo_r, hi_r = pc_r[name]
+                lo_c, hi_c = pc_c[name]
+                w_r, w_c = hi_r - lo_r, hi_c - lo_c
+                if abs(w_c - w_r) / max(w_r, 1e-12) > 0.01:
+                    issues.append(prefix + f"param_ci width {name} differs >1%")
+        pci_r, pci_c = rc.get("predict_ci"), cc.get("predict_ci")
+        if (pci_r is None) ^ (pci_c is None):
+            issues.append(prefix + f"predict_ci presence: {pci_r!r} vs {pci_c!r}")
+        elif pci_r and pci_c:
+            conc = np.asarray(pci_r["conc"])
+            w_ref = np.asarray(pci_r["hi"]) - np.asarray(pci_r["lo"])
+            w_cur = np.asarray(pci_c["hi"]) - np.asarray(pci_c["lo"])
+            rel = np.abs(w_cur - w_ref) / np.maximum(w_ref, 1e-12)
+            if np.any(rel > 0.01):
+                issues.append(prefix + f"predict_ci widths: max rel diff {float(np.max(rel)):.4g}")
+        cov_r = rc["to_dict"].get("param_cov")
+        cov_c = cc["to_dict"].get("param_cov")
+        if (cov_r is None) ^ (cov_c is None):
+            issues.append(prefix + f"param_cov presence: {cov_r!r} vs {cov_c!r}")
+        elif cov_r is not None and cov_c is not None:
+            issues.extend([prefix + m for m in compare_param_cov_baseline(cov_r, cov_c)])
+    return issues
 
 
 def fit_scaled_case(case: ScaleFitCase, s: float) -> Any:

@@ -15,6 +15,24 @@ heading.
 
 ## [Unreleased]
 
+### Fixed
+- Fits on small responses (robust range around `1e-3` or below) stopped early
+  while reporting success — e.g. a lognormal c50 off by 40 %. Every fitter now
+  divides the response by its robust range before optimising and maps results
+  back, so a fit no longer depends on the unit the response is recorded in.
+  Inputs, configs and results stay in caller units. Weighted fits
+  (`SingleDrugFitWithError`) also no longer let a default start outside the
+  bounds set the optimiser's step sizes (#61).
+
+### Added
+- `FitResult.response_scale` and `JointMarginalResult.response_scale`, also in
+  `to_dict()`: the factor the fit divided responses by.
+
+### Changed
+- L-BFGS-B stops on tighter tolerances (`ftol=1e-12`, `gtol=1e-8`). Together
+  with the fix above this moves fitted values slightly — mostly in the
+  variance coefficients of heteroscedastic fits — so the release is MINOR.
+
 ## [0.9.0] — 2026-10-08
 
 The fitters are untouched, but six shipped matrix datasets are regenerated, so

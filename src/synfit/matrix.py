@@ -158,6 +158,13 @@ class MatrixFit(FitBase):
 
         self.mean_matrix = np.nanmean(np.stack(replicates), axis=0)
 
+        from .response_norm import response_scale_from_y
+
+        pooled_y = np.concatenate(
+            [rep[m].ravel() for rep, m in zip(replicates, self._observation_masks)]
+        )
+        self._plate_response_scale = response_scale_from_y(pooled_y)
+
         # extract edge slices for single-drug pre-fits
         self._hor_df = self._edge_slice(axis="horizontal")
         self._ver_df = self._edge_slice(axis="vertical")
@@ -182,6 +189,8 @@ class MatrixFit(FitBase):
                 noise=self.noise,
             ),
         )
+        self.synfit_hor._forced_response_scale = self._plate_response_scale
+        self.synfit_ver._forced_response_scale = self._plate_response_scale
 
         # pre-fit edge drugs independently
         self._hor_result = self.synfit_hor.fit(valids=self._hor_edge_valids)
@@ -287,7 +296,8 @@ class MatrixFit(FitBase):
         )
         observation_masks = kwargs.get("observation_masks", self._observation_masks)
         total_Z = 0.0
-        for i, rep in enumerate(self.replicates):
+        reps = getattr(self, "_likelihood_replicates", self.replicates)
+        for i, rep in enumerate(reps):
             mask = observation_masks[i].ravel()
             total_Z += noise_log_prob(
                 rep.ravel(), bliss.ravel(),
@@ -298,7 +308,8 @@ class MatrixFit(FitBase):
 
     def _log_prior_prob(self, x: np.ndarray) -> float:
         penalty = 0.0
-        for v, bounds in zip(x, self._bounds):
+        bounds_list = getattr(self, "_fit_bounds", self._bounds)
+        for v, bounds in zip(x, bounds_list):
             penalty += log_wall(np.array([v]), bounds).sum()
         return -penalty * PRIOR_PENALTY_WEIGHT
 
@@ -312,9 +323,24 @@ class MatrixFit(FitBase):
                 f"got {n_data}."
             )
 
-        x_opt, success, message, pcov = self._run_minimize(
-            self._x0, self._bounds, observation_masks=observation_masks,
-        )
+        from .response_norm import normalize_parameter_vector, scale_bound_pair
+
+        s = self._plate_response_scale
+        x0 = normalize_parameter_vector(self._PARAM_NAMES, np.asarray(self._x0), s)
+        bounds = [
+            scale_bound_pair(n, b, s) for n, b in zip(self._PARAM_NAMES, self._bounds)
+        ]
+        self._likelihood_replicates = [np.asarray(r, dtype=float) / s for r in self.replicates]
+        self._fit_bounds = bounds
+        self._enter_response_normalization(s)
+        try:
+            x_opt, success, message, pcov = self._run_minimize(
+                x0, bounds, observation_masks=observation_masks,
+            )
+        finally:
+            del self._likelihood_replicates
+            self._fit_bounds = self._bounds
+            self._clear_response_normalization()
         p = self._unpack_x(x_opt)
 
         # Pool residuals across all replicates and matrix cells to estimate σ̂
@@ -341,6 +367,7 @@ class MatrixFit(FitBase):
             n_valid=int(self._hor_edge_valids.sum()), n_total=len(self._hor_df),
             direction=self.direction_horizontal,
             error_model=em_str, sigma=sigma_hat,
+            response_scale=float(s),
         )
         ver_result = FitResult(
             c50=p["c50_ver"], log_c50=np.log10(p["c50_ver"]),
@@ -349,6 +376,7 @@ class MatrixFit(FitBase):
             n_valid=int(self._ver_edge_valids.sum()), n_total=len(self._ver_df),
             direction=self.direction_vertical,
             error_model=em_str, sigma=sigma_hat,
+            response_scale=float(s),
         )
         warnings = []
         if self.zero_edge_missing:

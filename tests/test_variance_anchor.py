@@ -371,35 +371,15 @@ def _5p_curve() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@pytest.mark.parametrize(
-    "noise, expect_scale",
-    [(GaussianConstant(), False), (Lognormal(), False), (GaussianLinear(), True)],
-)
-def test_non_heteroscedastic_optimizer_scale_ignores_response_scale(
-    noise, expect_scale, monkeypatch,
-):
-    """Spy on the optimiser's real ``parameter_scale`` calls during ``fit()``.
-
-    Constant/lognormal fits must never pass a response scale (their
-    preconditioning stays identical to the pre-anchor path); the linear case
-    proves the spy observes the argument when it is supplied.
-    """
-    import synfit.fitting as fitting_mod
-
-    seen: list = []
-    real = fitting_mod.parameter_scale
-
-    def spy(*args, **kwargs):
-        seen.append(kwargs.get("response_scale"))
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(fitting_mod, "parameter_scale", spy)
-    SingleDrugFit(_normalized_positive(), FitConfig(noise=noise)).fit()
-    assert seen, "parameter_scale was not called during fit()"
-    if expect_scale:
-        assert all(s is not None and s > 0 for s in seen)
-    else:
-        assert all(s is None for s in seen)
+def test_heteroscedastic_fit_matches_native_after_response_downscale():
+    """Internal normalisation keeps heteroscedastic fits equivariant to y → s·y."""
+    data = _hetero_curve()
+    noise = GaussianLinear()
+    native = SingleDrugFit(data, FitConfig(noise=noise)).fit()
+    s = 1e-2
+    scaled = SingleDrugFit(data.assign(y=data.y * s), FitConfig(noise=noise)).fit()
+    assert scaled.c50 == pytest.approx(native.c50, rel=1e-3)
+    assert scaled.hill == pytest.approx(native.hill, rel=1e-3)
 
 
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])

@@ -49,28 +49,10 @@ def test_small_response_objective_gap_health(noise, s):
     assert np.isfinite(obj_native)
 
 
-_OBJECTIVE_XFAIL = {
-    ("lognormal", 1e-3),
-    ("lognormal", 1e-6),
-    ("gaussian", 1e-6),
-}
-
-
 @pytest.mark.parametrize(
     "noise,s",
     [
-        pytest.param(
-            noise,
-            s,
-            id=f"{noise}-s={s:g}",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=AssertionError,
-                reason="known premature convergence on tiny responses (stage 2)",
-            ),
-        )
-        if (noise, s) in _OBJECTIVE_XFAIL
-        else pytest.param(noise, s, id=f"{noise}-s={s:g}")
+        pytest.param(noise, s, id=f"{noise}-s={s:g}")
         for noise in ("gaussian", "lognormal")
         for s in (1e-3, 1e-6)
     ],
@@ -94,26 +76,8 @@ def test_small_response_objective_at_most_native(noise, s):
     [
         pytest.param("gaussian", 1e-2, "se_effect_inf", id="gaussian-0.01-se_effect_inf"),
         pytest.param("gaussian", 1e-2, "predict_ci_width", id="gaussian-0.01-predict_ci_width"),
-        pytest.param(
-            "lognormal",
-            1e-2,
-            "se_effect_inf",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=AssertionError,
-                reason="effect_inf SE ~7% off after down-scaling (stage 2)",
-            ),
-        ),
-        pytest.param(
-            "lognormal",
-            1e-2,
-            "predict_ci_width",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=AssertionError,
-                reason="predict_ci widths up to ~8% off at high dose (stage 2)",
-            ),
-        ),
+        pytest.param("lognormal", 1e-2, "se_effect_inf", id="lognormal-0.01-se_effect_inf"),
+        pytest.param("lognormal", 1e-2, "predict_ci_width", id="lognormal-0.01-predict_ci_width"),
     ],
 )
 def test_small_response_uncertainty(noise, s, check):
@@ -145,31 +109,22 @@ def test_small_response_uncertainty(noise, s, check):
         assert np.all(rel < 0.01)
 
 
-# Down-scaled fits that stop measurably short of the native optimum today
-# (0.14–0.32 % parameter drift): the same premature convergence as above.
-_OUTPUTS_XFAIL = {
-    ("single_gaussian_linear_hetero", 1e-2),
-    ("joint_gaussian_quadratic", 1e-2),
-    ("matrix_gaussian", 1e-2),
-    ("matrix_lognormal", 1e-2),
-}
+def test_small_response_recovers_native_at_extreme_downscale():
+    """s = 1e-9 on single_drug_noisy should match the native optimum after normalisation."""
+    data = _noisy_data()
+    cfg = _noisy_config("lognormal")
+    native = SingleDrugFit(data, cfg).fit()
+    s = 1e-9
+    scaled = SingleDrugFit(data.assign(y=data.y * s), cfg).fit()
+    assert scaled.success
+    np.testing.assert_allclose(scaled.c50, native.c50, rtol=1e-3)
+    np.testing.assert_allclose(scaled.log_c50, native.log_c50, rtol=1e-3)
 
 
 @pytest.mark.parametrize(
     "case_id,s",
     [
-        pytest.param(
-            c.case_id,
-            s,
-            id=f"{c.case_id}-s={s:g}",
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=AssertionError,
-                reason="premature convergence on down-scaled responses (stage 2)",
-            ),
-        )
-        if (c.case_id, s) in _OUTPUTS_XFAIL
-        else pytest.param(c.case_id, s, id=f"{c.case_id}-s={s:g}")
+        pytest.param(c.case_id, s, id=f"{c.case_id}-s={s:g}")
         for c in SCALE_FIT_CASES
         for s in (1e3, 1e-2)
     ],
@@ -189,9 +144,31 @@ def test_reported_outputs_scale(case_id, s):
             hill_predictions(native, conc) * s,
             rtol=1e-3,
         )
+        if native.variance_params and s != 1.0:
+            mu = hill_predictions(native, conc)
+            v_native = native.predict_variance(mu)
+            v_scaled = scaled.predict_variance(mu * s)
+            assert v_native is not None and v_scaled is not None
+            np.testing.assert_allclose(v_scaled, v_native * s * s, rtol=0.02)
     elif case.kind == "joint":
         compare_joint_results(native, scaled, s, check_covariance=check_cov)
     elif case.kind == "matrix":
         compare_matrix_results(native, scaled, s, check_covariance=check_cov)
     else:
         pytest.fail(f"unhandled kind {case.kind}")
+
+
+@pytest.mark.parametrize(
+    "case_id,s",
+    [
+        pytest.param(c.case_id, s, id=f"{c.case_id}-s={s:g}")
+        for c in SCALE_FIT_CASES
+        if c.kind == "single_with_error"
+        for s in (1e-6, 1e-9)
+    ],
+)
+def test_weighted_fits_scale_down(case_id, s):
+    """Weighted fits keep their default effect_0 = 1 start, far outside the
+    bounds at small scales; it must not set the preconditioning (#61)."""
+    case = case_by_id(case_id)
+    compare_single_results(run_scale_case(case), fit_scaled_case(case, s), s)

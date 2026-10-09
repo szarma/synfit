@@ -210,6 +210,32 @@ class FitBase:
     def __init__(self, config: FitConfig | None = None):
         self.config = config or FitConfig()
 
+    def _fit_runtime_config(self) -> FitConfig:
+        """User config, or the private normalised copy active during ``fit()``."""
+        return getattr(self, "_work_config", None) or self.config
+
+    def _enter_response_normalization(
+        self,
+        s: float,
+        work_config: FitConfig | None = None,
+    ) -> None:
+        from .response_norm import normalized_fit_config
+
+        # No shortcut at s == 1: the working config also marks the fit as
+        # normalised, which switches the optimiser to working-unit scales.
+        self._response_norm_s = float(s)
+        self._work_config = work_config or normalized_fit_config(self.config, s)
+
+    def _clear_response_normalization(self) -> None:
+        self._work_config = None
+        self._response_norm_s = 1.0
+
+    def _response_norm_factor(self) -> float:
+        """``s`` while a normalised fit is running; 1 (user units) otherwise."""
+        if getattr(self, "_work_config", None) is not None:
+            return float(getattr(self, "_response_norm_s", 1.0))
+        return 1.0
+
     def _parameter_value(self, name: str, x: np.ndarray) -> float:
         """Return ``name`` from ``x`` if it is being estimated, else FitConfig.
 
@@ -217,8 +243,9 @@ class FitBase:
         at its configured value. Used by single-drug ``fit`` so a pinned
         ``log_c50`` does not assume it is in the optimiser vector.
         """
+        cfg = self._fit_runtime_config()
         try:
-            idx = self.config.fitting_parameters.index(name)
+            idx = cfg.fitting_parameters.index(name)
         except ValueError:
             return float(getattr(self.config, name))
         return float(x[idx])
@@ -237,14 +264,15 @@ class FitBase:
         unpack via ``_get`` / ``_unpack_x`` and already restore fixed values
         themselves. Changing the fallback here does not double-handle them.
         """
+        cfg = self._fit_runtime_config()
         values = {
-            "log_c50": float(self.config.log_c50),
-            "hill": float(self.config.hill),
-            "effect_0": float(self.config.effect_0),
-            "effect_inf": float(self.config.effect_inf),
-            "asymmetry": float(self.config.asymmetry),
+            "log_c50": float(cfg.log_c50),
+            "hill": float(cfg.hill),
+            "effect_0": float(cfg.effect_0),
+            "effect_inf": float(cfg.effect_inf),
+            "asymmetry": float(cfg.asymmetry),
         }
-        for par, v in zip(self.config.fitting_parameters, x):
+        for par, v in zip(cfg.fitting_parameters, x):
             if is_variance_param(par):
                 continue
             values[par] = float(v)
@@ -265,14 +293,15 @@ class FitBase:
         path is handled by the profile-likelihood branch of ``log_prob``.
         """
         from .noise import GaussianLinear, GaussianQuadratic  # avoid cycle at import time
-        if not isinstance(self.config.noise, (GaussianLinear, GaussianQuadratic)):
+        cfg = self._fit_runtime_config()
+        if not isinstance(cfg.noise, (GaussianLinear, GaussianQuadratic)):
             return None
         defaults = {
-            "var_a": float(self.config.var_a),
-            "var_b": float(self.config.var_b),
-            "var_c": float(self.config.var_c),
+            "var_a": float(cfg.var_a),
+            "var_b": float(cfg.var_b),
+            "var_c": float(cfg.var_c),
         }
-        for par, v in zip(self.config.fitting_parameters, x):
+        for par, v in zip(cfg.fitting_parameters, x):
             if is_variance_param(par):
                 defaults[par] = float(v)
         return defaults["var_a"], defaults["var_b"], defaults["var_c"]
@@ -306,7 +335,7 @@ class FitBase:
         only fall back to the neutral ``FitBounds()`` the data-derived scheme
         replaced, silently fitting against the wrong bracket.
         """
-        bounds = self.config.bounds
+        bounds = self._fit_runtime_config().bounds
         if bounds is None:
             raise ValueError(
                 "FitConfig.bounds is None at fit time. bounds=None means "
@@ -321,8 +350,9 @@ class FitBase:
 
     def _log_prior_prob(self, x: np.ndarray) -> float:
         bounds_obj = self._require_bounds()
+        cfg = self._fit_runtime_config()
         penalty = 0.0
-        for par, v in zip(self.config.fitting_parameters, x):
+        for par, v in zip(cfg.fitting_parameters, x):
             bounds = getattr(bounds_obj, par)
             penalty += log_wall(np.array([v]), bounds).sum()
         return -penalty * PRIOR_PENALTY_WEIGHT
@@ -336,8 +366,9 @@ class FitBase:
     def _get_x0_and_bounds(self):
         """Build initial values and bounds arrays from config."""
         bounds_obj = self._require_bounds()
-        x0 = [getattr(self.config, par) for par in self.config.fitting_parameters]
-        bounds = [getattr(bounds_obj, par) for par in self.config.fitting_parameters]
+        cfg = self._fit_runtime_config()
+        x0 = [getattr(cfg, par) for par in cfg.fitting_parameters]
+        bounds = [getattr(bounds_obj, par) for par in cfg.fitting_parameters]
         return x0, bounds
 
     def _scale_param_names(self) -> list[str] | None:
@@ -362,18 +393,19 @@ class FitBase:
         return list(names) if names is not None else None
 
     def _optimizer_response_scale(self) -> float | None:
-        """Response scale for ``parameter_scale``, or ``None`` for non-hetero fits.
+        """Heteroscedastic variance preconditioning during optimisation.
 
-        Constant Gaussian, lognormal, and compound noise must not see
-        ``response_scale`` — that would change asymptote preconditioning on
-        sub-unit data relative to the historical ``parameter_scale(x0, bounds,
-        names)`` path.
+        With internal response normalisation the working responses are O(1), so
+        ``parameter_scale`` always sees ``response_scale=1`` and the old
+        sub-unit asymptote special case is unnecessary.
         """
         noise = getattr(self, "noise", None)
         if noise is None:
             noise = getattr(getattr(self, "config", None), "noise", None)
         if not is_heteroscedastic_gaussian(noise):
             return None
+        if getattr(self, "_work_config", None) is not None:
+            return 1.0
         s = getattr(self, "_response_scale", None)
         if s is None or not np.isfinite(s) or s <= 0:
             return None
@@ -388,6 +420,13 @@ class FitBase:
         # which makes the result depend on the absolute scale of the data.
         # Flooring the scale at 1.0 leaves already-O(1) parameters unchanged.
         x0 = np.asarray(x0, dtype=float)
+        if bounds is not None:
+            # L-BFGS-B clips x0 anyway, but parameter_scale must see the clipped
+            # start: an out-of-bounds initial (e.g. a default effect_0 = 1 on
+            # normalised 1e-6 data) would otherwise set the preconditioning.
+            lo = np.array([-np.inf if b[0] is None else b[0] for b in bounds], dtype=float)
+            hi = np.array([np.inf if b[1] is None else b[1] for b in bounds], dtype=float)
+            x0 = np.clip(x0, lo, hi)
         start_f = self._objective(x0, **kwargs)
 
         def _once(x_start):
@@ -405,7 +444,15 @@ class FitBase:
             def objective_z(z):
                 return self._objective(z * scale, **kwargs)
 
-            res = minimize(objective_z, z0, bounds=z_bounds, method="L-BFGS-B")
+            # Tighter than SciPy's defaults (ftol ≈ 2e-9): variance-coefficient
+            # fits otherwise stop ~0.3 % short, breaking response equivariance.
+            res = minimize(
+                objective_z,
+                z0,
+                bounds=z_bounds,
+                method="L-BFGS-B",
+                options={"ftol": 1e-12, "gtol": 1e-8},
+            )
             x_opt = res.x * scale
             return res, x_opt
 
@@ -419,7 +466,17 @@ class FitBase:
                     f"{res.message}; retried from default variance initials "
                     "after the optimizer stalled at the start"
                 )
+        self._fit_ll_norm = float(self._log_prob_data(x_opt, **kwargs))
         pcov = self._estimate_covariance(x_opt, bounds, **kwargs)
+        s = self._response_norm_factor()
+        if s != 1.0:
+            from .response_norm import denormalize_covariance, denormalize_parameter_vector
+
+            names = self._scale_param_names()
+            if names is not None and len(names) == len(x_opt):
+                if pcov is not None:
+                    pcov = denormalize_covariance(pcov, list(names), s)
+                x_opt = denormalize_parameter_vector(names, x_opt, s)
         return x_opt, res.success, message, pcov
 
     def _should_retry_variance_init(self, res, start_f: float) -> bool:
@@ -441,12 +498,16 @@ class FitBase:
         """Reset variance initials to b = 0, c = 0, a = 1e-3·s² (or 1e-3)."""
         x0 = np.array(x0, dtype=float, copy=True)
         names = self._scale_param_names() or []
-        s = getattr(self, "_response_scale", None)
-        default_a = (
-            _DEFAULT_VAR_A_INIT * float(s) ** 2
-            if s is not None and np.isfinite(s)
-            else _DEFAULT_VAR_A_INIT
-        )
+        if getattr(self, "_work_config", None) is not None:
+            range_scale = 1.0
+        else:
+            s = getattr(self, "_response_scale", None)
+            range_scale = (
+                float(s)
+                if s is not None and np.isfinite(s) and s > 0
+                else 1.0
+            )
+        default_a = _DEFAULT_VAR_A_INIT * range_scale ** 2
         for i, name in enumerate(names):
             if i >= len(x0):
                 break

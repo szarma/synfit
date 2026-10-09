@@ -397,10 +397,17 @@ class SingleDrugFit(FitBase):
         """Evaluate the Hill curve."""
         return hill_curve(conc, **kwargs)
 
+    def _likelihood_y(self) -> np.ndarray:
+        y = self.data["y"].values
+        s = self._response_norm_factor()
+        if s != 1.0:
+            return y / s
+        return y
+
     def _log_prob_data(self, x: np.ndarray, valids: np.ndarray | None = None) -> float:
         kwargs = self._x_to_kwargs(x)
         conc = self.data["concentration"].values
-        y = self.data["y"].values
+        y = self._likelihood_y()
         y_pred = self._curve(conc, kwargs)
         var_params = self._x_to_variance_params(x)
         return noise_log_prob(
@@ -415,7 +422,14 @@ class SingleDrugFit(FitBase):
         """Compute fitted curve predictions for all data points."""
         return _predict(self.data["concentration"].values, result)
 
-    def _compute_gof_metrics(self, result: FitResult, valids: np.ndarray) -> None:
+    def _compute_gof_metrics(
+        self,
+        result: FitResult,
+        valids: np.ndarray,
+        *,
+        fit_scale: float = 1.0,
+        ll_norm: float | None = None,
+    ) -> None:
         conc = self.data["concentration"].values
         y = self.data["y"].values
         y_pred = _predict(conc, result)
@@ -427,27 +441,33 @@ class SingleDrugFit(FitBase):
         r2 = float(1.0 - rss / ss_tot) if ss_tot > 0 else None
 
         # If the variance model fitted (a, b, c) jointly, the log-likelihood
-        # for AIC/BIC must use those — not the constant profiled σ̂. Read
-        # them off the result we just built.
+        # for AIC/BIC must use those — not the constant profiled σ̂.
+        var_tuple = None
         if result.variance_params is not None:
             vp = result.variance_params
             var_tuple = (
-                float(vp.get("a", 0.0)),
-                float(vp.get("b", 0.0)),
-                float(vp.get("c", 0.0)),
+                float(vp.get("a", 0.0)), float(vp.get("b", 0.0)), float(vp.get("c", 0.0)),
             )
-        else:
-            var_tuple = None
 
-        log_like = noise_log_prob(
-            y, y_pred,
-            self.config.noise,
-            mask=valids,
-            variance_params=var_tuple,
-            variance_anchor=variance_anchor_from_asymptotes(
-                result.effect_0, result.effect_inf,
-            ),
-        )
+        if ll_norm is not None:
+            # Report the likelihood the optimiser maximised, shifted to user
+            # units; re-evaluating in user units would hit absolute floors.
+            from .response_norm import count_admitted_likelihood, log_likelihood_user_units
+
+            n_adm = count_admitted_likelihood(
+                y, y_pred, self.config.noise, mask=valids,
+            )
+            log_like = log_likelihood_user_units(ll_norm, n_adm, fit_scale)
+        else:
+            log_like = noise_log_prob(
+                y, y_pred,
+                self.config.noise,
+                mask=valids,
+                variance_params=var_tuple,
+                variance_anchor=variance_anchor_from_asymptotes(
+                    result.effect_0, result.effect_inf,
+                ),
+            )
         n = int(valids.sum())
         k = len(self.config.fitting_parameters)
         # Constant variance is profiled out — its single coefficient still
@@ -491,8 +511,20 @@ class SingleDrugFit(FitBase):
                 f"got {n_valid}."
             )
 
-        x0, bounds = self._get_x0_and_bounds()
-        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
+        from .response_norm import normalized_fit_config, response_scale_from_y
+
+        s = getattr(self, "_forced_response_scale", None)
+        if s is None:
+            s = response_scale_from_y(self.data["y"].values, mask)
+        work = normalized_fit_config(self.config, s)
+        self._enter_response_normalization(s, work_config=work)
+        ll_norm: float | None = None
+        try:
+            x0, bounds = self._get_x0_and_bounds()
+            x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
+            ll_norm = getattr(self, "_fit_ll_norm", None)
+        finally:
+            self._clear_response_normalization()
         kwargs = self._x_to_kwargs(x_opt)
         var_tuple = self._x_to_variance_params(x_opt)
 
@@ -537,9 +569,10 @@ class SingleDrugFit(FitBase):
             variance_params=variance_params,
             param_cov=pcov,
             param_names=list(self.config.fitting_parameters),
+            response_scale=float(s),
         )
 
-        self._compute_gof_metrics(result, mask)
+        self._compute_gof_metrics(result, mask, fit_scale=float(s), ll_norm=ll_norm)
 
         return result
 
@@ -577,8 +610,11 @@ class SingleDrugFitWithError(FitBase):
     def _log_prob_data(self, x: np.ndarray, valids: np.ndarray | None = None) -> float:
         kwargs = self._x_to_kwargs(x)
         conc = self.data["concentration"].values
-        y = self.data["y"].values
+        s = self._response_norm_factor()
+        y = self.data["y"].values / s if s != 1.0 else self.data["y"].values
         y_err = self.data["y_err"].values
+        if s != 1.0:
+            y_err = y_err / s
         y_pred = hill_curve(conc, **kwargs)
         mask = valids
         if mask is None:
@@ -607,8 +643,18 @@ class SingleDrugFitWithError(FitBase):
                 f"got {n_valid}."
             )
 
-        x0, bounds = self._get_x0_and_bounds()
-        x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
+        from .response_norm import normalized_fit_config, response_scale_from_y
+
+        s = getattr(self, "_forced_response_scale", None)
+        if s is None:
+            s = response_scale_from_y(self.data["y"].values, mask)
+        work = normalized_fit_config(self.config, s)
+        self._enter_response_normalization(s, work_config=work)
+        try:
+            x0, bounds = self._get_x0_and_bounds()
+            x_opt, success, message, pcov = self._run_minimize(x0, bounds, valids=mask)
+        finally:
+            self._clear_response_normalization()
         kwargs = self._x_to_kwargs(x_opt)
         log_c50 = self._parameter_value("log_c50", x_opt)
         if "asymmetry" in self.config.fitting_parameters:
@@ -635,4 +681,5 @@ class SingleDrugFitWithError(FitBase):
             variance_model=vm_str,
             param_cov=pcov,
             param_names=list(self.config.fitting_parameters),
+            response_scale=float(s),
         )
