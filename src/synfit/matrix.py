@@ -67,7 +67,13 @@ class MatrixFitResult:
 
 class MatrixFit(FitBase):
     """
-    Fit drug-drug interaction matrix data using Bliss independence.
+    Diagnostic null-model fit: every cell is modelled as Bliss independence.
+
+    This commits to Bliss before any synergy is scored, so it is not the
+    default matrix fitter and its marginals should not feed a Loewe
+    interpretation. Use :class:`~synfit.joint_marginal.JointMarginalFit` to
+    estimate each drug's curve from its single-agent edge without assuming an
+    interaction model.
 
     replicates: list of 2D arrays, each (n_vertical, n_horizontal)
     conc_horizontal: 1D array of horizontal drug concentrations
