@@ -127,6 +127,46 @@ def test_post_construction_pin_on_fitter_config_applies():
     assert result.effect_0 == pytest.approx(pin)
 
 
+@pytest.mark.parametrize("noise", ["gaussian", "lognormal"])
+@pytest.mark.parametrize("fitter_cls", [SingleDrugFit, SingleDrugFitWithError])
+@pytest.mark.parametrize("s", [1.0, 1e3])
+def test_scaled_config_edits_and_refit(fitter_cls, noise, s):
+    """Explicit initials and user-unit bounds survive rescaling across consecutive fits."""
+    base = _synthetic_data()
+    if fitter_cls is SingleDrugFitWithError:
+        base = base.assign(y_err=0.1)
+    scaled = base.assign(y=base["y"] * s)
+    if fitter_cls is SingleDrugFitWithError:
+        scaled = scaled.assign(y_err=base["y_err"] * s)
+
+    caller = FitConfig(
+        noise=noise,
+        log_c50=0.3,
+        hill=1.4,
+        effect_0=0.95,
+        effect_inf=0.04,
+    )
+    before = _caller_snapshot(caller)
+    fitter = fitter_cls(scaled, caller)
+    assert _fit_config_equal(before, caller)
+
+    pin = 0.91 * s
+    fitter.config.fitting_parameters = [
+        p for p in fitter.config.fitting_parameters if p != "effect_0"
+    ]
+    fitter.config.effect_0 = pin
+    tight = (fitter.config.bounds.hill[0] + 0.05, fitter.config.bounds.hill[1] - 0.05)
+    fitter.config.bounds.hill = tight
+
+    r1 = fitter.fit()
+    r2 = fitter.fit()
+    assert r1.success and r2.success
+    assert r1.effect_0 == pytest.approx(pin)
+    assert r2.effect_0 == pytest.approx(pin)
+    assert tight[0] <= r2.hill <= tight[1]
+    assert _fit_config_equal(before, caller)
+
+
 def test_post_construction_bounds_tuple_mutation_applies():
     data = _synthetic_data()
     fitter = SingleDrugFit(data, FitConfig())
