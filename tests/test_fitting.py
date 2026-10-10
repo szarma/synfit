@@ -765,7 +765,9 @@ def test_single_drug_gaussian_linear_nan_concentration_rows_match_drop():
 def _outlier_dose_response():
     """Issue #24: two saturated wells that pull automatic defaults off the curve."""
     conc = np.array([0.01, 0.1, 0.3, 1.0, 3.0, 10.0, 1000.0, 1000.0])
-    response = 1.0 / (1.0 + conc)
+    # Fixed small noise: on an exact curve the profiled sigma collapses towards
+    # zero and L-BFGS-B's convergence flag becomes platform-dependent.
+    response = 1.0 / (1.0 + conc) + np.array([0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0, 0])
     response[-2:] = 5.0
     frame = pd.DataFrame({"concentration": conc, "y": response, "replicate": 0})
     included = np.array([True] * 6 + [False, False])
@@ -809,7 +811,7 @@ def test_valids_heteroscedastic_scale_matches_dropped_rows():
     conc = np.array([
         0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0, 300.0, 1000.0, 1000.0,
     ])
-    response = 1.0 / (1.0 + conc)
+    response = 1.0 / (1.0 + conc) + 0.01 * np.array([1, -1] * 6)
     response[-2:] = 5.0
     frame = pd.DataFrame({"concentration": conc, "y": response, "replicate": 0})
     included = np.array([True] * 10 + [False, False])
