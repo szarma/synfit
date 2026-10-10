@@ -147,8 +147,10 @@ by their accompanying code, see the
 
 ## How the fitting works
 
-Fits run `scipy.optimize.minimize` (L-BFGS-B) in scale-relative coordinates, so
-they are stable across response magnitudes. Parameters are bounded through
+Fits divide the response by its robust range before optimising and report
+everything in your units, so rescaling the data rescales the fit (tested on
+responses from about `1e-9` to `1e3`); `scipy.optimize.minimize` (L-BFGS-B)
+then runs in scale-relative parameter coordinates. Parameters are bounded through
 `FitBounds`: L-BFGS-B enforces box bounds, and the objective also includes a
 `log_wall` penalty that is zero inside the bounds and rises linearly outside
 them. Variance is profiled out of the likelihood

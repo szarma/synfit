@@ -25,6 +25,10 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
   single-drug `FitConfig` / `FitBounds` schema, so they pass explicit
   `self._x0` / `self._bounds` to `_run_minimize` and override `_log_prior_prob`,
   bypassing `_get_x0_and_bounds` / `_x_to_kwargs`. Mirror that for new fitters.
+- `fit()` divides the response by its robust range (`response_norm.py`) and
+  optimises a private normalised config; `fitter.config` and results stay in
+  user units. A new fitter must normalise its data, asymptotes and variance
+  terms the same way, or it loses response-scale equivariance.
 
 ## Gotchas
 
@@ -37,8 +41,9 @@ Fitters subclass `FitBase` and implement `_log_prob_data(x, **kwargs)`;
 3. Preconditioning uses `parameter_scale(x0, bounds)` — unrepresentative `x0`
    with bounds that do not span the true parameter scale can still break
    invariance.
-4. Lognormal noise needs strictly-positive predictions (lower asymptote bound
-   floored at `1e-6`) and supports constant variance only.
+4. Lognormal noise needs strictly-positive observations and predictions
+   (data-derived lower asymptote bounds use `ymin / 100`) and supports constant
+   variance only.
 5. Parameters are direction-neutral: `effect_0` / `effect_inf` are the low- /
    high-concentration asymptotes, `log_c50` is fitted in log space; the
    `direction` field swaps which asymptote is the displayed IC₅₀ / EC₅₀ top.

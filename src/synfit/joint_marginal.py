@@ -83,6 +83,7 @@ class JointMarginalResult:
     # (d = μ − min(top, bottom)). Populated when ``variance_model`` is
     # non-constant; only the coefficients the model actually fits are present.
     variance_params: dict | None = None
+    response_scale: float = field(default=1.0, repr=False)
 
     def plot_synergy(
         self,
@@ -126,10 +127,18 @@ class JointMarginalResult:
             a = float(self.variance_params.get("a", 0.0))
             b = float(self.variance_params.get("b", 0.0))
             c = float(self.variance_params.get("c", 0.0))
+            anchor = variance_anchor_from_asymptotes(self.top, self.bottom)
+            s = float(self.response_scale)
+            if s == 1.0:
+                return variance_at(mu, a, b, c, anchor=anchor)
+            mu_n = mu / s
             return variance_at(
-                mu, a, b, c,
-                anchor=variance_anchor_from_asymptotes(self.top, self.bottom),
-            )
+                mu_n,
+                a / (s * s),
+                b / s,
+                c,
+                anchor=anchor / s,
+            ) * (s * s)
         if self.sigma is not None:
             s = float(self.sigma)
             if self.error_model == "lognormal":
@@ -162,6 +171,7 @@ class JointMarginalResult:
         d = {
             "top": self.top,
             "bottom": self.bottom,
+            "response_scale": self.response_scale,
             "effect_0": self.top,
             "effect_inf": self.bottom,
             "horizontal": self.drug_a.to_dict(),
@@ -604,15 +614,17 @@ class JointMarginalFit(FitBase):
         )
         var_params = self._x_to_variance_params(x)
         anchor = self._variance_anchor(x)
+        ya = getattr(self, "_likelihood_y_a", self.data_a["y"].values)
+        yb = getattr(self, "_likelihood_y_b", self.data_b["y"].values)
         ll_a = noise_log_prob(
-            self.data_a["y"].values, ya_pred,
+            ya, ya_pred,
             self.config.noise,
             mask=mask_a,
             variance_params=var_params,
             variance_anchor=anchor,
         )
         ll_b = noise_log_prob(
-            self.data_b["y"].values, yb_pred,
+            yb, yb_pred,
             self.config.noise,
             mask=mask_b,
             variance_params=var_params,
@@ -622,7 +634,8 @@ class JointMarginalFit(FitBase):
 
     def _log_prior_prob(self, x: np.ndarray) -> float:
         penalty = 0.0
-        for v, bounds in zip(x, self._bounds):
+        bounds_list = getattr(self, "_fit_bounds", self._bounds)
+        for v, bounds in zip(x, bounds_list):
             penalty += log_wall(np.array([v]), bounds).sum()
         return -penalty * PRIOR_PENALTY_WEIGHT
 
@@ -635,9 +648,43 @@ class JointMarginalFit(FitBase):
                 f"got {n_data}."
             )
 
-        x_opt, success, message, pcov = self._run_minimize(
-            self._x0, self._bounds, mask_a=self._mask_a, mask_b=self._mask_b,
+        from .response_norm import (
+            normalize_parameter_vector,
+            normalized_from_user,
+            response_scale_from_y,
+            scale_bound_pair,
         )
+
+        y_pool = np.concatenate([
+            self.data_a.loc[self._mask_a, "y"].to_numpy(),
+            self.data_b.loc[self._mask_b, "y"].to_numpy(),
+        ])
+        s = response_scale_from_y(y_pool)
+        x0 = normalize_parameter_vector(self._param_names, np.asarray(self._x0), s)
+        bounds = [
+            scale_bound_pair(n, b, s) for n, b in zip(self._param_names, self._bounds)
+        ]
+        fixed_user = self._fixed_values
+        fixed_norm = {
+            k: normalized_from_user(k, v, s) for k, v in fixed_user.items()
+        }
+        self._likelihood_y_a = self.data_a["y"].values / s
+        self._likelihood_y_b = self.data_b["y"].values / s
+        self._fit_bounds = bounds
+        self._fixed_values = fixed_norm
+        self._enter_response_normalization(s)
+        ll_norm: float | None = None
+        try:
+            x_opt, success, message, pcov = self._run_minimize(
+                x0, bounds, mask_a=self._mask_a, mask_b=self._mask_b,
+            )
+            ll_norm = getattr(self, "_fit_ll_norm", None)
+        finally:
+            self._fixed_values = fixed_user
+            self._fit_bounds = self._bounds
+            del self._likelihood_y_a
+            del self._likelihood_y_b
+            self._clear_response_normalization()
         p = self._unpack(x_opt)
 
         em_str = error_model_name(self.noise)
@@ -694,6 +741,7 @@ class JointMarginalFit(FitBase):
             sigma=sigma_hat,
             variance_model=vm_str,
             variance_params=variance_params,
+            response_scale=float(s),
         )
         drug_b = FitResult(
             c50=p["c50_b"], log_c50=p["log_c50_b"],
@@ -705,9 +753,31 @@ class JointMarginalFit(FitBase):
             sigma=sigma_hat,
             variance_model=vm_str,
             variance_params=variance_params,
+            response_scale=float(s),
         )
 
-        log_like = float(self._log_prob_data(x_opt))
+        from .response_norm import count_admitted_likelihood, log_likelihood_user_units
+
+        y_joint = np.concatenate([self.data_a["y"].values, self.data_b["y"].values])
+        y_pred_joint = np.concatenate([ya_pred, yb_pred])
+        mask_joint = np.concatenate([self._mask_a, self._mask_b])
+        var_tuple = None
+        if variance_params is not None:
+            var_tuple = (
+                float(variance_params.get("a", 0.0)),
+                float(variance_params.get("b", 0.0)),
+                float(variance_params.get("c", 0.0)),
+            )
+        if ll_norm is not None:
+            n_adm = count_admitted_likelihood(
+                y_joint,
+                y_pred_joint,
+                self.config.noise,
+                mask=mask_joint,
+            )
+            log_like = log_likelihood_user_units(ll_norm, n_adm, s)
+        else:
+            log_like = float(self._log_prob_data(x_opt))
         aic = float(-2.0 * log_like + 2.0 * n_params)
 
         return JointMarginalResult(
@@ -727,6 +797,7 @@ class JointMarginalFit(FitBase):
             sigma=sigma_hat,
             variance_model=vm_str,
             variance_params=variance_params,
+            response_scale=float(s),
         )
 
 

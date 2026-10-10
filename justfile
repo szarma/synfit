@@ -45,6 +45,10 @@ generate-seed-data:
 check-seed-data:
     uv run python scripts/generate_seed_datasets.py --check
 
+# Regenerate tests/data/response_baseline.json after intentional output changes
+update-response-baseline:
+    uv run python scripts/update_response_baseline.py --write
+
 # Show available commands
 help:
     @just --list

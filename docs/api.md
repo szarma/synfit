@@ -138,6 +138,7 @@ Use strictly positive responses and predictions for lognormal fits.
 | `param_cov`, `param_names` | Covariance and its row/column parameter order; covariance can be `None` |
 | `sigma` | Profiled constant-noise standard deviation: response units for Gaussian, natural-log response units for lognormal |
 | `variance_params` | Fitted heteroscedastic coefficients under keys `a`, `b`, optionally `c`; otherwise `None` |
+| `response_scale` | The factor the fit divided responses by before optimising (also in `to_dict()`); `predict_variance` uses it |
 | `param_ci(alpha=0.05)` | Dictionary of parameter intervals, or `None` without covariance |
 | `predict_ci(conc, alpha=0.05)` | `(lower, upper)` arrays for the fitted curve, or `None` |
 | `predict_variance(mu)` | Observation variance at predicted responses `mu`, in response units squared, or `None` |

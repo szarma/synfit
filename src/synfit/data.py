@@ -301,6 +301,9 @@ class FitResult:
     param_cov: np.ndarray | None = field(default=None, repr=False)
     # Names of the fitted parameters (index into param_cov)
     param_names: list | None = field(default=None, repr=False)
+    # The fit divided responses by this before optimising; predict_variance
+    # needs it to apply the variance floor where the fit did.
+    response_scale: float = field(default=1.0, repr=False)
 
     def predict_variance(self, mu: np.ndarray | float) -> np.ndarray | None:
         """σ²(μ) for this fit given a predicted response.
@@ -321,7 +324,17 @@ class FitResult:
             b = float(self.variance_params.get("b", 0.0))
             c = float(self.variance_params.get("c", 0.0))
             anchor = variance_anchor_from_asymptotes(self.effect_0, self.effect_inf)
-            return variance_at(mu, a, b, c, anchor=anchor)
+            s = float(self.response_scale)
+            if s == 1.0:
+                return variance_at(mu, a, b, c, anchor=anchor)
+            mu_n = mu / s
+            return variance_at(
+                mu_n,
+                a / (s * s),
+                b / s,
+                c,
+                anchor=anchor / s,
+            ) * (s * s)
         if self.sigma is not None:
             s = float(self.sigma)
             if self.error_model == "lognormal":
@@ -515,6 +528,7 @@ class FitResult:
             "aic": self.aic,
             "bic": self.bic,
             "n_params": self.n_params,
+            "response_scale": self.response_scale,
             "asymmetry": self.asymmetry,
             "direction": self.direction,
             "error_model": self.error_model,
