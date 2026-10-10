@@ -15,6 +15,16 @@ heading.
 
 ## [Unreleased]
 
+### Fixed
+- **Points excluded with `fit(valids=...)` no longer set automatic single-drug
+  defaults.** `SingleDrugFit` and `SingleDrugFitWithError` used to derive
+  starting values, bounds, and (for heteroscedastic noise) the response scale
+  from every finite row, including rows the likelihood then ignored. Those
+  defaults now follow the rows that enter the fit. Initials and bounds you
+  pass in, or edit on `fitter.config` before `fit()`, are left as you set
+  them. Fits that exclude points and rely on automatic defaults move: a
+  **MINOR** change (#24).
+
 ## [0.10.0] — 2026-10-10
 
 Fits now normalise the response internally, so they no longer depend on the

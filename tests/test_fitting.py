@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -758,3 +760,183 @@ def test_single_drug_gaussian_linear_nan_concentration_rows_match_drop():
         np.testing.assert_allclose(
             getattr(r_bad, name), getattr(r_drop, name), rtol=1e-9, atol=1e-12,
         )
+
+
+def _outlier_dose_response():
+    """Issue #24: two saturated wells that pull automatic defaults off the curve."""
+    conc = np.array([0.01, 0.1, 0.3, 1.0, 3.0, 10.0, 1000.0, 1000.0])
+    # Fixed small noise: on an exact curve the profiled sigma collapses towards
+    # zero and L-BFGS-B's convergence flag becomes platform-dependent.
+    response = 1.0 / (1.0 + conc) + np.array([0.01, -0.01, 0.01, -0.01, 0.01, -0.01, 0, 0])
+    response[-2:] = 5.0
+    frame = pd.DataFrame({"concentration": conc, "y": response, "replicate": 0})
+    included = np.array([True] * 6 + [False, False])
+    return frame, included
+
+
+def _assert_curve_matches(masked, dropped):
+    assert masked.n_valid == dropped.n_valid
+    assert masked.success == dropped.success
+    for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "response_scale"):
+        np.testing.assert_allclose(
+            getattr(masked, name), getattr(dropped, name), rtol=1e-9, atol=1e-12,
+        )
+
+
+@pytest.mark.parametrize("fitter_cls", [SingleDrugFit, SingleDrugFitWithError])
+def test_valids_outliers_match_dropped_rows(fitter_cls):
+    """Rows excluded by fit(valids=...) must not move automatic c50."""
+    frame, included = _outlier_dose_response()
+    if fitter_cls is SingleDrugFitWithError:
+        frame = frame.assign(y_err=0.05)
+    dropped = frame.loc[included].reset_index(drop=True)
+    masked_fit = fitter_cls(frame)
+    dropped_fit = fitter_cls(dropped)
+    # Defaults are still resolved at construction, before valids exists.
+    assert abs(float(masked_fit.config.log_c50) - float(dropped_fit.config.log_c50)) > 0.1
+    result_masked = masked_fit.fit(valids=included)
+    result_dropped = dropped_fit.fit()
+    _assert_curve_matches(result_masked, result_dropped)
+    assert result_masked.success
+    assert result_masked.c50 == pytest.approx(1.0, abs=0.05)
+    assert masked_fit.config.log_c50 == pytest.approx(dropped_fit.config.log_c50)
+    assert masked_fit.config.effect_0 == pytest.approx(dropped_fit.config.effect_0)
+    assert masked_fit.config.effect_inf == pytest.approx(dropped_fit.config.effect_inf)
+    assert masked_fit.config.bounds == dropped_fit.config.bounds
+
+
+def test_valids_heteroscedastic_scale_matches_dropped_rows():
+    # Linear noise adds two variance parameters, so the included curve needs
+    # more than the six wells in the constant-noise reproduction.
+    conc = np.array([
+        0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0, 300.0, 1000.0, 1000.0,
+    ])
+    response = 1.0 / (1.0 + conc) + 0.01 * np.array([1, -1] * 6)
+    response[-2:] = 5.0
+    frame = pd.DataFrame({"concentration": conc, "y": response, "replicate": 0})
+    included = np.array([True] * 10 + [False, False])
+    dropped = frame.loc[included].reset_index(drop=True)
+    noise = GaussianLinear()
+    masked_fit = SingleDrugFit(frame, FitConfig(noise=noise))
+    dropped_fit = SingleDrugFit(dropped, FitConfig(noise=noise))
+    result_masked = masked_fit.fit(valids=included)
+    result_dropped = dropped_fit.fit()
+    _assert_curve_matches(result_masked, result_dropped)
+    assert masked_fit._response_scale == pytest.approx(dropped_fit._response_scale)
+    assert masked_fit.config.noise.a_init == pytest.approx(dropped_fit.config.noise.a_init)
+    assert masked_fit.config.bounds.var_a == dropped_fit.config.bounds.var_a
+    assert masked_fit.config.bounds.var_b == dropped_fit.config.bounds.var_b
+    for key in result_dropped.variance_params:
+        assert result_masked.variance_params[key] == pytest.approx(
+            result_dropped.variance_params[key], rel=1e-9, abs=1e-12,
+        )
+
+
+def test_unmasked_fit_does_not_rewrite_automatic_config():
+    data = _synthetic_data()
+    fitter = SingleDrugFit(data)
+    before = copy.deepcopy(fitter.config)
+    fitter.fit()
+    assert fitter.config.log_c50 == before.log_c50
+    assert fitter.config.effect_0 == before.effect_0
+    assert fitter.config.effect_inf == before.effect_inf
+    assert fitter.config.bounds == before.bounds
+    assert fitter.config.noise == before.noise
+
+
+def test_explicit_config_survives_valids_that_would_change_defaults():
+    frame, included = _outlier_dose_response()
+    caller = FitConfig(
+        log_c50=-0.3,
+        hill=1.4,
+        effect_0=0.8,
+        effect_inf=0.2,
+        bounds=FitBounds(
+            log_c50=(-2.0, 2.0),
+            hill=(0.5, 3.0),
+            effect_0=(0.4, 1.2),
+            effect_inf=(0.0, 0.5),
+        ),
+    )
+    before = copy.deepcopy(caller)
+    fitter = SingleDrugFit(frame, caller)
+    config_before = copy.deepcopy(fitter.config)
+    fitter.fit(valids=included)
+    assert caller.log_c50 == before.log_c50
+    assert caller.bounds == before.bounds
+    assert fitter.config.log_c50 == config_before.log_c50
+    assert fitter.config.hill == config_before.hill
+    assert fitter.config.effect_0 == config_before.effect_0
+    assert fitter.config.effect_inf == config_before.effect_inf
+    assert fitter.config.bounds == config_before.bounds
+
+
+def test_post_construction_edits_survive_valids_and_other_defaults_follow_mask():
+    frame, included = _outlier_dose_response()
+    dropped = frame.loc[included].reset_index(drop=True)
+    fitter = SingleDrugFit(frame)
+    fitter.config.log_c50 = -0.7
+    fitter.config.bounds.hill = (0.5, 3.0)
+    fitter.fit(valids=included)
+    dropped_fit = SingleDrugFit(dropped)
+    assert fitter.config.log_c50 == -0.7
+    assert fitter.config.bounds.hill == (0.5, 3.0)
+    # Untouched asymptote bounds still follow the included rows.
+    assert fitter.config.bounds.effect_0 == dropped_fit.config.bounds.effect_0
+    assert fitter.config.bounds.effect_inf == dropped_fit.config.bounds.effect_inf
+    assert fitter.config.effect_0 == pytest.approx(dropped_fit.config.effect_0)
+    assert fitter.config.effect_inf == pytest.approx(dropped_fit.config.effect_inf)
+
+
+def test_with_error_explicit_initial_kept_and_automatic_bounds_follow_mask():
+    frame, included = _outlier_dose_response()
+    frame = frame.assign(y_err=0.05)
+    dropped = frame.loc[included].reset_index(drop=True)
+    caller = FitConfig(log_c50=-0.4)
+    fitter = SingleDrugFitWithError(frame, caller)
+    fitter.fit(valids=included)
+    dropped_fit = SingleDrugFitWithError(dropped, FitConfig(log_c50=-0.4))
+    assert caller.log_c50 == -0.4
+    assert caller.bounds is None
+    assert fitter.config.log_c50 == -0.4
+    assert fitter.config.bounds == dropped_fit.config.bounds
+
+
+def test_explicit_variance_initial_not_reclamped_when_valids_changes_scale():
+    data = pd.DataFrame({
+        "concentration": [0, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000.0],
+        "y": [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0],
+        "replicate": 0,
+    })
+    fitter = SingleDrugFit(
+        data, FitConfig(noise=GaussianLinear(a_init=1.5e-12, b_init=0.0)),
+    )
+    a_init = fitter.config.noise.a_init
+    b_init = fitter.config.noise.b_init
+    valids = np.ones(len(data), dtype=bool)
+    valids[0] = False
+    fitter.fit(valids=valids)
+    assert fitter.config.noise.a_init == a_init
+    assert fitter.config.noise.b_init == b_init
+    assert a_init < 4e-12  # the included-row floor would have raised this
+
+
+def test_later_unmasked_fit_restores_defaults_from_all_finite_rows():
+    frame, included = _outlier_dose_response()
+    fitter = SingleDrugFit(frame)
+    original = fitter.config.log_c50
+    fitter.fit(valids=included)
+    assert abs(fitter.config.log_c50 - original) > 0.1
+    fitter.fit()
+    assert fitter.config.log_c50 == pytest.approx(original)
+
+
+def test_valids_zero_response_range_raises_like_dropped_rows():
+    conc = np.array([0.01, 0.1, 0.3, 1.0, 3.0, 10.0, 1000.0, 1000.0])
+    response = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 5.0, 9.0])
+    frame = pd.DataFrame({"concentration": conc, "y": response, "replicate": 0})
+    included = np.array([True] * 6 + [False, False])
+    with pytest.raises(ValueError, match="too close together"):
+        SingleDrugFit(frame).fit(valids=included)
+    with pytest.raises(ValueError, match="too close together"):
+        SingleDrugFit(frame.loc[included].reset_index(drop=True))
