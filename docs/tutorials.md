@@ -190,7 +190,8 @@ print("Weighted potency:", result.c50, "Estimated variance coefficients:", linea
   parameters or gather plateau measurements when the curve is poorly covered.
 - Non-finite concentrations/responses are excluded. Single-drug `n_valid` and
   `n_total` report effective observations and input rows. An optional Boolean
-  `valids` mask excludes additional observations; preserve its row alignment.
+  `valids` mask excludes additional observations from the likelihood and from
+  automatic starting values and bounds; preserve its row alignment.
   Included concentrations must be nonnegative, and included `y_err` must be
   positive and finite. Too few effective observations raises `ValueError`.
 - Keep replicate observations for marginal fitting. Do not replace missing

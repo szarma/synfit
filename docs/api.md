@@ -118,10 +118,12 @@ the goodness-of-fit metrics or estimate an additional noise scale.
 
 `valids` is a Boolean array aligned with input rows. Non-finite concentration
 or response is excluded regardless of that mask. A fit requires at least
-`number of free parameters + 1` valid observations. The mask passed to
-`.fit()` does not retroactively exclude points from constructor-derived
-initials and bounds; prefilter the DataFrame if they must not influence those.
-Use strictly positive responses and predictions for lognormal fits.
+`number of free parameters + 1` valid observations. Automatic starting values
+and bounds are taken from the rows that enter the fit, so points excluded by
+`valids` do not shape them. For heteroscedastic noise, the response scale
+used to place variance coefficients is taken from those same rows. Values
+set on `config`, or edited on `fitter.config` before `.fit()`, stay as you
+left them. Use strictly positive responses and predictions for lognormal fits.
 
 ## Fit results and uncertainty
 

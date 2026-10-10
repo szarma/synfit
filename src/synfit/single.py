@@ -311,6 +311,143 @@ def default_bounds(
     ).bounds
 
 
+# FitBounds fields a mask-time refresh may replace one at a time.
+_BOUND_FIELDS = (
+    "log_c50", "hill", "effect_0", "effect_inf", "asymmetry",
+    "var_a", "var_b", "var_c",
+)
+
+
+def _bounds_field_values(bounds: FitBounds) -> dict[str, tuple]:
+    return {name: getattr(bounds, name) for name in _BOUND_FIELDS}
+
+
+def _store_auto_config(
+    fitter,
+    data: pd.DataFrame,
+    initials: dict[str, float],
+    bounds: dict[str, tuple] | None,
+    noise: NoiseSpec | None,
+    noise_template: NoiseSpec | None,
+) -> None:
+    """Remember which defaults ``fit()`` may replace once ``valids`` is known."""
+    fitter._auto_initials = initials
+    fitter._auto_bounds = bounds
+    fitter._auto_noise = noise
+    fitter._auto_noise_template = noise_template
+    if initials or bounds or noise is not None:
+        fitter._auto_mask = effective_observation_mask(
+            None,
+            len(data),
+            data["concentration"].values,
+            data["y"].values,
+        ).copy()
+    else:
+        fitter._auto_mask = None
+
+
+def _noise_respecting_explicit_initials(
+    template: NoiseSpec | None,
+    derived: NoiseSpec,
+    stored: NoiseSpec,
+) -> NoiseSpec:
+    """Take derived variance initials, but keep ones the caller supplied.
+
+    ``stored`` is the value after the original response-scale clamp. Clamping
+    an explicit initial again at the included-row scale would change it.
+    Initials that were omitted (``None`` on ``template``) follow ``derived``.
+    """
+    if template is None or not is_heteroscedastic_gaussian(template):
+        return derived
+    if not isinstance(derived, type(stored)):
+        return derived
+    initials: dict[str, float] = {}
+    for key, attr in (("var_a", "a_init"), ("var_b", "b_init"), ("var_c", "c_init")):
+        if not hasattr(template, attr):
+            continue
+        source = derived if getattr(template, attr) is None else stored
+        initials[key] = float(getattr(source, attr))
+    return noise_spec_with_variance_initials(derived, initials)
+
+
+def _refresh_automatic_config(fitter, mask: np.ndarray) -> None:
+    """Re-derive automatic defaults from the rows ``mask`` keeps.
+
+    Construction still fills a concrete config from every finite row, so
+    callers can read and edit ``fitter.config`` before ``fit()``. ``valids``
+    exists only as a ``fit()`` argument. Each field this fitter filled in
+    itself is replaced from the included rows when the caller has not changed
+    it since; an edit to one bound leaves the other bounds free to follow the
+    mask. Explicit constructor values stay. Remembered values are updated
+    afterwards, so a later ``fit()`` with a different mask — including a call
+    with no mask — refreshes those same fields from that call's rows.
+    """
+    if not (
+        fitter._auto_initials
+        or fitter._auto_bounds
+        or fitter._auto_noise is not None
+    ):
+        return
+    if fitter._auto_mask is not None and np.array_equal(mask, fitter._auto_mask):
+        return
+
+    noise_still_auto = (
+        fitter._auto_noise is not None
+        and fitter.config.noise == fitter._auto_noise
+    )
+    initials_still_auto = [
+        name for name, saved in fitter._auto_initials.items()
+        if getattr(fitter.config, name) == saved
+    ]
+    bounds = fitter.config.bounds
+    bounds_still_auto: list[str] = []
+    if fitter._auto_bounds and bounds is not None:
+        bounds_still_auto = [
+            name for name, saved in fitter._auto_bounds.items()
+            if getattr(bounds, name) == saved
+        ]
+    if not (noise_still_auto or initials_still_auto or bounds_still_auto):
+        return
+
+    # The stored noise already has concrete variance initials. Deriving from
+    # the original spec keeps omitted initials data-driven at the new scale.
+    derive_noise = (
+        fitter._auto_noise_template if noise_still_auto else fitter.config.noise
+    )
+    included = fitter.data.iloc[np.flatnonzero(np.asarray(mask, dtype=bool))]
+    included = included.reset_index(drop=True)
+    auto = _init_config_from_data(
+        included, direction=fitter.config.direction, noise=derive_noise,
+    )
+
+    new_initials = dict(fitter._auto_initials)
+    for name in initials_still_auto:
+        new_initials[name] = getattr(auto, name)
+        setattr(fitter.config, name, new_initials[name])
+    fitter._auto_initials = new_initials
+
+    if bounds_still_auto and bounds is not None:
+        new_bounds = dict(fitter._auto_bounds)
+        for name in bounds_still_auto:
+            new_bounds[name] = getattr(auto.bounds, name)
+            setattr(bounds, name, new_bounds[name])
+        fitter._auto_bounds = new_bounds
+        if (
+            getattr(fitter, "_response_scale", None) is not None
+            and all(name in bounds_still_auto for name in ("var_a", "var_b", "var_c"))
+        ):
+            y = np.asarray(fitter.data["y"].values, dtype=float)
+            fitter._response_scale = _robust_response_range(y[np.asarray(mask, dtype=bool)])
+
+    if noise_still_auto:
+        fitter.config.noise = _noise_respecting_explicit_initials(
+            fitter._auto_noise_template, auto.noise, fitter._auto_noise,
+        )
+        fitter._auto_noise = fitter.config.noise
+
+    fitter._auto_mask = np.array(mask, dtype=bool, copy=True)
+
+
 def _predict(conc: np.ndarray, result: FitResult) -> np.ndarray:
     """Compute model predictions from a FitResult."""
     return hill_curve(
@@ -332,8 +469,19 @@ class SingleDrugFit(FitBase):
         if not {"concentration", "y", "replicate"}.issubset(data.columns):
             raise ValueError("data must have columns: concentration, y, replicate")
         self.data = data
+        auto_initials: dict[str, float] = {}
+        auto_bounds: dict[str, tuple] | None = None
+        auto_noise: NoiseSpec | None = None
+        auto_noise_template: NoiseSpec | None = None
         if config is None:
             config = _init_config_from_data(data)
+            auto_initials = {
+                "log_c50": config.log_c50,
+                "effect_0": config.effect_0,
+                "effect_inf": config.effect_inf,
+            }
+            auto_bounds = _bounds_field_values(config.bounds)
+            auto_noise = config.noise
         else:
             require_supported_single_drug_fitting_noise(config.noise)
             config = config.copy()
@@ -346,7 +494,9 @@ class SingleDrugFit(FitBase):
             # derived bounds — deriving bounds while leaving the historical
             # zero-point initials can otherwise strand the optimiser in a poor
             # basin. Explicitly-supplied bounds are always honoured literally
-            # (no equality-based override).
+            # (no equality-based override). Fields recorded below are the ones
+            # ``fit()`` may re-derive from the rows ``valids`` keeps.
+            user_noise = config.noise
             if config.direction != "inhibition" or config.bounds is None:
                 auto = _init_config_from_data(
                     data, direction=config.direction, noise=config.noise,
@@ -360,16 +510,22 @@ class SingleDrugFit(FitBase):
                     and "log_c50" in config.fitting_parameters
                 ):
                     config.log_c50 = auto.log_c50
+                    auto_initials["log_c50"] = config.log_c50
                 if config.effect_0 == 1.0 and config.effect_inf == 0.0:
                     if "effect_0" in config.fitting_parameters:
                         config.effect_0 = auto.effect_0
+                        auto_initials["effect_0"] = config.effect_0
                     if "effect_inf" in config.fitting_parameters:
                         config.effect_inf = auto.effect_inf
+                        auto_initials["effect_inf"] = config.effect_inf
                 if config.bounds is None:
                     config.bounds = auto.bounds
                     # Data-derived variance bounds/initials (user-given
                     # a_init/b_init/c_init are already overlaid in auto.noise).
                     config.noise = auto.noise
+                    auto_bounds = _bounds_field_values(config.bounds)
+                    auto_noise = config.noise
+                    auto_noise_template = user_noise
         validate_direction(config.direction)
         if is_heteroscedastic_gaussian(config.noise):
             finite = effective_observation_mask(
@@ -386,6 +542,15 @@ class SingleDrugFit(FitBase):
             )
         else:
             apply_variance_coefficient_domain(config)
+        # Domain clamping runs after the snapshot above; remember the values
+        # that are actually on the config.
+        if auto_bounds is not None and config.bounds is not None:
+            auto_bounds = _bounds_field_values(config.bounds)
+        if auto_noise is not None:
+            auto_noise = config.noise
+        _store_auto_config(
+            self, data, auto_initials, auto_bounds, auto_noise, auto_noise_template,
+        )
         if not config.fitting_parameters:
             raise ValueError(
                 "At least one parameter must be listed in fitting_parameters — "
@@ -495,7 +660,11 @@ class SingleDrugFit(FitBase):
 
     def fit(self, valids: np.ndarray | None = None) -> FitResult:
         """
-        Fit the Hill curve. Optionally pass a boolean array to exclude points.
+        Fit the Hill curve.
+
+        ``valids`` excludes rows from the likelihood and from automatic
+        initials, bounds, and the heteroscedastic response scale. Values set
+        on ``config``, or edited on this fitter's config afterwards, are kept.
         """
         mask = effective_observation_mask(
             valids,
@@ -510,6 +679,7 @@ class SingleDrugFit(FitBase):
                 f"Need at least {n_params + 1} valid data points for {n_params} free parameters; "
                 f"got {n_valid}."
             )
+        _refresh_automatic_config(self, mask)
 
         from .response_norm import normalized_fit_config, response_scale_from_y
 
@@ -588,18 +758,32 @@ class SingleDrugFitWithError(FitBase):
         if not {"concentration", "y", "y_err"}.issubset(data.columns):
             raise ValueError("data must have columns: concentration, y, y_err")
         self.data = data
+        auto_initials: dict[str, float] = {}
+        auto_bounds: dict[str, tuple] | None = None
+        auto_noise: NoiseSpec | None = None
         if config is None:
             cfg = _init_config_from_data(data)
+            auto_initials = {
+                "log_c50": cfg.log_c50,
+                "effect_0": cfg.effect_0,
+                "effect_inf": cfg.effect_inf,
+            }
+            auto_bounds = _bounds_field_values(cfg.bounds)
+            auto_noise = cfg.noise
         else:
             cfg = config.copy()
         require_supported_single_drug_with_error_fitting_noise(cfg.noise)
         validate_direction(cfg.direction)
         # Honour the bounds=None "derive from data" signal (FitBase readers
         # dereference config.bounds.<param>, so it must be concrete by fit time).
+        # A caller-supplied config does not have its initials replaced — only
+        # missing bounds — matching the historical constructor.
         if cfg.bounds is None:
             cfg.bounds = _init_config_from_data(
                 data, direction=cfg.direction, noise=cfg.noise,
             ).bounds
+            auto_bounds = _bounds_field_values(cfg.bounds)
+        _store_auto_config(self, data, auto_initials, auto_bounds, auto_noise, None)
         if not cfg.fitting_parameters:
             raise ValueError(
                 "At least one parameter must be listed in fitting_parameters — "
@@ -627,6 +811,13 @@ class SingleDrugFitWithError(FitBase):
         )
 
     def fit(self, valids: np.ndarray | None = None) -> FitResult:
+        """
+        Fit the Hill curve.
+
+        ``valids`` excludes rows from the likelihood and from automatic
+        initials and bounds. Values set on ``config``, or edited on this
+        fitter's config afterwards, are kept.
+        """
         mask = effective_observation_mask(
             valids,
             len(self.data),
@@ -642,6 +833,7 @@ class SingleDrugFitWithError(FitBase):
                 f"Need at least {n_params + 1} valid data points for {n_params} free parameters; "
                 f"got {n_valid}."
             )
+        _refresh_automatic_config(self, mask)
 
         from .response_norm import normalized_fit_config, response_scale_from_y
 
