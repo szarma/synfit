@@ -15,6 +15,12 @@ heading.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-10
+
+Fits now normalise the response internally, so they no longer depend on the
+unit the response is recorded in. This moves fitted values, slightly at
+ordinary scales and substantially for small responses: a **MINOR** change.
+
 ### Fixed
 - Fits on small responses (robust range around `1e-3` or below) stopped early
   while reporting success — e.g. a lognormal c50 off by 40 %. Every fitter now
