@@ -544,7 +544,8 @@ def compare_baseline_snapshots(reference: dict, current: dict) -> list[str]:
         if rc.get("fingerprint") != cc.get("fingerprint"):
             issues.append(prefix + "input fingerprint changed")
         issues.extend(
-            _compare_nested(rc["to_dict"], cc["to_dict"], prefix + "to_dict.", rtol=5e-4, atol=1e-7)
+            # atol: to_dict() rounds to 6 decimals (#62), so 1e-6 is its resolution.
+            _compare_nested(rc["to_dict"], cc["to_dict"], prefix + "to_dict.", rtol=5e-4, atol=1e-6)
         )
         pc_r, pc_c = rc.get("param_ci"), cc.get("param_ci")
         if (pc_r is None) ^ (pc_c is None):
@@ -627,18 +628,25 @@ def config_fingerprint(case: ScaleFitCase) -> dict:
     else:
         reps, ch, cv = data
         payload["noise"] = case.noise
-        payload["data_hash"] = hashlib.sha256(
-            np.concatenate([r.ravel() for r in reps]).tobytes()
-            + ch.tobytes()
-            + cv.tobytes(),
-        ).hexdigest()
+        payload["data_hash"] = _values_hash(
+            np.concatenate([np.ravel(r) for r in (*reps, ch, cv)])
+        )
     return payload
 
 
+def _values_hash(values) -> str:
+    """Hash at 10 significant digits: generated inputs differ in the last bits
+    across NumPy builds, which must not count as an input change."""
+    text = ",".join(f"{v:.9e}" for v in np.asarray(values, dtype=float).ravel())
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 def _df_hash(df: pd.DataFrame) -> str:
-    return hashlib.sha256(
-        pd.util.hash_pandas_object(df, index=True).values.tobytes()
-    ).hexdigest()
+    numeric = df.select_dtypes("number")
+    rest = df.drop(columns=numeric.columns)
+    return _values_hash(numeric.to_numpy()) + hashlib.sha256(
+        pd.util.hash_pandas_object(rest, index=True).values.tobytes()
+    ).hexdigest()[:16]
 
 
 def runtime_versions() -> dict[str, str]:

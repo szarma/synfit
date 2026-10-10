@@ -4,8 +4,8 @@
       "case_id": "joint_gaussian_constant",
       "fingerprint": {
         "case_id": "joint_gaussian_constant",
-        "data_hash_a": "6ff3f98ec316f6059e46da647452de44b1aaa4ed221cf823f71b9f148151433f",
-        "data_hash_b": "f29a11d146b7986feed343133f9e59d23bb4a2427859ccbf9484c02e4b5f243f",
+        "data_hash_a": "17e04b41978a64cae785548dbcd7140e685a03c8d78a14a122c16c7c55b3ca451c2683ddd89dda46",
+        "data_hash_b": "f5ac6c214c8d34f37119f4bc70c96d61720dc97d2ddeabe6efa159dce5701c3e1c2683ddd89dda46",
         "kind": "joint",
         "noise": "gaussian_constant"
       },
@@ -213,8 +213,8 @@
       "case_id": "joint_gaussian_linear",
       "fingerprint": {
         "case_id": "joint_gaussian_linear",
-        "data_hash_a": "2cc668b585db2f1ef07fe615f9b96bed13bdbfa1d80c2315948beccc01c22f01",
-        "data_hash_b": "bf44eabddf21c24fd659ecac9269652a89b8e69cd144af42330f192991bf29b7",
+        "data_hash_a": "b5a312edcc6ed2fc63c7040012ae105a43434d187d66ceca6e998f23243d24112ac04f392a49a6e5",
+        "data_hash_b": "5d6c65432fc72a9d446cc6e50983e868f286461bb516b8f5855d70095a48297d2ac04f392a49a6e5",
         "kind": "joint",
         "noise": "gaussian_linear"
       },
@@ -465,8 +465,8 @@
       "case_id": "joint_gaussian_quadratic",
       "fingerprint": {
         "case_id": "joint_gaussian_quadratic",
-        "data_hash_a": "5bb97c3ec33af7ad859540a875602acf53ff0bdf68df935ad2fed1aa5c357dbd",
-        "data_hash_b": "5e3cb3846ef9738976f2081a693cc01a2330122256cbf8a6f65ae9130970183d",
+        "data_hash_a": "1ede79c26f6a39be763d47f1f9f92e95b9098d8a52e0118a4140a017db7703e32ac04f392a49a6e5",
+        "data_hash_b": "d25e2ef8e390ee1785f3fa7ad01b07a8baf6e1b3fbc42d27aa710df3ef797db32ac04f392a49a6e5",
         "kind": "joint",
         "noise": "gaussian_quadratic"
       },
@@ -740,8 +740,8 @@
       "case_id": "joint_lognormal",
       "fingerprint": {
         "case_id": "joint_lognormal",
-        "data_hash_a": "6ff3f98ec316f6059e46da647452de44b1aaa4ed221cf823f71b9f148151433f",
-        "data_hash_b": "f29a11d146b7986feed343133f9e59d23bb4a2427859ccbf9484c02e4b5f243f",
+        "data_hash_a": "17e04b41978a64cae785548dbcd7140e685a03c8d78a14a122c16c7c55b3ca451c2683ddd89dda46",
+        "data_hash_b": "f5ac6c214c8d34f37119f4bc70c96d61720dc97d2ddeabe6efa159dce5701c3e1c2683ddd89dda46",
         "kind": "joint",
         "noise": "lognormal"
       },
@@ -949,7 +949,7 @@
       "case_id": "matrix_gaussian",
       "fingerprint": {
         "case_id": "matrix_gaussian",
-        "data_hash": "7553d4addb29d28726038690149618fae27539095f266c6c50f4762baff6fcfd",
+        "data_hash": "56faeba488d7637b6805f63b66c3599a514e8137775bf2f84f6a2f182be60941",
         "kind": "matrix",
         "noise": "gaussian"
       },
@@ -1108,7 +1108,7 @@
       "case_id": "matrix_lognormal",
       "fingerprint": {
         "case_id": "matrix_lognormal",
-        "data_hash": "7553d4addb29d28726038690149618fae27539095f266c6c50f4762baff6fcfd",
+        "data_hash": "56faeba488d7637b6805f63b66c3599a514e8137775bf2f84f6a2f182be60941",
         "kind": "matrix",
         "noise": "lognormal"
       },
@@ -1271,7 +1271,7 @@
           "direction": "inhibition",
           "noise": "gaussian_constant"
         },
-        "data_hash": "713aa80a324732480c271ffe6ee92b2f4f121a9b13b5c2d588246f069e2e7735",
+        "data_hash": "2bccc928e19b7601252aa978be3cfe4ad78acbdb159f161741933e3672bb72411c2683ddd89dda46",
         "kind": "single_with_error"
       },
       "param_ci": {
@@ -1423,7 +1423,7 @@
           "direction": "inhibition",
           "noise": "lognormal"
         },
-        "data_hash": "713aa80a324732480c271ffe6ee92b2f4f121a9b13b5c2d588246f069e2e7735",
+        "data_hash": "2bccc928e19b7601252aa978be3cfe4ad78acbdb159f161741933e3672bb72411c2683ddd89dda46",
         "kind": "single_with_error"
       },
       "param_ci": {
@@ -1575,7 +1575,7 @@
           "direction": "inhibition",
           "noise": "gaussian_constant"
         },
-        "data_hash": "c1128790f52c8de8d4a0d60fe590ac8c2cfee7360ec540d738b3f441459bad3a",
+        "data_hash": "f20cf9ac5e36b207473b8cd59d41a03880e472ee214f70144f50eef82df64bfa1c2683ddd89dda46",
         "kind": "single"
       },
       "param_ci": {
@@ -1727,7 +1727,7 @@
           "direction": "inhibition",
           "noise": "gaussian_linear"
         },
-        "data_hash": "40e81d786a1b04aadb6476047d497dc91b573455e839d74f5f526c19bba607b9",
+        "data_hash": "b9bc7b927c026d5264537f81f6b2340367129452dcc69f5e0d7b7d2fc70deebf9c6c0cb9d96d1b88",
         "kind": "single"
       },
       "param_ci": {
@@ -1924,7 +1924,7 @@
           "direction": "inhibition",
           "noise": "gaussian_quadratic"
         },
-        "data_hash": "a8a770042d7e251531e2bb817afec73cdb8b76c1258f87b3999bae79d249fa25",
+        "data_hash": "3b2aeb97b29957c702490499a92384187fbd642c13b70d86b036fb7dc0c96fcd9c6c0cb9d96d1b88",
         "kind": "single"
       },
       "param_ci": {
@@ -2146,7 +2146,7 @@
           "direction": "activation",
           "noise": "lognormal"
         },
-        "data_hash": "d8ef13415b012c6c6cb1e2fd6d74995b6061ab50bdbf835e760d180be4819544",
+        "data_hash": "51eb39603d4f1738393e803da386106e840f73d3fd1ae50e14d3fa6f2a1bf2d61c2683ddd89dda46",
         "kind": "single"
       },
       "param_ci": {
@@ -2298,7 +2298,7 @@
           "direction": "inhibition",
           "noise": "lognormal"
         },
-        "data_hash": "c1128790f52c8de8d4a0d60fe590ac8c2cfee7360ec540d738b3f441459bad3a",
+        "data_hash": "f20cf9ac5e36b207473b8cd59d41a03880e472ee214f70144f50eef82df64bfa1c2683ddd89dda46",
         "kind": "single"
       },
       "param_ci": {
