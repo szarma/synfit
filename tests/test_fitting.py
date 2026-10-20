@@ -740,6 +740,83 @@ def test_single_drug_fit_with_error_invalid_y_err_on_excluded_row_ignored():
         )
 
 
+def test_lognormal_explicit_bounds_nonpositive_response_raises():
+    d = pd.read_csv(scenario_dir("single_drug_noisy") / "single_drug_noisy.csv")
+    bounds = SingleDrugFit(d, FitConfig(direction="inhibition", noise="lognormal")).config.bounds
+    d = d.copy()
+    d.loc[3, "y"] = 0.0
+    fitter = SingleDrugFit(d, FitConfig(direction="inhibition", noise="lognormal", bounds=bounds))
+    with pytest.raises(ValueError, match=r"data.*y <= 0.*valids"):
+        fitter.fit()
+
+
+def test_lognormal_nonpositive_excluded_via_valids_fits():
+    d = pd.read_csv(scenario_dir("single_drug_noisy") / "single_drug_noisy.csv")
+    bounds = SingleDrugFit(d, FitConfig(direction="inhibition", noise="lognormal")).config.bounds
+    d = d.copy()
+    bad_row = 3
+    d.loc[bad_row, "y"] = 0.0
+    valids = np.ones(len(d), dtype=bool)
+    valids[bad_row] = False
+    result = SingleDrugFit(
+        d, FitConfig(direction="inhibition", noise="lognormal", bounds=bounds),
+    ).fit(valids=valids)
+    assert result.success
+    assert result.n_valid == int(valids.sum())
+
+
+def test_lognormal_data_derived_defaults_zero_excluded_via_valids_matches_drop():
+    d = pd.read_csv(scenario_dir("single_drug_noisy") / "single_drug_noisy.csv")
+    d = d.copy()
+    bad_row = 3
+    d.loc[bad_row, "y"] = 0.0
+    valids = np.ones(len(d), dtype=bool)
+    valids[bad_row] = False
+    masked = SingleDrugFit(d, FitConfig(direction="inhibition", noise="lognormal")).fit(valids=valids)
+    dropped = SingleDrugFit(d.drop(index=bad_row), FitConfig(direction="inhibition", noise="lognormal")).fit()
+    assert masked.success and dropped.success
+    # #59 is about the counts and BIC agreeing with the likelihood, so compare
+    # those as well as every fitted parameter and the covariance.
+    assert masked.n_valid == dropped.n_valid == int(valids.sum())
+    for name in ("c50", "hill", "effect_0", "effect_inf", "sigma",
+                 "log_likelihood", "aic", "bic"):
+        assert getattr(masked, name) == pytest.approx(getattr(dropped, name), rel=1e-9), name
+    np.testing.assert_allclose(masked.param_cov, dropped.param_cov, rtol=1e-7)
+
+
+def test_lognormal_data_derived_defaults_nonpositive_included_raises_at_fit():
+    d = pd.read_csv(scenario_dir("single_drug_noisy") / "single_drug_noisy.csv")
+    d = d.copy()
+    d.loc[3, "y"] = 0.0
+    # Construction must succeed (defaults come from the positive rows); the
+    # rejection belongs to fit(), where the mask is known.
+    fitter = SingleDrugFit(d, FitConfig(direction="inhibition", noise="lognormal"))
+    with pytest.raises(ValueError, match=r"data.*y <= 0"):
+        fitter.fit()
+
+
+def test_lognormal_with_error_data_derived_defaults_zero_excluded_via_valids_fits():
+    d = pd.read_csv(scenario_dir("single_drug_noisy") / "single_drug_noisy.csv")
+    d = d.copy()
+    d["y_err"] = 0.02
+    bad_row = 3
+    d.loc[bad_row, "y"] = 0.0
+    valids = np.ones(len(d), dtype=bool)
+    valids[bad_row] = False
+    result = SingleDrugFitWithError(d, FitConfig(direction="inhibition", noise="lognormal")).fit(valids=valids)
+    assert result.success
+    assert result.n_valid == int(valids.sum())
+
+
+def test_lognormal_with_error_nonpositive_included_raises():
+    df = _synthetic_data(noise_model="lognormal", noise_sigma_log=0.05)
+    df = df.copy()
+    df["y_err"] = 0.02
+    df.loc[0, "y"] = -0.01
+    with pytest.raises(ValueError, match=r"data.*y <= 0"):
+        SingleDrugFitWithError(df, FitConfig(direction="inhibition", noise="lognormal")).fit()
+
+
 @pytest.mark.parametrize("bad_err", [np.nan, 0.0, -0.01])
 def test_single_drug_fit_with_error_invalid_y_err_on_included_row_raises(bad_err):
     conc, y = _case_ab_conc_y()

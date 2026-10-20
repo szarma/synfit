@@ -9,7 +9,12 @@ from .data import (
     apply_variance_coefficient_domain,
     variance_anchor_from_asymptotes,
 )
-from .fitting import FitBase, effective_observation_mask, validate_included_y_err
+from .fitting import (
+    FitBase,
+    effective_observation_mask,
+    validate_included_y_err,
+    validate_lognormal_included_responses,
+)
 from .hill import hill_curve
 from .noise import (
     Lognormal,
@@ -155,6 +160,21 @@ def _init_config_from_data(
             "got 0."
         )
 
+    if isinstance(noise, Lognormal):
+        positive = data["y"].to_numpy() > 0
+        if not positive.any():
+            raise ValueError(
+                "Need at least one strictly positive response to derive lognormal "
+                "fit defaults."
+            )
+        if positive.sum() < len(data):
+            data = data.loc[positive]
+        if len(data) < 2:
+            raise ValueError(
+                "Need at least 2 strictly positive responses to derive lognormal "
+                f"fit defaults; got {len(data)}."
+            )
+
     y = data["y"]
     conc_nonzero = data.query("concentration > 0")["concentration"]
 
@@ -177,11 +197,6 @@ def _init_config_from_data(
         )
 
     if isinstance(noise, Lognormal):
-        # Feasibility is about the *actual* responses, not the robust extreme:
-        # a single non-positive y breaks the lognormal likelihood, so check the
-        # true minimum (not the second-smallest ``ymin`` used for the bounds).
-        if float(y.min()) <= 0:
-            raise ValueError("Cannot fit lognormal with non-positive responses.")
         bottom_lo = ymin / 100
         top_hi = ymax * 10
     else:  # gaussian
@@ -665,6 +680,12 @@ class SingleDrugFit(FitBase):
             self.data["concentration"].values,
             self.data["y"].values,
         )
+        validate_lognormal_included_responses(
+            self.config.noise,
+            self.data["y"].values,
+            mask,
+            data_name="data",
+        )
         n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
@@ -806,6 +827,12 @@ class SingleDrugFitWithError(FitBase):
             len(self.data),
             self.data["concentration"].values,
             self.data["y"].values,
+        )
+        validate_lognormal_included_responses(
+            self.config.noise,
+            self.data["y"].values,
+            mask,
+            data_name="data",
         )
         validate_included_y_err(self.data["y_err"].values, mask)
         self._likelihood_mask = mask

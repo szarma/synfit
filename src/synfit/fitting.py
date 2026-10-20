@@ -71,6 +71,39 @@ def validate_included_y_err(y_err: np.ndarray, mask: np.ndarray) -> None:
         )
 
 
+def validate_lognormal_included_responses(
+    noise,
+    y: np.ndarray,
+    mask: np.ndarray,
+    *,
+    data_name: str,
+) -> None:
+    """Raise if lognormal noise would drop any included response (y <= 0)."""
+    from .noise import Lognormal
+
+    if not isinstance(noise, Lognormal):
+        return
+    resp = np.asarray(y, dtype=float).ravel()
+    obs = np.asarray(mask, dtype=bool).ravel()
+    if obs.shape != resp.shape:
+        raise ValueError(
+            f"Observation mask length {obs.shape[0]} does not match "
+            f"response length {resp.shape[0]}."
+        )
+    included = np.flatnonzero(obs)
+    if included.size == 0:
+        return
+    nonpos = included[resp[included] <= 0]
+    if nonpos.size == 0:
+        return
+    n = int(nonpos.size)
+    raise ValueError(
+        f"Lognormal noise requires strictly positive responses in {data_name}; "
+        f"{n} included observation(s) have y <= 0. "
+        "Exclude those rows with valids or use a Gaussian noise model."
+    )
+
+
 def matrix_observation_masks(
     replicates: list[np.ndarray],
     valids: list[np.ndarray] | None,

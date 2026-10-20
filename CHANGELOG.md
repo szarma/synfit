@@ -25,6 +25,17 @@ heading.
   unchanged.
 
 ### Fixed
+- **Lognormal fits reject non-positive responses on every path.** When bounds
+  were supplied explicitly, non-positive included responses were dropped from the
+  likelihood but still counted in `n_valid` and BIC. All lognormal fitters now
+  raise a `ValueError` when fitting if any included observation has `y <= 0`:
+  at `fit()` for `SingleDrugFit`, `SingleDrugFitWithError` and
+  `JointMarginalFit`, and already at construction for a `MatrixFit`
+  single-agent edge, because `MatrixFit` fits its edges when constructed.
+  Rows excluded with `valids` may be non-positive. Data-derived defaults use
+  the finite positive rows, which must still meet the usual count and
+  response-range requirements. Use Gaussian noise if zeros or negatives should
+  enter the fit (#59).
 - **Exported confidence intervals keep full precision.** `FitResult.to_dict()`
   and the per-drug intervals of `JointMarginalResult.to_dict()` rounded
   interval endpoints to 6 decimals, so intervals on small numbers serialised as

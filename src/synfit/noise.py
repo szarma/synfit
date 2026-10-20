@@ -631,7 +631,12 @@ def _coerce_noise_arg(
     return spec
 
 
-def _transform(y: np.ndarray, y_pred: np.ndarray, noise: NoiseSpec):
+def _transform(
+    y: np.ndarray,
+    y_pred: np.ndarray,
+    noise: NoiseSpec,
+    mask: np.ndarray | None = None,
+):
     """Apply the error-model transform to observations and predictions.
 
     For ``Lognormal``, non-positive values become ``NaN`` rather than being
@@ -639,7 +644,8 @@ def _transform(y: np.ndarray, y_pred: np.ndarray, noise: NoiseSpec):
     them from the likelihood and Jacobian-correction sums, so the result is
     AIC-comparable to gaussian instead of being inflated by spurious
     ``log(1e-12)`` terms. A ``UserWarning`` surfaces the dropped count once
-    per call so the user can decide whether to switch noise model.
+    per call so the user can decide whether to switch noise model; rows
+    outside ``mask`` are already excluded and are not counted.
 
     Not used for ``add_mult`` — the compound likelihood operates on the
     original scale and dispatches separately in ``log_prob``.
@@ -649,7 +655,8 @@ def _transform(y: np.ndarray, y_pred: np.ndarray, noise: NoiseSpec):
         # data condition. Non-positive *predictions* happen transiently when
         # the optimiser explores parameter regions where the model dips below
         # zero; warning every iteration would swamp the user.
-        n_bad_y = int(np.sum(y <= 0))
+        included = np.ones(len(y), dtype=bool) if mask is None else mask
+        n_bad_y = int(np.sum((y <= 0) & included))
         if n_bad_y:
             warnings.warn(
                 f"Lognormal error model: dropping {n_bad_y} non-positive "
@@ -756,7 +763,7 @@ def fit_noise_scale(
         mask = np.ones(len(y), dtype=bool)
     mask = np.asarray(mask, dtype=bool)
 
-    y_t, y_pred_t = _transform(y, y_pred, spec)
+    y_t, y_pred_t = _transform(y, y_pred, spec, mask)
     residuals = (y_t - y_pred_t)[mask]
     residuals = residuals[np.isfinite(residuals)]
     if residuals.size == 0:
@@ -906,7 +913,7 @@ def log_prob(
         mask = np.ones(len(y), dtype=bool)
     mask = np.asarray(mask, dtype=bool)
 
-    y_t, y_pred_t = _transform(y, y_pred, spec)
+    y_t, y_pred_t = _transform(y, y_pred, spec, mask)
 
     y_t_m = y_t[mask]
     y_pred_t_m = y_pred_t[mask]
