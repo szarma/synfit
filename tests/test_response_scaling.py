@@ -23,7 +23,7 @@ from tests.response_scaling_helpers import (
 
 
 def _noisy_config(noise: str) -> FitConfig:
-    return FitConfig(noise="lognormal") if noise == "lognormal" else FitConfig()
+    return FitConfig(direction="inhibition", noise="lognormal") if noise == "lognormal" else FitConfig(direction="inhibition")
 
 
 def _noisy_data():

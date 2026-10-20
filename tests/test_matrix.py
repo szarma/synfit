@@ -12,7 +12,13 @@ from tests.helpers import matrix_from_config
 def independent_fit(request):
     noise_model, error_model = request.param
     replicates, conc_hor, conc_ver = matrix_from_config(seed=42, noise_model=noise_model)
-    fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model=error_model)
+    fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model=error_model)
     return fitter.fit()
 
 
@@ -65,11 +71,24 @@ def test_matrix_fit_nan_edge_well_excluded_from_likelihood_and_edge_prefit():
     edge_col = 3
     rep_nan = [r.copy() for r in replicates]
     rep_nan[0][0, edge_col] = np.nan
-    fit_nan = MatrixFit(rep_nan, conc_hor, conc_ver, error_model="gaussian").fit()
+    fit_nan = MatrixFit(
+        rep_nan,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="gaussian",
+    ).fit()
 
     valids = [np.ones(r.shape, dtype=bool) for r in replicates]
     valids[0][0, edge_col] = False
-    fit_mask = MatrixFit(replicates, conc_hor, conc_ver, valids=valids, error_model="gaussian").fit()
+    fit_mask = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        valids=valids, error_model="gaussian").fit()
 
     n_hor_edge = len(conc_hor) * len(replicates)
     assert fit_nan.horizontal.n_valid == n_hor_edge - 1
@@ -88,13 +107,27 @@ def test_matrix_fit_non_finite_concentration_row_excluded_like_drop():
     conc_ver_bad = conc_ver.copy()
     conc_ver_bad[bad_row] = np.nan
 
-    fitter_bad = MatrixFit(replicates, conc_hor, conc_ver_bad, error_model="gaussian")
+    fitter_bad = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver_bad,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="gaussian",
+    )
     fit_bad = fitter_bad.fit()
 
     keep = np.ones(len(conc_ver), dtype=bool)
     keep[bad_row] = False
     rep_drop = [r[keep, :] for r in replicates]
-    fitter_drop = MatrixFit(rep_drop, conc_hor, conc_ver[keep], error_model="gaussian")
+    fitter_drop = MatrixFit(
+        rep_drop,
+        conc_hor,
+        conc_ver[keep],
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="gaussian",
+    )
     fit_drop = fitter_drop.fit()
 
     n_matrix_cells = sum(r.size for r in replicates)
@@ -120,33 +153,63 @@ def test_matrix_fit_non_finite_concentration_row_excluded_like_drop():
 def test_matrix_fit_valids_wrong_replicate_count_raises():
     replicates, conc_hor, conc_ver = matrix_from_config(seed=1)
     with pytest.raises(ValueError, match="one mask per replicate"):
-        MatrixFit(replicates, conc_hor, conc_ver, valids=[np.ones(replicates[0].shape, dtype=bool)])
+        MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        valids=[np.ones(replicates[0].shape, dtype=bool)])
 
 
 class TestMatrixFitEdgeCases:
     def test_with_valids(self):
         replicates, conc_hor, conc_ver = matrix_from_config()
         valids = [np.ones(r.shape, dtype=bool) for r in replicates]
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, valids=valids, error_model="lognormal")
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        valids=valids, error_model="lognormal")
         result = fitter.fit()
         assert result.success
 
     @pytest.mark.parametrize("error_model", ["gaussian", "lognormal"])
     def test_error_model_propagated_to_edge_fits(self, error_model):
         replicates, conc_hor, conc_ver = matrix_from_config()
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model=error_model)
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model=error_model)
         assert fitter.synfit_hor.config.error_model == error_model
         assert fitter.synfit_ver.config.error_model == error_model
 
     def test_synergy_scenario_succeeds(self):
         replicates, conc_hor, conc_ver = matrix_from_config(synergy_factor=1.5, seed=99)
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="lognormal")
         result = fitter.fit()
         assert result.success
 
     def test_no_zero_edge_warns_and_succeeds(self):
         replicates, conc_hor, conc_ver = matrix_from_config(has_zero=False)
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="lognormal")
         assert fitter.zero_edge_missing
         result = fitter.fit()
         assert result.success
@@ -166,7 +229,13 @@ class TestMatrixSharedAsymptoteBounds:
         floored strictly positive (the old code hardcoded it to 0.0, which let
         the Bliss surface bottom out at zero and break the likelihood)."""
         replicates, conc_hor, conc_ver = matrix_from_config(noise_model="lognormal")
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="lognormal")
         effect_inf_bounds = fitter._bounds[5]
         assert effect_inf_bounds[0] > 0.0
 
@@ -175,7 +244,13 @@ class TestMatrixSharedAsymptoteBounds:
         extend at or below zero — proving the floor is lognormal-specific, not a
         blanket clamp."""
         replicates, conc_hor, conc_ver = matrix_from_config(noise_model="gaussian")
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="gaussian")
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="gaussian")
         effect_inf_bounds = fitter._bounds[5]
         assert effect_inf_bounds[0] <= 0.0
 
@@ -183,7 +258,13 @@ class TestMatrixSharedAsymptoteBounds:
         """Each shared asymptote bound is the (min lo, max hi) merge of the two
         edge configs' same-named bound — the JointMarginalFit-style derivation."""
         replicates, conc_hor, conc_ver = matrix_from_config(noise_model="lognormal")
-        fitter = MatrixFit(replicates, conc_hor, conc_ver, error_model="lognormal")
+        fitter = MatrixFit(
+        replicates,
+        conc_hor,
+        conc_ver,
+        direction_horizontal="inhibition",
+        direction_vertical="inhibition",
+        error_model="lognormal")
         hor, ver = fitter.synfit_hor.config.bounds, fitter.synfit_ver.config.bounds
         assert fitter._bounds[4] == (
             min(hor.effect_0[0], ver.effect_0[0]),

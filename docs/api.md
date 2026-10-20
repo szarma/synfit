@@ -53,9 +53,9 @@ Import `FitConfig`, `FitBounds`, `default_fit_config` and `default_bounds` from
 ```text
 FitConfig(log_c50=0.0, hill=1.0, effect_0=1.0, effect_inf=0.0,
           fitting_parameters=None, bounds=None, noise=None,
-          asymmetry=1.0, direction="inhibition")
-default_fit_config(data, direction="inhibition", noise=None) -> FitConfig
-default_bounds(data, direction="inhibition", noise=None) -> FitBounds
+          asymmetry=1.0, *, direction)
+default_fit_config(data, *, direction, noise=None) -> FitConfig
+default_bounds(data, *, direction, noise=None) -> FitBounds
 ```
 
 `log_c50` is **log10** concentration. The default free parameter list is
@@ -65,7 +65,8 @@ only to estimated parameters: a pin is not clipped to its corresponding bounds.
 At least one free parameter is required. Gaussian variance coefficients are
 added automatically when the selected noise model requires them.
 
-`direction` is exactly `"inhibition"` or `"activation"`. It controls default
+`direction` is required and must be exactly `"inhibition"` or `"activation"`.
+It controls default
 asymptote placement and IC50/EC50 reporting. `noise=None` selects constant
 Gaussian noise. Pass a noise object, tagged dictionary, or kind string; see
 [noise models](#noise-models).
@@ -96,10 +97,10 @@ conditioning; it cannot compensate for bounds excluding the appropriate scale.
 Import both classes from `synfit`. [Source](../src/synfit/single.py)
 
 ```text
-SingleDrugFit(data, config=None)
+SingleDrugFit(data, config)
     .fit(valids=None) -> FitResult
     .predict(result) -> ndarray
-SingleDrugFitWithError(data, config=None)
+SingleDrugFitWithError(data, config)
     .fit(valids=None) -> FitResult
 ```
 
@@ -169,17 +170,17 @@ Import from `synfit.joint_marginal`, not the top-level namespace.
 [Source](../src/synfit/joint_marginal.py)
 
 ```text
-JointMarginalFit(data_a, data_b, *, model_a="4p", model_b="4p",
-                 direction_a="inhibition", direction_b="inhibition",
+JointMarginalFit(data_a, data_b, *, direction_a, direction_b,
+                 model_a="4p", model_b="4p",
                  noise=None, param_config=None, valids_a=None, valids_b=None)
     .fit() -> JointMarginalResult
 JointMarginalFit.from_matrix(replicates, conc_horizontal, conc_vertical, *,
+                             direction_a, direction_b,
                              model_a="4p", model_b="4p",
-                             direction_a="inhibition", direction_b="inhibition",
                              noise=None, param_config=None, valids=None)
     -> JointMarginalFit
-default_joint_marginal_config(data_a, data_b, *, model_a="4p", model_b="4p",
-                              direction_a="inhibition", direction_b="inhibition",
+default_joint_marginal_config(data_a, data_b, *, direction_a, direction_b,
+                              model_a="4p", model_b="4p",
                               noise=None) -> dict
 ```
 
@@ -240,8 +241,8 @@ Import `MatrixFit` from `synfit`; its result type lives in `synfit.matrix`.
 [Source](../src/synfit/matrix.py)
 
 ```text
-MatrixFit(replicates, conc_horizontal, conc_vertical, valids=None, noise=None,
-          direction_horizontal="inhibition", direction_vertical="inhibition")
+MatrixFit(replicates, conc_horizontal, conc_vertical, valids=None, *,
+          direction_horizontal, direction_vertical, noise=None)
     .fit() -> MatrixFitResult
 ```
 

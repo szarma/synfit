@@ -15,6 +15,15 @@ heading.
 
 ## [Unreleased]
 
+### Changed
+- **`direction` is now required.** `FitConfig`, `default_fit_config`,
+  `default_bounds`, `JointMarginalFit` and `MatrixFit` no longer default to
+  inhibition, and `SingleDrugFit` / `SingleDrugFitWithError` require a config.
+  Fitting activation data without setting the direction used to return a flat
+  fit pinned at its bounds while reporting success. Add
+  `direction="inhibition"` to keep the old behaviour. Fitted values are
+  unchanged.
+
 ### Fixed
 - **Exported confidence intervals keep full precision.** `FitResult.to_dict()`
   and the per-drug intervals of `JointMarginalResult.to_dict()` rounded

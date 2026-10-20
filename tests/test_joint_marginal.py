@@ -37,8 +37,12 @@ def test_from_matrix_matches_fit_of_distinct_edge_wells(noise, zero_last):
         "y": reps[:, :, zero_h][:, cv > 0].ravel(),
         "replicate": np.repeat(np.arange(len(reps)), len(cv) - 1),
     })
-    expected = JointMarginalFit(data_a, data_b, noise=noise).fit()
-    fitter = JointMarginalFit.from_matrix(reps, ch, cv, noise=noise)
+    expected = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise).fit()
+    fitter = JointMarginalFit.from_matrix(
+        reps, ch, cv,
+        direction_a="inhibition", direction_b="inhibition",
+        noise=noise,
+    )
     result = fitter.fit()
 
     assert result.success and expected.success
@@ -62,11 +66,18 @@ def test_from_matrix_exclusions_apply_to_wells_without_mutating_the_mask():
     valids[2, 3, 0] = False  # vertical edge
     valids[0, 2, 2] = False  # interior: never enters the marginal fit
     original = valids.copy()
-    masked = JointMarginalFit.from_matrix(reps, ch, cv, valids=valids).fit()
+    masked = JointMarginalFit.from_matrix(
+        reps, ch, cv,
+        direction_a="inhibition", direction_b="inhibition",
+        valids=valids,
+    ).fit()
     missing = reps.copy()
     missing[~valids] = np.nan
     missing[:, 1:, 1:] = 1000  # combination responses must not affect this fit
-    omitted = JointMarginalFit.from_matrix(missing, ch, cv).fit()
+    omitted = JointMarginalFit.from_matrix(
+        missing, ch, cv,
+        direction_a="inhibition", direction_b="inhibition",
+    ).fit()
 
     np.testing.assert_array_equal(valids, original)
     assert masked.success and omitted.success
@@ -78,13 +89,26 @@ def test_from_matrix_exclusions_apply_to_wells_without_mutating_the_mask():
 def test_from_matrix_requires_single_agent_edges_and_matching_shapes():
     reps, ch, cv = matrix_from_config()
     with pytest.raises(ValueError, match="zero dose"):
-        JointMarginalFit.from_matrix(reps, ch + 1, cv)
+        JointMarginalFit.from_matrix(
+            reps, ch + 1, cv,
+            direction_a="inhibition", direction_b="inhibition",
+        )
     with pytest.raises(ValueError, match="zero dose"):
-        JointMarginalFit.from_matrix(reps, np.zeros_like(ch), cv)
+        JointMarginalFit.from_matrix(
+            reps, np.zeros_like(ch), cv,
+            direction_a="inhibition", direction_b="inhibition",
+        )
     with pytest.raises(ValueError, match="replicates must have shape"):
-        JointMarginalFit.from_matrix(np.asarray(reps)[:, :-1, :], ch, cv)
+        JointMarginalFit.from_matrix(
+            np.asarray(reps)[:, :-1, :], ch, cv,
+            direction_a="inhibition", direction_b="inhibition",
+        )
     with pytest.raises(ValueError, match="valids must have the same shape"):
-        JointMarginalFit.from_matrix(reps, ch, cv, valids=np.ones((len(cv), len(ch))))
+        JointMarginalFit.from_matrix(
+            reps, ch, cv,
+            direction_a="inhibition", direction_b="inhibition",
+            valids=np.ones((len(cv), len(ch))),
+        )
 
 
 def _two_drug_data(
@@ -116,7 +140,7 @@ def _two_drug_data(
 
 def test_joint_fit_recovers_shared_top_bottom_4p():
     data_a, data_b = _two_drug_data()
-    fitter = JointMarginalFit(data_a, data_b)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     result = fitter.fit()
 
     assert result.success
@@ -135,7 +159,7 @@ def test_joint_fit_recovers_shared_top_bottom_4p():
 
 def test_joint_fit_mixed_4p_5p():
     data_a, data_b = _two_drug_data()
-    fitter = JointMarginalFit(data_a, data_b, model_a="4p", model_b="5p")
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="4p", model_b="5p")
     result = fitter.fit()
 
     assert result.success
@@ -153,7 +177,7 @@ def test_joint_fit_mixed_4p_5p():
 
 def test_joint_fit_covariance_shape():
     data_a, data_b = _two_drug_data()
-    fitter = JointMarginalFit(data_a, data_b)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     result = fitter.fit()
 
     # 4p + 4p: 2 shared + 2 + 2 = 6 params
@@ -165,7 +189,7 @@ def test_joint_fit_covariance_shape():
 def test_joint_fit_populates_shared_sigma():
     """σ̂ is pooled across both drugs and stamped onto each per-drug FitResult."""
     data_a, data_b = _two_drug_data()
-    fitter = JointMarginalFit(data_a, data_b)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     result = fitter.fit()
 
     assert result.sigma is not None
@@ -181,7 +205,7 @@ def test_joint_fit_shared_top_differs_from_independent_fits():
     """Sanity check: when the two drugs have different noise realisations,
     sharing top/bottom yields a single pair of asymptotes (not two)."""
     data_a, data_b = _two_drug_data(seed_a=1, seed_b=999)
-    fitter = JointMarginalFit(data_a, data_b)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     result = fitter.fit()
 
     assert result.drug_a.effect_0 == result.drug_b.effect_0
@@ -199,7 +223,7 @@ def test_joint_fit_validates_columns():
         "noise_model": "gaussian", "noise_sigma": 0.01,
     })
     with pytest.raises(ValueError, match="columns"):
-        JointMarginalFit(bad, good)
+        JointMarginalFit(bad, good, direction_a="inhibition", direction_b="inhibition")
 
 
 def test_joint_fit_mixed_directions_activator_and_inhibitor():
@@ -253,7 +277,7 @@ def test_joint_fit_honours_fixed_top():
     parameters by one and leave ``top`` exactly where we pinned it."""
     data_a, data_b = _two_drug_data()
     fitter = JointMarginalFit(
-        data_a, data_b,
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
         param_config={"top": {"init": TOP, "fit": False}},
     )
     result = fitter.fit()
@@ -273,7 +297,7 @@ def test_joint_fit_honours_fixed_per_drug_hill():
     """Fixing one drug's hill leaves the other drugs' params free."""
     data_a, data_b = _two_drug_data(hill_a=1.5)
     fitter = JointMarginalFit(
-        data_a, data_b,
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
         param_config={"hill_a": {"init": 1.5, "fit": False}},
     )
     result = fitter.fit()
@@ -291,7 +315,7 @@ def test_joint_fit_all_fixed_raises():
         for name in ("top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b")
     }
     with pytest.raises(ValueError, match="fit=True"):
-        JointMarginalFit(data_a, data_b, param_config=full_fixed)
+        JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", param_config=full_fixed)
 
 
 def test_joint_fit_auto_picks_lognormal_for_multiplicative_noise():
@@ -301,7 +325,9 @@ def test_joint_fit_auto_picks_lognormal_for_multiplicative_noise():
     to favour lognormal; at very low σ both models fit similarly well.
     """
     data_a, data_b = _two_drug_data(noise_model="lognormal", noise_sigma=0.2)
-    result = fit_joint_marginal_auto(data_a, data_b)
+    result = fit_joint_marginal_auto(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
+    )
 
     assert result.success
     assert result.error_model == "lognormal"
@@ -312,7 +338,9 @@ def test_joint_fit_auto_picks_lognormal_for_multiplicative_noise():
 
 def test_joint_fit_auto_picks_gaussian_for_additive_noise():
     data_a, data_b = _two_drug_data(noise_model="gaussian", noise_sigma=0.02)
-    result = fit_joint_marginal_auto(data_a, data_b)
+    result = fit_joint_marginal_auto(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
+    )
 
     assert result.success
     assert result.error_model == "gaussian"
@@ -320,7 +348,7 @@ def test_joint_fit_auto_picks_gaussian_for_additive_noise():
 
 def test_joint_fit_aic_populated():
     data_a, data_b = _two_drug_data()
-    fitter = JointMarginalFit(data_a, data_b)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     result = fitter.fit()
 
     assert result.aic is not None
@@ -332,7 +360,7 @@ def test_joint_fit_aic_populated():
 def test_joint_fit_rejects_bad_model():
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match="4p"):
-        JointMarginalFit(data_a, data_b, model_a="6p")
+        JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="6p")
 
 
 # ───────────────────── Variance models ──────────────────────
@@ -363,7 +391,7 @@ def _two_drug_hetero_data(a: float, b: float = 0.0, c: float = 0.0):
 def test_joint_fit_constant_variance_default_unchanged():
     """variance_model defaults to constant — sigma populated, variance_params None."""
     data_a, data_b = _two_drug_data()
-    result = JointMarginalFit(data_a, data_b).fit()
+    result = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition").fit()
     assert result.variance_model == "constant"
     assert result.variance_params is None
     assert result.sigma is not None
@@ -378,7 +406,7 @@ def test_joint_fit_linear_variance_recovers_coefficients():
     a_true, b_true = 1e-4, 0.02
     data_a, data_b = _two_drug_hetero_data(a=a_true, b=b_true)
     result = JointMarginalFit(
-        data_a, data_b, variance_model="linear",
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", variance_model="linear",
     ).fit()
 
     assert result.success
@@ -398,7 +426,7 @@ def test_joint_fit_quadratic_variance_recovers_coefficients():
     c_true = 0.04  # constant CV ≈ 0.2
     data_a, data_b = _two_drug_hetero_data(a=0.0, b=0.0, c=c_true)
     result = JointMarginalFit(
-        data_a, data_b, variance_model="quadratic",
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", variance_model="quadratic",
     ).fit()
 
     assert result.success
@@ -414,14 +442,18 @@ def test_joint_fit_lognormal_with_non_constant_rejected():
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match="gaussian"):
         JointMarginalFit(
-            data_a, data_b, error_model="lognormal", variance_model="linear",
+            data_a, data_b, direction_a="inhibition", direction_b="inhibition", error_model="lognormal", variance_model="linear",
         )
 
 
 def test_joint_fit_auto_skips_lognormal_under_non_constant_variance():
     """Auto path must not attempt lognormal when variance_model is non-constant."""
     data_a, data_b = _two_drug_hetero_data(a=1e-4, b=0.02)
-    result = fit_joint_marginal_auto(data_a, data_b, variance_model="linear")
+    result = fit_joint_marginal_auto(
+        data_a, data_b,
+        direction_a="inhibition", direction_b="inhibition",
+        variance_model="linear",
+    )
     assert result.error_model == "gaussian"
     assert result.variance_model == "linear"
 
@@ -431,7 +463,7 @@ def test_joint_fit_to_dict_ci_c50_from_unrounded_log_c50_small_concentrations():
     data_a, data_b = _two_drug_data()
     data_a = data_a.assign(concentration=data_a.concentration * 1e-9)
     data_b = data_b.assign(concentration=data_b.concentration * 1e-9)
-    result = JointMarginalFit(data_a, data_b).fit()
+    result = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition").fit()
     joint_ci = result._compute_joint_param_cis()
     d = result.to_dict()
     h_ci = d["horizontal"]["ci"]
@@ -448,7 +480,7 @@ def test_joint_fit_to_dict_exposes_shared_and_per_drug_cis():
     derivation the matrix params table would render empty 95% CI columns.
     """
     data_a, data_b = _two_drug_data()
-    result = JointMarginalFit(data_a, data_b).fit()
+    result = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition").fit()
     d = result.to_dict()
 
     # Shared CIs at top level.
@@ -476,7 +508,7 @@ def test_joint_fit_to_dict_exposes_shared_and_per_drug_cis():
 def test_joint_fit_to_dict_serialises_variance_fields():
     data_a, data_b = _two_drug_hetero_data(a=1e-4, b=0.02)
     result = JointMarginalFit(
-        data_a, data_b, variance_model="linear",
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", variance_model="linear",
     ).fit()
     d = result.to_dict()
     assert d["variance_model"] == "linear"
@@ -511,7 +543,8 @@ def _large_magnitude_data(seed_a=50, seed_b=60):
 def test_default_joint_marginal_config_large_magnitude_bounds():
     """Asymptote bounds must track data scale, not be pinned near [0, 2]."""
     data_a, data_b = _large_magnitude_data()
-    result = default_joint_marginal_config(data_a, data_b)
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     # Top reaches the ~5000 scale. Top and bottom no longer share one wide
     # range — the bottom's upper bound is capped near the per-curve midpoint, so
     # it tracks the data scale (≫ the old [0, 2]) without climbing to the top.
@@ -523,7 +556,8 @@ def test_default_joint_marginal_config_large_magnitude_bounds():
 def test_default_joint_marginal_config_lognormal_floors_positive():
     """Lognormal noise must floor top/bottom lo strictly > 0."""
     data_a, data_b = _large_magnitude_data()
-    result = default_joint_marginal_config(data_a, data_b, noise="lognormal")
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise="lognormal")
     assert result["top"]["lo"] > 0.0
     assert result["bottom"]["lo"] > 0.0
 
@@ -531,7 +565,8 @@ def test_default_joint_marginal_config_lognormal_floors_positive():
 def test_default_joint_marginal_config_4p_omits_asymmetry():
     """4p models must not include asymmetry keys."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, model_a="4p", model_b="4p")
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="4p", model_b="4p")
     assert "asymmetry_a" not in result
     assert "asymmetry_b" not in result
     # Core keys are always present.
@@ -542,7 +577,8 @@ def test_default_joint_marginal_config_4p_omits_asymmetry():
 def test_default_joint_marginal_config_5p_includes_asymmetry():
     """5p models must include asymmetry keys."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, model_a="5p", model_b="5p")
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="5p", model_b="5p")
     assert "asymmetry_a" in result
     assert "asymmetry_b" in result
 
@@ -550,7 +586,8 @@ def test_default_joint_marginal_config_5p_includes_asymmetry():
 def test_default_joint_marginal_config_mixed_models():
     """model_a=5p, model_b=4p → asymmetry_a present, asymmetry_b absent."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, model_a="5p", model_b="4p")
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="5p", model_b="4p")
     assert "asymmetry_a" in result
     assert "asymmetry_b" not in result
 
@@ -584,7 +621,8 @@ def test_default_joint_marginal_config_mixed_directions():
 def test_default_joint_marginal_config_entry_shape():
     """Every returned entry must have exactly init/lo/hi and lo <= hi."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, model_a="5p", model_b="5p")
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="5p", model_b="5p")
     for name, entry in result.items():
         assert set(entry.keys()) == {"init", "lo", "hi"}, f"bad keys for {name}"
         assert entry["lo"] <= entry["hi"], f"lo > hi for {name}"
@@ -594,7 +632,8 @@ def test_default_joint_marginal_config_invalid_model():
     """Invalid model strings must raise ValueError."""
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match="4p.*5p|5p.*4p"):
-        default_joint_marginal_config(data_a, data_b, model_a="3p")
+        default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", model_a="3p")
 
 
 _CURVE_KEYS = {"top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"}
@@ -616,10 +655,11 @@ _CURVE_KEYS = {"top", "bottom", "log_c50_a", "hill_a", "log_c50_b", "hill_b"}
 def test_default_joint_marginal_config_variance_coefficients_match_fitter(noise, extra_keys):
     """Returned keys and init/lo/hi match JointMarginalFit with no param_config."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, noise=noise)
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
     assert set(result) == _CURVE_KEYS | set(extra_keys)
 
-    fitter = JointMarginalFit(data_a, data_b, noise=noise)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
     assert set(result) == set(fitter._param_names)
     for name, init, (lo, hi) in zip(fitter._param_names, fitter._x0, fitter._bounds):
         assert result[name]["init"] == init
@@ -630,8 +670,9 @@ def test_default_joint_marginal_config_variance_coefficients_match_fitter(noise,
 def test_default_joint_marginal_config_noise_none_matches_fitter_default():
     """noise=None matches JointMarginalFit with no noise argument; no var_* keys."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, noise=None)
-    fitter = JointMarginalFit(data_a, data_b)
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=None)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition")
     assert set(result) == set(fitter._param_names) == _CURVE_KEYS
     assert not any(name.startswith("var_") for name in result)
     for name, init, (lo, hi) in zip(fitter._param_names, fitter._x0, fitter._bounds):
@@ -656,8 +697,9 @@ def test_default_joint_marginal_config_noise_none_matches_fitter_default():
 def test_default_joint_marginal_config_honours_nondefault_variance_inits(noise, var_inits):
     """Tagged-dict a_init/b_init/c_init must round-trip into returned var_* inits."""
     data_a, data_b = _two_drug_data()
-    result = default_joint_marginal_config(data_a, data_b, noise=noise)
-    fitter = JointMarginalFit(data_a, data_b, noise=noise)
+    result = default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
     for name, value in var_inits.items():
         assert result[name]["init"] == value
         ix = fitter._param_names.index(name)
@@ -678,14 +720,15 @@ _COMPOUND_NOISE_FORMS = (
 def test_default_joint_marginal_config_rejects_compound_noise(noise):
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
-        default_joint_marginal_config(data_a, data_b, noise=noise)
+        default_joint_marginal_config(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_joint_marginal_fit_rejects_compound_noise(noise):
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
-        JointMarginalFit(data_a, data_b, noise=noise)
+        JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
 
 
 def test_joint_marginal_nan_response_excluded_from_likelihood_and_counts():
@@ -695,8 +738,8 @@ def test_joint_marginal_nan_response_excluded_from_likelihood_and_counts():
     data_a.loc[drop_idx, "y"] = np.nan
     data_a_drop = data_a.drop(index=drop_idx).reset_index(drop=True)
 
-    r_nan = JointMarginalFit(data_a, data_b).fit()
-    r_drop = JointMarginalFit(data_a_drop, data_b).fit()
+    r_nan = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition").fit()
+    r_drop = JointMarginalFit(data_a_drop, data_b, direction_a="inhibition", direction_b="inhibition").fit()
 
     assert r_nan.drug_a.n_valid == len(data_a) - 1
     assert r_nan.drug_a.n_total == len(data_a)
@@ -712,8 +755,8 @@ def test_joint_marginal_valids_mask_excluded_like_nan():
     valids_a[mask_idx] = False
     data_a_drop = data_a.drop(index=mask_idx).reset_index(drop=True)
 
-    r_mask = JointMarginalFit(data_a, data_b, valids_a=valids_a).fit()
-    r_drop = JointMarginalFit(data_a_drop, data_b).fit()
+    r_mask = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", valids_a=valids_a).fit()
+    r_drop = JointMarginalFit(data_a_drop, data_b, direction_a="inhibition", direction_b="inhibition").fit()
 
     assert r_mask.drug_a.n_valid == len(data_a) - 1
     assert r_mask.aic == pytest.approx(r_drop.aic, rel=1e-9, abs=1e-12)

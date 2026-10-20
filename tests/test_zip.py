@@ -374,7 +374,7 @@ class TestZipDelta:
     def test_zip_delta_shape(self):
         replicates, conc_hor, conc_ver = matrix_from_config(noise_sigma_log=0.0)
         mean_m = np.mean(np.stack(replicates), axis=0)
-        p = MatrixFit(replicates, conc_hor, conc_ver).fit()
+        p = MatrixFit(replicates, conc_hor, conc_ver, direction_horizontal="inhibition", direction_vertical="inhibition").fit()
         d = zip_delta(
             mean_m,
             conc_hor,
@@ -428,7 +428,7 @@ class TestZipHeatmap:
     def test_zip_heatmap_returns_png(self):
         replicates, conc_hor, conc_ver = matrix_from_config(noise_sigma_log=0.0)
         mean_m = np.mean(np.stack(replicates), axis=0)
-        p = MatrixFit(replicates, conc_hor, conc_ver).fit()
+        p = MatrixFit(replicates, conc_hor, conc_ver, direction_horizontal="inhibition", direction_vertical="inhibition").fit()
         png = zip_heatmap(
             mean_m,
             conc_hor,

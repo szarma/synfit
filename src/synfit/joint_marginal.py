@@ -300,10 +300,10 @@ class JointMarginalFit(FitBase):
         conc_horizontal: np.ndarray,
         conc_vertical: np.ndarray,
         *,
+        direction_a: str,
+        direction_b: str,
         model_a: str = "4p",
         model_b: str = "4p",
-        direction_a: str = "inhibition",
-        direction_b: str = "inhibition",
         noise: NoiseSpec | dict | str | None = None,
         param_config: dict | None = None,
         valids: np.ndarray | None = None,
@@ -367,10 +367,10 @@ class JointMarginalFit(FitBase):
         data_a: pd.DataFrame,
         data_b: pd.DataFrame,
         *,
+        direction_a: str,
+        direction_b: str,
         model_a: str = "4p",
         model_b: str = "4p",
-        direction_a: str = "inhibition",
-        direction_b: str = "inhibition",
         noise: NoiseSpec | dict | str | None = None,
         error_model: str | None = None,
         variance_model: str | None = None,
@@ -482,7 +482,9 @@ class JointMarginalFit(FitBase):
         self._name_to_ix = {n: i for i, n in enumerate(optimized_names)}
         self._fixed_values = fixed_values
 
-        super().__init__(FitConfig(noise=self.noise))
+        super().__init__(
+            FitConfig(noise=self.noise, direction="inhibition"),  # unused; joint params own asymptotes
+        )
 
     @classmethod
     def _full_param_names(cls, model_a: str, model_b: str) -> list[str]:
@@ -559,7 +561,7 @@ class JointMarginalFit(FitBase):
         """
         if isinstance(self.noise, (GaussianConstant, Lognormal)):
             return None
-        defaults_cfg = FitConfig(noise=self.noise)
+        defaults_cfg = FitConfig(noise=self.noise, direction="inhibition")  # unused; variance defaults only
         a = self._get(x, "var_a") if "var_a" in self._name_to_ix or "var_a" in self._fixed_values else float(defaults_cfg.var_a)
         b = self._get(x, "var_b") if "var_b" in self._name_to_ix or "var_b" in self._fixed_values else float(defaults_cfg.var_b)
         c = self._get(x, "var_c") if "var_c" in self._name_to_ix or "var_c" in self._fixed_values else float(defaults_cfg.var_c)
@@ -806,10 +808,10 @@ def fit_joint_marginal_auto(
     data_a: pd.DataFrame,
     data_b: pd.DataFrame,
     *,
+    direction_a: str,
+    direction_b: str,
     model_a: str = "4p",
     model_b: str = "4p",
-    direction_a: str = "inhibition",
-    direction_b: str = "inhibition",
     variance_model: str = "constant",
     param_config: dict | None = None,
 ) -> JointMarginalResult:
@@ -895,10 +897,10 @@ def default_joint_marginal_config(
     data_a: pd.DataFrame,
     data_b: pd.DataFrame,
     *,
+    direction_a: str,
+    direction_b: str,
     model_a: str = "4p",
     model_b: str = "4p",
-    direction_a: str = "inhibition",
-    direction_b: str = "inhibition",
     noise: "NoiseSpec | dict | str | None" = None,
 ) -> dict[str, dict[str, float]]:
     """Data-driven default initials and bounds for a joint marginal fit.

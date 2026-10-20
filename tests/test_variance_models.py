@@ -52,43 +52,43 @@ def _hetero_data(
 
 class TestFitConfigVarianceModel:
     def test_default_is_constant(self):
-        cfg = FitConfig()
+        cfg = FitConfig(direction="inhibition")
         assert cfg.noise == GaussianConstant()
         # Default fitting params unchanged — constant variance is profiled out.
         assert cfg.fitting_parameters == ["log_c50", "hill", "effect_0", "effect_inf"]
 
     def test_string_coerced_to_enum(self):
-        cfg = FitConfig(variance_model="linear")
+        cfg = FitConfig(direction="inhibition", variance_model="linear")
         assert cfg.noise == GaussianLinear()
 
     def test_invalid_string_raises(self):
         with pytest.raises(ValueError):
-            FitConfig(variance_model="cubic")
+            FitConfig(direction="inhibition", variance_model="cubic")
 
     def test_linear_extends_fitting_parameters(self):
-        cfg = FitConfig(variance_model="linear")
+        cfg = FitConfig(direction="inhibition", variance_model="linear")
         assert "var_a" in cfg.fitting_parameters
         assert "var_b" in cfg.fitting_parameters
         assert "var_c" not in cfg.fitting_parameters
 
     def test_quadratic_extends_fitting_parameters(self):
-        cfg = FitConfig(variance_model="quadratic")
+        cfg = FitConfig(direction="inhibition", variance_model="quadratic")
         assert cfg.fitting_parameters[-3:] == ["var_a", "var_b", "var_c"]
 
     def test_idempotent_no_duplicate_appends(self):
         # Constructing twice (mock of cfg surviving multiple __post_init__
         # calls) shouldn't double-append the variance names.
-        cfg = FitConfig(variance_model="quadratic")
+        cfg = FitConfig(direction="inhibition", variance_model="quadratic")
         original_count = sum(1 for n in cfg.fitting_parameters if n == "var_a")
         cfg.__post_init__()
         assert sum(1 for n in cfg.fitting_parameters if n == "var_a") == original_count
 
     def test_lognormal_with_non_constant_rejected(self):
         with pytest.raises(ValueError, match="gaussian"):
-            FitConfig(error_model="lognormal", variance_model="linear")
+            FitConfig(direction="inhibition", error_model="lognormal", variance_model="linear")
 
     def test_lognormal_with_constant_ok(self):
-        cfg = FitConfig(error_model="lognormal", variance_model="constant")
+        cfg = FitConfig(direction="inhibition", error_model="lognormal", variance_model="constant")
         assert cfg.noise == Lognormal()
 
     def test_bounds_have_var_coefficients(self):
@@ -108,7 +108,7 @@ class TestLinearVarianceRecovery:
     def fit(self):
         true_a, true_b = 5e-4, 0.04
         data = _hetero_data(a=true_a, b=true_b, n_replicates=8, length=12, seed=11)
-        cfg = FitConfig(error_model="gaussian", variance_model="linear")
+        cfg = FitConfig(direction="inhibition", error_model="gaussian", variance_model="linear")
         fitter = SingleDrugFit(data, cfg)
         return fitter.fit(), true_a, true_b
 
@@ -171,7 +171,7 @@ class TestQuadraticVarianceRecovery:
     def fit(self):
         true_a, true_b, true_c = 1e-4, 0.0, 0.05
         data = _hetero_data(a=true_a, b=true_b, c=true_c, n_replicates=10, length=14, seed=23)
-        cfg = FitConfig(variance_model="quadratic")
+        cfg = FitConfig(direction="inhibition", variance_model="quadratic")
         fitter = SingleDrugFit(data, cfg)
         return fitter.fit(), true_a, true_b, true_c
 
@@ -209,7 +209,7 @@ class TestModelSelectionAIC:
     @staticmethod
     def _fit(data, variance_model: str) -> FitResult:
         return SingleDrugFit(
-            data, FitConfig(variance_model=variance_model),
+            data, FitConfig(direction="inhibition", variance_model=variance_model),
         ).fit()
 
     def test_constant_data_prefers_constant(self):
@@ -246,12 +246,12 @@ class TestSingleDrugFitWithErrorRejectsVarianceModel:
     def test_linear_rejected(self):
         with pytest.raises(ValueError, match="noise.kind='gaussian_constant'"):
             SingleDrugFitWithError(
-                self._df(), FitConfig(variance_model="linear"),
+                self._df(), FitConfig(direction="inhibition", variance_model="linear"),
             )
 
     def test_constant_accepted(self):
         # No error — paired with the implicit default.
-        SingleDrugFitWithError(self._df())
+        SingleDrugFitWithError(self._df(), FitConfig(direction="inhibition"))
 
 
 # ----------------------------- predict_variance --------------------------- #
@@ -328,8 +328,8 @@ class TestConfidenceIntervalsRespectVarianceModel:
         data = _hetero_data(a=1e-4, b=0.06, n_replicates=10, length=14, seed=55)
         conc = np.geomspace(data["concentration"].min(), data["concentration"].max(), 200)
 
-        const = SingleDrugFit(data, FitConfig(variance_model="constant")).fit()
-        linear = SingleDrugFit(data, FitConfig(variance_model="linear")).fit()
+        const = SingleDrugFit(data, FitConfig(direction="inhibition", variance_model="constant")).fit()
+        linear = SingleDrugFit(data, FitConfig(direction="inhibition", variance_model="linear")).fit()
 
         const_ci = const.predict_ci(conc)
         linear_ci = linear.predict_ci(conc)

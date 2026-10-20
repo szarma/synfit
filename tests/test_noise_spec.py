@@ -62,7 +62,7 @@ def test_legacy_to_noise_spec_coerces_old_shape():
 
 
 def test_fit_config_extends_noise_parameters():
-    cfg = FitConfig(noise={"kind": "gaussian_quadratic", "a_init": 0.1, "b_init": 0.2, "c_init": 0.3})
+    cfg = FitConfig(direction="inhibition", noise={"kind": "gaussian_quadratic", "a_init": 0.1, "b_init": 0.2, "c_init": 0.3})
     assert cfg.noise == GaussianQuadratic(0.1, 0.2, 0.3)
     assert cfg.fitting_parameters[-3:] == ["var_a", "var_b", "var_c"]
 

@@ -127,7 +127,7 @@ def test_string_and_dict_lognormal_floor_positive():
 
 
 def test_single_drug_with_error_resolves_none_bounds():
-    """Regression: SingleDrugFitWithError(FitConfig()) (bounds=None) must derive
+    """Regression: SingleDrugFitWithError(FitConfig(direction="inhibition")) (bounds=None) must derive
     bounds, not dereference None in FitBase._get_x0_and_bounds."""
     from synfit.single import SingleDrugFitWithError
 
@@ -199,7 +199,7 @@ def test_default_bounds_small_samples_do_not_raise():
     matrix-defaults endpoint on 2x2 plates and refused four-point single curves.
     """
     for n in (2, 3, 4, 5, 8):
-        b = default_bounds(_small_curve(n))
+        b = default_bounds(_small_curve(n), direction="inhibition")
         lo, hi = b.effect_inf
         assert hi > lo, f"degenerate asymptote bound at n={n}: {b.effect_inf}"
         # log_c50 spans the concentration decades, never the hardcoded fallback.
@@ -209,7 +209,7 @@ def test_default_bounds_small_samples_do_not_raise():
 def test_default_bounds_small_sample_skips_outlier_trim():
     """When the trimmed range collapses, bounds fall back to the true min/max."""
     df = _small_curve(3)
-    b = default_bounds(df)
+    b = default_bounds(df, direction="inhibition")
     ys = df["y"].to_numpy()
     # effect_0 (top, low-conc) upper bound must reach toward the true max; the
     # bottom floor must reach toward the true min. With trimming on n=3 these
@@ -230,7 +230,7 @@ def test_default_bounds_falls_back_when_trimmed_extrema_collapse():
             "replicate": ["A"] * 4,
         }
     )
-    b = default_bounds(df)
+    b = default_bounds(df, direction="inhibition")
     assert b.effect_inf[0] < b.effect_inf[1] == b.effect_0[0] < b.effect_0[1]
     assert b.effect_inf[1] > 0.05
     assert b.effect_0[0] < 0.9
@@ -241,4 +241,4 @@ def test_default_bounds_single_point_still_raises():
     import pytest
 
     with pytest.raises(ValueError, match="at least 2"):
-        default_bounds(_small_curve(1))
+        default_bounds(_small_curve(1), direction="inhibition")

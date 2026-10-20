@@ -220,11 +220,11 @@ def test_joint_marginal_fit_is_scale_equivariant():
     """The live matrix path (JointMarginalFit) keeps a covariance at large
     magnitude and its shape parameters are scale-invariant."""
     a, b = _two_drug_frames()
-    r1 = JointMarginalFit(a, b).fit()
+    r1 = JointMarginalFit(a, b, direction_a="inhibition", direction_b="inhibition").fit()
     assert r1.param_cov is not None
 
     s = 1000.0
-    rs = JointMarginalFit(_scale_frame(a, s), _scale_frame(b, s)).fit()
+    rs = JointMarginalFit(_scale_frame(a, s), _scale_frame(b, s), direction_a="inhibition", direction_b="inhibition").fit()
     assert rs.param_cov is not None, "covariance lost at large response magnitude"
     assert np.all(np.diag(rs.param_cov) > 0)
 
@@ -243,7 +243,7 @@ def test_custom_x0_is_scale_invariant_with_data_bounds():
 
     def fit_bad_x0(df: pd.DataFrame):
         auto = _init_config_from_data(
-            df, direction="activation", noise=FitConfig(noise="lognormal").noise,
+            df, direction="activation", noise=FitConfig(direction="inhibition", noise="lognormal").noise,
         )
         cfg = FitConfig(
             direction="activation",
@@ -281,7 +281,7 @@ def test_custom_x0_is_scale_invariant_with_data_bounds():
 
 def _fit_matrix_scaled(reps, conc_h, conc_v, s: float):
     scaled = [r * s for r in reps]
-    return MatrixFit(scaled, conc_h, conc_v, error_model="lognormal").fit()
+    return MatrixFit(scaled, conc_h, conc_v, error_model="lognormal", direction_horizontal="inhibition", direction_vertical="inhibition").fit()
 
 
 def test_matrix_fit_is_scale_equivariant():
@@ -366,7 +366,7 @@ def test_small_c50_with_wide_log_bounds_keeps_covariance():
     # path (which would now compute tighter data-driven bounds).
     result = SingleDrugFit(
         df,
-        FitConfig(
+        FitConfig(direction="inhibition", 
             noise=GaussianLinear(a_init=0.001, b_init=0.05),
             bounds=FitBounds(
                 log_c50=(-5.0, 5.0),

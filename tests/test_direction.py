@@ -121,7 +121,7 @@ def test_single_drug_fit_with_error_rejects_direction_mutated_after_construction
 @pytest.mark.parametrize("which", ["direction_a", "direction_b"])
 def test_default_joint_marginal_config_rejects_invalid_direction(which):
     data_a = data_b = _curve()
-    kwargs = {which: "sideways"}
+    kwargs = {"direction_a": "inhibition", "direction_b": "inhibition", which: "sideways"}
     with pytest.raises(ValueError) as exc_info:
         default_joint_marginal_config(data_a, data_b, **kwargs)
     _assert_invalid_direction(exc_info)
@@ -142,7 +142,7 @@ def test_default_joint_marginal_config_accepts_valid_directions(direction_a, dir
 
 @pytest.mark.parametrize("which", ["direction_a", "direction_b"])
 def test_joint_marginal_fit_rejects_invalid_direction(which):
-    kwargs = {which: "sideways"}
+    kwargs = {"direction_a": "inhibition", "direction_b": "inhibition", which: "sideways"}
     with pytest.raises(ValueError) as exc_info:
         JointMarginalFit(_curve(), _curve(), **kwargs)
     _assert_invalid_direction(exc_info)
@@ -164,7 +164,7 @@ def test_joint_marginal_fit_accepts_valid_directions(direction_a, direction_b):
 @pytest.mark.parametrize("which", ["direction_a", "direction_b"])
 def test_fit_joint_marginal_auto_rejects_invalid_direction(which):
     """Invalid direction must raise before the candidate loop swallows it."""
-    kwargs = {which: "sideways"}
+    kwargs = {"direction_a": "inhibition", "direction_b": "inhibition", which: "sideways"}
     with pytest.raises(ValueError) as exc_info:
         fit_joint_marginal_auto(_curve(), _curve(), **kwargs)
     _assert_invalid_direction(exc_info)
@@ -174,7 +174,11 @@ def test_fit_joint_marginal_auto_rejects_invalid_direction(which):
 @pytest.mark.parametrize("which", ["direction_horizontal", "direction_vertical"])
 def test_matrix_fit_rejects_invalid_direction(which):
     replicates, conc_hor, conc_ver = matrix_from_config()
-    kwargs = {which: "sideways"}
+    kwargs = {
+        "direction_horizontal": "inhibition",
+        "direction_vertical": "inhibition",
+        which: "sideways",
+    }
     with pytest.raises(ValueError) as exc_info:
         MatrixFit(replicates, conc_hor, conc_ver, **kwargs)
     _assert_invalid_direction(exc_info)
@@ -190,3 +194,83 @@ def test_matrix_fit_accepts_valid_matching_directions(direction):
         direction_horizontal=direction, direction_vertical=direction,
     )
     assert fitter.direction_horizontal == fitter.direction_vertical == direction
+
+
+def test_fit_config_requires_direction():
+    with pytest.raises(TypeError, match="direction"):
+        FitConfig()
+
+
+def test_default_fit_config_requires_direction():
+    with pytest.raises(TypeError, match="direction"):
+        default_fit_config(_curve())
+
+
+def test_default_bounds_requires_direction():
+    with pytest.raises(TypeError, match="direction"):
+        default_bounds(_curve())
+
+
+def test_single_drug_fit_requires_config():
+    with pytest.raises(TypeError, match="config"):
+        SingleDrugFit(_curve())
+
+
+def test_single_drug_fit_with_error_requires_config():
+    df = _curve().assign(y_err=0.05)
+    with pytest.raises(TypeError, match="config"):
+        SingleDrugFitWithError(df)
+
+
+_TWO_DIRECTIONS = [
+    pytest.param({}, id="both-missing"),
+    pytest.param({"direction_a": "inhibition"}, id="b-missing"),
+    pytest.param({"direction_b": "inhibition"}, id="a-missing"),
+]
+
+
+@pytest.mark.parametrize("given", _TWO_DIRECTIONS)
+def test_joint_marginal_fit_requires_directions(given):
+    with pytest.raises(TypeError, match="direction"):
+        JointMarginalFit(_curve(), _curve(), **given)
+
+
+@pytest.mark.parametrize("given", _TWO_DIRECTIONS)
+def test_joint_marginal_from_matrix_requires_directions(given):
+    reps, ch, cv = matrix_from_config()
+    with pytest.raises(TypeError, match="direction"):
+        JointMarginalFit.from_matrix(reps, ch, cv, **given)
+
+
+@pytest.mark.parametrize("given", _TWO_DIRECTIONS)
+def test_default_joint_marginal_config_requires_directions(given):
+    with pytest.raises(TypeError, match="direction"):
+        default_joint_marginal_config(_curve(), _curve(), **given)
+
+
+@pytest.mark.parametrize("given", _TWO_DIRECTIONS)
+def test_fit_joint_marginal_auto_requires_directions(given):
+    with pytest.raises(TypeError, match="direction"):
+        fit_joint_marginal_auto(_curve(), _curve(), **given)
+
+
+@pytest.mark.parametrize("given", [
+    pytest.param({}, id="both-missing"),
+    pytest.param({"direction_horizontal": "inhibition"}, id="vertical-missing"),
+    pytest.param({"direction_vertical": "inhibition"}, id="horizontal-missing"),
+])
+def test_matrix_fit_requires_directions(given):
+    reps, ch, cv = matrix_from_config()
+    with pytest.raises(TypeError, match="direction"):
+        MatrixFit(reps, ch, cv, **given)
+
+
+def test_single_drug_activation_scenario_recovers_c50_with_explicit_direction():
+    import pandas as pd
+    from synfit.synthetic import scenario_dir
+
+    name = "single_drug_activation"
+    data = pd.read_csv(scenario_dir(name) / f"{name}.csv")
+    result = SingleDrugFit(data, FitConfig(direction="activation")).fit()
+    assert result.success
+    assert result.c50 == pytest.approx(2.0, rel=0.10)

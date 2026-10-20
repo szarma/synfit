@@ -129,7 +129,8 @@ def _robust_response_range(y: np.ndarray) -> float:
 
 def _init_config_from_data(
     data: pd.DataFrame,
-    direction: str = "inhibition",
+    *,
+    direction: str,
     noise: NoiseSpec | None = None,
 ) -> FitConfig:
     """Derive sensible initial parameters and bounds from data."""
@@ -279,7 +280,8 @@ def _coerce_noise(noise: NoiseSpec | dict | str | None) -> NoiseSpec | None:
 
 def default_fit_config(
     data: pd.DataFrame,
-    direction: str = "inhibition",
+    *,
+    direction: str,
     noise: NoiseSpec | dict | str | None = None,
 ) -> FitConfig:
     """Data-driven default fit configuration (initials + bounds) for ``data``.
@@ -300,7 +302,8 @@ def default_fit_config(
 
 def default_bounds(
     data: pd.DataFrame,
-    direction: str = "inhibition",
+    *,
+    direction: str,
     noise: NoiseSpec | dict | str | None = None,
 ) -> FitBounds:
     """Data-driven default :class:`FitBounds` for ``data`` (see :func:`default_fit_config`)."""
@@ -465,7 +468,7 @@ class SingleDrugFit(FitBase):
     Expected DataFrame columns: concentration, y, replicate.
     """
 
-    def __init__(self, data: pd.DataFrame, config: FitConfig | None = None):
+    def __init__(self, data: pd.DataFrame, config: FitConfig):
         if not {"concentration", "y", "replicate"}.issubset(data.columns):
             raise ValueError("data must have columns: concentration, y, replicate")
         self.data = data
@@ -473,59 +476,49 @@ class SingleDrugFit(FitBase):
         auto_bounds: dict[str, tuple] | None = None
         auto_noise: NoiseSpec | None = None
         auto_noise_template: NoiseSpec | None = None
-        if config is None:
-            config = _init_config_from_data(data)
-            auto_initials = {
-                "log_c50": config.log_c50,
-                "effect_0": config.effect_0,
-                "effect_inf": config.effect_inf,
-            }
-            auto_bounds = _bounds_field_values(config.bounds)
-            auto_noise = config.noise
-        else:
-            require_supported_single_drug_fitting_noise(config.noise)
-            config = config.copy()
-            # Re-derive data-driven defaults for anything the caller left
-            # unspecified, using the config's direction heuristics and noise
-            # model (so lognormal forces positive bounds). We derive when the
-            # direction is non-default (initials need the activation heuristics)
-            # or when bounds were not supplied at all. In either case the
-            # still-at-default initials are seeded from data alongside the
-            # derived bounds — deriving bounds while leaving the historical
-            # zero-point initials can otherwise strand the optimiser in a poor
-            # basin. Explicitly-supplied bounds are always honoured literally
-            # (no equality-based override). Fields recorded below are the ones
-            # ``fit()`` may re-derive from the rows ``valids`` keeps.
-            user_noise = config.noise
-            if config.direction != "inhibition" or config.bounds is None:
-                auto = _init_config_from_data(
-                    data, direction=config.direction, noise=config.noise,
-                )
-                # Only seed still-at-default *free* parameters. A name omitted
-                # from fitting_parameters is pinned; overwriting it would
-                # silently replace a pin at the type default (log_c50=0,
-                # effect_inf=0) with the data-derived initial.
-                if (
-                    config.log_c50 == 0.0
-                    and "log_c50" in config.fitting_parameters
-                ):
-                    config.log_c50 = auto.log_c50
-                    auto_initials["log_c50"] = config.log_c50
-                if config.effect_0 == 1.0 and config.effect_inf == 0.0:
-                    if "effect_0" in config.fitting_parameters:
-                        config.effect_0 = auto.effect_0
-                        auto_initials["effect_0"] = config.effect_0
-                    if "effect_inf" in config.fitting_parameters:
-                        config.effect_inf = auto.effect_inf
-                        auto_initials["effect_inf"] = config.effect_inf
-                if config.bounds is None:
-                    config.bounds = auto.bounds
-                    # Data-derived variance bounds/initials (user-given
-                    # a_init/b_init/c_init are already overlaid in auto.noise).
-                    config.noise = auto.noise
-                    auto_bounds = _bounds_field_values(config.bounds)
-                    auto_noise = config.noise
-                    auto_noise_template = user_noise
+        require_supported_single_drug_fitting_noise(config.noise)
+        config = config.copy()
+        # Re-derive data-driven defaults for anything the caller left
+        # unspecified, using the config's direction heuristics and noise
+        # model (so lognormal forces positive bounds). We derive when the
+        # direction is activation (initials need the activation heuristics)
+        # or when bounds were not supplied at all. In either case the
+        # still-at-default initials are seeded from data alongside the
+        # derived bounds — deriving bounds while leaving the historical
+        # zero-point initials can otherwise strand the optimiser in a poor
+        # basin. Explicitly-supplied bounds are always honoured literally
+        # (no equality-based override). Fields recorded below are the ones
+        # ``fit()`` may re-derive from the rows ``valids`` keeps.
+        user_noise = config.noise
+        if config.direction != "inhibition" or config.bounds is None:
+            auto = _init_config_from_data(
+                data, direction=config.direction, noise=config.noise,
+            )
+            # Only seed still-at-default *free* parameters. A name omitted
+            # from fitting_parameters is pinned; overwriting it would
+            # silently replace a pin at the type default (log_c50=0,
+            # effect_inf=0) with the data-derived initial.
+            if (
+                config.log_c50 == 0.0
+                and "log_c50" in config.fitting_parameters
+            ):
+                config.log_c50 = auto.log_c50
+                auto_initials["log_c50"] = config.log_c50
+            if config.effect_0 == 1.0 and config.effect_inf == 0.0:
+                if "effect_0" in config.fitting_parameters:
+                    config.effect_0 = auto.effect_0
+                    auto_initials["effect_0"] = config.effect_0
+                if "effect_inf" in config.fitting_parameters:
+                    config.effect_inf = auto.effect_inf
+                    auto_initials["effect_inf"] = config.effect_inf
+            if config.bounds is None:
+                config.bounds = auto.bounds
+                # Data-derived variance bounds/initials (user-given
+                # a_init/b_init/c_init are already overlaid in auto.noise).
+                config.noise = auto.noise
+                auto_bounds = _bounds_field_values(config.bounds)
+                auto_noise = config.noise
+                auto_noise_template = user_noise
         validate_direction(config.direction)
         if is_heteroscedastic_gaussian(config.noise):
             finite = effective_observation_mask(
@@ -754,24 +747,14 @@ class SingleDrugFitWithError(FitBase):
     Expected DataFrame columns: concentration, y, y_err.
     """
 
-    def __init__(self, data: pd.DataFrame, config: FitConfig | None = None):
+    def __init__(self, data: pd.DataFrame, config: FitConfig):
         if not {"concentration", "y", "y_err"}.issubset(data.columns):
             raise ValueError("data must have columns: concentration, y, y_err")
         self.data = data
         auto_initials: dict[str, float] = {}
         auto_bounds: dict[str, tuple] | None = None
         auto_noise: NoiseSpec | None = None
-        if config is None:
-            cfg = _init_config_from_data(data)
-            auto_initials = {
-                "log_c50": cfg.log_c50,
-                "effect_0": cfg.effect_0,
-                "effect_inf": cfg.effect_inf,
-            }
-            auto_bounds = _bounds_field_values(cfg.bounds)
-            auto_noise = cfg.noise
-        else:
-            cfg = config.copy()
+        cfg = config.copy()
         require_supported_single_drug_with_error_fitting_noise(cfg.noise)
         validate_direction(cfg.direction)
         # Honour the bounds=None "derive from data" signal (FitBase readers

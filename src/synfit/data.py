@@ -89,9 +89,9 @@ class FitConfig:
     noise: NoiseSpec | dict | str = field(default_factory=lambda: default_for_kind("gaussian_constant"))
     # Initial value for the asymmetry parameter (5p model only)
     asymmetry: float = 1.0
-    # "inhibition" (default, IC₅₀, response falls with dose) or
-    # "activation" (EC₅₀, response rises with dose)
-    direction: str = "inhibition"
+    # "inhibition" (IC₅₀, response falls with dose) or "activation" (EC₅₀,
+    # response rises with dose); required keyword-only — no default.
+    direction: str = field(kw_only=True)
 
     def __init__(
         self,
@@ -103,8 +103,8 @@ class FitConfig:
         bounds: FitBounds | None = None,
         noise: NoiseSpec | dict | str | None = None,
         asymmetry: float = 1.0,
-        direction: str = "inhibition",
         *,
+        direction: str,
         error_model: str | None = None,
         variance_model: str | None = None,
         var_a: float | None = None,
@@ -126,7 +126,8 @@ class FitConfig:
         )
         # ``bounds is None`` is the persistent signal for "derive from data":
         # ``SingleDrugFit`` fills data-driven bounds when none were supplied (so
-        # a bare ``FitConfig()`` fits any-magnitude data), and honours supplied
+        # ``FitConfig(direction=...)`` with ``bounds=None`` fits any-magnitude
+        # data), and honours supplied
         # bounds literally — no equality-based override. Storing ``None`` (rather
         # than a flag) keeps the semantic correct across ``dataclasses.replace``
         # / ``asdict`` round-trips, which would otherwise re-pass resolved bounds

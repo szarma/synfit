@@ -41,7 +41,7 @@ def _synthetic_data(c50=1.0, hill=1.5, effect_0=0.9, effect_inf=0.05,
 ])
 def test_single_drug_fit_recovers_ic50(noise_model, error_model):
     data = _synthetic_data(c50=2.0, noise_model=noise_model)
-    fitter = SingleDrugFit(data, FitConfig(error_model=error_model))
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition", error_model=error_model))
     result = fitter.fit()
     assert result.success
     assert result.c50 == pytest.approx(2.0, rel=0.25)
@@ -53,7 +53,7 @@ def test_single_drug_fit_recovers_ic50(noise_model, error_model):
 ])
 def test_single_drug_fit_recovers_hill(noise_model, error_model):
     data = _synthetic_data(hill=2.0, noise_model=noise_model)
-    fitter = SingleDrugFit(data, FitConfig(error_model=error_model))
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition", error_model=error_model))
     result = fitter.fit()
     assert result.hill == pytest.approx(2.0, rel=0.6)
 
@@ -62,7 +62,7 @@ def test_single_drug_fit_with_valids():
     data = _synthetic_data(c50=1.0)
     # mark all as valid
     valids = np.ones(len(data), dtype=bool)
-    fitter = SingleDrugFit(data)
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition"))
     result = fitter.fit(valids=valids)
     assert result.n_valid == len(data)
     assert result.n_total == len(data)
@@ -72,7 +72,7 @@ def test_single_drug_fit_excluded_points():
     data = _synthetic_data(c50=1.0)
     valids = np.ones(len(data), dtype=bool)
     valids[:3] = False
-    fitter = SingleDrugFit(data)
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition"))
     result = fitter.fit(valids=valids)
     assert result.n_valid == len(data) - 3
 
@@ -80,7 +80,7 @@ def test_single_drug_fit_excluded_points():
 def test_single_drug_fit_invalid_columns():
     bad_data = pd.DataFrame({"x": [1, 2], "y": [0.5, 0.3]})
     with pytest.raises(ValueError):
-        SingleDrugFit(bad_data)
+        SingleDrugFit(bad_data, FitConfig(direction="inhibition"))
 
 
 def test_fitbase_unresolved_bounds_raises_clear_error():
@@ -90,7 +90,7 @@ def test_fitbase_unresolved_bounds_raises_clear_error():
     this guard keeps it enforced in the base class for any future subclass."""
     from synfit.fitting import FitBase
 
-    base = FitBase(FitConfig())  # bare config → bounds defaults to None
+    base = FitBase(FitConfig(direction="inhibition"))  # bare config → bounds defaults to None
     assert base.config.bounds is None
 
     with pytest.raises(ValueError, match="bounds is None"):
@@ -103,7 +103,7 @@ def test_fitbase_concrete_bounds_pass_the_guard():
     """The guard only trips on None — an explicit FitBounds resolves cleanly."""
     from synfit.fitting import FitBase
 
-    base = FitBase(FitConfig(bounds=FitBounds()))
+    base = FitBase(FitConfig(direction="inhibition", bounds=FitBounds()))
     x0, bounds = base._get_x0_and_bounds()
     assert len(bounds) == len(base.config.fitting_parameters)
 
@@ -121,7 +121,7 @@ def test_single_drug_fit_with_error():
     df.columns = ["concentration", "y", "y_err"]
     df["y_err"] = df["y_err"].fillna(0.01)
 
-    fitter = SingleDrugFitWithError(df)
+    fitter = SingleDrugFitWithError(df, FitConfig(direction="inhibition"))
     result = fitter.fit()
     assert result.success
     assert result.c50 == pytest.approx(1.5, rel=0.2)
@@ -138,7 +138,7 @@ def test_single_drug_fit_populates_sigma(noise_model, error_model, expected_sigm
         c50=1.0, noise_model=noise_model,
         noise_sigma=expected_sigma, noise_sigma_log=expected_sigma,
     )
-    fitter = SingleDrugFit(data, FitConfig(error_model=error_model))
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition", error_model=error_model))
     result = fitter.fit()
     assert result.sigma is not None
     # σ̂ lives in the model's natural likelihood space and should recover the
@@ -153,7 +153,7 @@ def test_to_dict_ci_matches_param_ci_small_concentrations():
     name = "single_drug_noisy"
     d = pd.read_csv(scenario_dir(name) / f"{name}.csv")
     result = SingleDrugFit(
-        d.assign(concentration=d.concentration * 1e-9), FitConfig(),
+        d.assign(concentration=d.concentration * 1e-9), FitConfig(direction="inhibition"),
     ).fit()
     cis = result.param_ci()
     assert cis is not None
@@ -170,7 +170,7 @@ def test_to_dict_ci_matches_param_ci_small_responses():
     """Serialised asymptote CIs must survive sub-nanomolar response scales."""
     name = "single_drug_noisy"
     d = pd.read_csv(scenario_dir(name) / f"{name}.csv")
-    result = SingleDrugFit(d.assign(y=d.y * 1e-9), FitConfig()).fit()
+    result = SingleDrugFit(d.assign(y=d.y * 1e-9), FitConfig(direction="inhibition")).fit()
     cis = result.param_ci()
     assert cis is not None
     exported = result.to_dict()["ci"]
@@ -184,7 +184,7 @@ def test_to_dict_4p_kappa_equals_ic50():
     """In the symmetric (4p) model κ *is* the half-max; ``kappa``, ``c50``
     and ``ic50``/``ec50`` should all be the same number."""
     data = _synthetic_data(c50=2.0)
-    result = SingleDrugFit(data, FitConfig()).fit()
+    result = SingleDrugFit(data, FitConfig(direction="inhibition")).fit()
     d = result.to_dict()
     assert d["kappa"] == d["c50"]
     assert d["kappa"] == pytest.approx(d["ic50"], rel=1e-9)
@@ -204,7 +204,7 @@ def test_to_dict_5p_ic50_is_true_half_max_not_kappa():
     ``kappa == c50`` (parameter) and ``ic50`` != ``kappa`` whenever S != 1.
     """
     data = _synthetic_data(c50=2.0, hill=1.5)
-    config = FitConfig(
+    config = FitConfig(direction="inhibition", 
         asymmetry=2.0,
         fitting_parameters=("log_c50", "hill", "effect_0", "effect_inf", "asymmetry"),
     )
@@ -260,7 +260,7 @@ def test_single_drug_fit_with_error_valids_mask():
 
     valids = np.ones(len(df), dtype=bool)
     valids[0] = False
-    fitter = SingleDrugFitWithError(df)
+    fitter = SingleDrugFitWithError(df, FitConfig(direction="inhibition"))
     result = fitter.fit(valids=valids)
     assert result.n_valid == len(df) - 1
 
@@ -278,7 +278,7 @@ def test_curve_param_cis_survive_when_effect_inf_pins_to_lower_bound():
     """
     data = _synthetic_data(c50=1.0, effect_inf=0.02, noise_sigma=0.01)
     bounds = FitBounds(effect_inf=(0.10, 1.0))
-    config = FitConfig(effect_inf=0.10, bounds=bounds)
+    config = FitConfig(direction="inhibition", effect_inf=0.10, bounds=bounds)
     fitter = SingleDrugFit(data, config)
     result = fitter.fit()
 
@@ -370,7 +370,7 @@ _PIN_PAIRS = (
 
 def _pinned_config(data, name, value):
     """Data-derived bounds/initials, with ``name`` held at ``value``."""
-    base = default_fit_config(data)
+    base = default_fit_config(data, direction="inhibition")
     kwargs = dict(
         log_c50=base.log_c50,
         hill=base.hill,
@@ -382,13 +382,13 @@ def _pinned_config(data, name, value):
         noise=base.noise,
     )
     kwargs[name] = value
-    return FitConfig(**kwargs)
+    return FitConfig(direction="inhibition", **kwargs)
 
 
 def test_x_to_kwargs_all_free_matches_optimizer_vector():
     """All-free path: kwargs come from ``x``, plus config.asymmetry=1 (the
     hill_curve default), so the evaluated curve is unchanged."""
-    cfg = FitConfig(bounds=FitBounds())
+    cfg = FitConfig(direction="inhibition", bounds=FitBounds())
     base = FitBase(cfg)
     x = np.array([0.3, 1.7, 0.95, 0.05])
     kwargs = base._x_to_kwargs(x)
@@ -404,7 +404,7 @@ def test_x_to_kwargs_all_free_matches_optimizer_vector():
 
 
 def test_x_to_kwargs_unlogs_fixed_log_c50():
-    cfg = FitConfig(
+    cfg = FitConfig(direction="inhibition", 
         log_c50=0.5,
         hill=1.2,
         effect_0=0.9,
@@ -487,7 +487,7 @@ def test_pinning_default_log_c50_survives_data_seeding():
     """log_c50=0 is both the FitConfig default *and* a legitimate pin
     (c50=1). Data-derived seeding must not overwrite it when it is fixed."""
     data = _synthetic_data()
-    cfg = FitConfig(
+    cfg = FitConfig(direction="inhibition", 
         log_c50=0.0,
         fitting_parameters=["hill", "effect_0", "effect_inf"],
     )
@@ -501,7 +501,7 @@ def test_pinning_default_log_c50_survives_data_seeding():
 def test_all_free_single_drug_fit_still_recovers_truth():
     """Regression guard: the default (all curve params free) path is unchanged."""
     data = _synthetic_data(c50=2.0, hill=1.5)
-    result = SingleDrugFit(data, FitConfig()).fit()
+    result = SingleDrugFit(data, FitConfig(direction="inhibition")).fit()
     assert result.success
     assert result.c50 == pytest.approx(2.0, rel=0.25)
     assert result.hill == pytest.approx(1.5, rel=0.6)
@@ -526,8 +526,8 @@ def test_single_drug_fit_with_error_can_fix_log_c50():
     df = data.groupby("concentration")["y"].agg(["mean", "std"]).reset_index()
     df.columns = ["concentration", "y", "y_err"]
     df["y_err"] = df["y_err"].fillna(0.01)
-    base = default_fit_config(data)
-    cfg = FitConfig(
+    base = default_fit_config(data, direction="inhibition")
+    cfg = FitConfig(direction="inhibition", 
         log_c50=0.0,
         hill=base.hill,
         effect_0=base.effect_0,
@@ -553,8 +553,8 @@ def test_single_drug_fit_with_error_reports_free_asymmetry():
     always None, so param_ci() skipped it."""
     data = _synthetic_data(c50=1.5, length=10)
     df = _with_error_df(data)
-    base = default_fit_config(data)
-    cfg = FitConfig(
+    base = default_fit_config(data, direction="inhibition")
+    cfg = FitConfig(direction="inhibition", 
         log_c50=base.log_c50,
         hill=base.hill,
         effect_0=base.effect_0,
@@ -576,7 +576,7 @@ def test_single_drug_fit_with_error_reports_free_asymmetry():
 def test_single_drug_fit_with_error_reports_lognormal_error_model():
     data = _synthetic_data(noise_model="lognormal", noise_sigma_log=0.08)
     df = _with_error_df(data)
-    result = SingleDrugFitWithError(df, FitConfig(noise=Lognormal())).fit()
+    result = SingleDrugFitWithError(df, FitConfig(direction="inhibition", noise=Lognormal())).fit()
     assert result.error_model == "lognormal"
     assert result.variance_model == "constant"
 
@@ -584,8 +584,8 @@ def test_single_drug_fit_with_error_reports_lognormal_error_model():
 def test_single_drug_fit_with_error_reports_pinned_asymmetry():
     data = _synthetic_data(c50=1.5, length=10)
     df = _with_error_df(data)
-    base = default_fit_config(data)
-    cfg = FitConfig(
+    base = default_fit_config(data, direction="inhibition")
+    cfg = FitConfig(direction="inhibition", 
         log_c50=base.log_c50,
         hill=base.hill,
         effect_0=base.effect_0,
@@ -611,7 +611,7 @@ def test_single_drug_fitters_reject_empty_fitting_parameters(fitter_cls, frame):
     and die with 'not enough values to unpack (expected 2, got 0)'."""
     data = _synthetic_data()
     df = _with_error_df(data) if frame == "error" else data
-    cfg = FitConfig(fitting_parameters=[], bounds=default_fit_config(data).bounds)
+    cfg = FitConfig(direction="inhibition", fitting_parameters=[], bounds=default_fit_config(data, direction="inhibition").bounds)
     with pytest.raises(ValueError, match="no free parameters"):
         fitter_cls(df, cfg)
 
@@ -629,7 +629,7 @@ def test_single_drug_fit_raises_when_too_few_finite_responses():
     y_a[[3, 9]] = y[[3, 9]]
     df = pd.DataFrame({"concentration": conc, "y": y_a, "replicate": 0})
     with pytest.raises(ValueError, match="valid data points"):
-        SingleDrugFit(df).fit()
+        SingleDrugFit(df, FitConfig(direction="inhibition")).fit()
 
 
 def test_single_drug_fit_nan_response_excluded_from_metrics():
@@ -640,8 +640,8 @@ def test_single_drug_fit_nan_response_excluded_from_metrics():
     df_nan = pd.DataFrame({"concentration": conc, "y": y_b, "replicate": 0})
     df_drop = df_nan.drop(index=5).reset_index(drop=True)
 
-    r_nan = SingleDrugFit(df_nan).fit()
-    r_drop = SingleDrugFit(df_drop).fit()
+    r_nan = SingleDrugFit(df_nan, FitConfig(direction="inhibition")).fit()
+    r_drop = SingleDrugFit(df_drop, FitConfig(direction="inhibition")).fit()
 
     assert r_nan.n_valid == 12
     assert r_nan.n_total == 13
@@ -672,8 +672,8 @@ def test_single_drug_fit_non_finite_conc_on_midpoint_row_matches_drop():
             "replicate": 0,
         },
     )
-    r_bad = SingleDrugFit(df_bad).fit()
-    r_drop = SingleDrugFit(df_drop).fit()
+    r_bad = SingleDrugFit(df_bad, FitConfig(direction="inhibition")).fit()
+    r_drop = SingleDrugFit(df_drop, FitConfig(direction="inhibition")).fit()
     assert r_bad.success and r_drop.success
     assert r_bad.n_valid == 12
     for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "rss", "aic", "bic"):
@@ -692,8 +692,8 @@ def test_single_drug_fit_non_finite_concentration_excluded_like_missing_y():
     df_drop = pd.DataFrame(
         {"concentration": np.delete(conc, 4), "y": np.delete(y_noisy, 4), "replicate": 0},
     )
-    r_bad = SingleDrugFit(df_bad).fit()
-    r_drop = SingleDrugFit(df_drop).fit()
+    r_bad = SingleDrugFit(df_bad, FitConfig(direction="inhibition")).fit()
+    r_drop = SingleDrugFit(df_drop, FitConfig(direction="inhibition")).fit()
     assert r_bad.n_valid == 12
     assert r_bad.n_total == 13
     for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf", "rss", "aic", "bic"):
@@ -706,14 +706,14 @@ def test_single_drug_fit_valids_wrong_length_raises():
     conc, y = _case_ab_conc_y()
     df = pd.DataFrame({"concentration": conc, "y": y, "replicate": 0})
     with pytest.raises(ValueError, match="valids must be a 1-D boolean array"):
-        SingleDrugFit(df).fit(valids=np.ones(5, dtype=bool))
+        SingleDrugFit(df, FitConfig(direction="inhibition")).fit(valids=np.ones(5, dtype=bool))
 
 
 def test_single_drug_fit_with_error_nan_y_excluded_from_n_valid():
     conc, y = _case_ab_conc_y()
     df = pd.DataFrame({"concentration": conc, "y": y.copy(), "y_err": 0.02, "replicate": 0})
     df.loc[5, "y"] = np.nan
-    result = SingleDrugFitWithError(df).fit()
+    result = SingleDrugFitWithError(df, FitConfig(direction="inhibition")).fit()
     assert result.n_valid == 12
     assert result.n_total == 13
 
@@ -728,9 +728,9 @@ def test_single_drug_fit_with_error_invalid_y_err_on_excluded_row_ignored():
     df_bad = df.copy()
     df_bad.loc[7, "y_err"] = np.nan
     df_drop = df.loc[valids].reset_index(drop=True)
-    r_ok = SingleDrugFitWithError(df).fit(valids=valids)
-    r_bad = SingleDrugFitWithError(df_bad).fit(valids=valids)
-    r_drop = SingleDrugFitWithError(df_drop).fit()
+    r_ok = SingleDrugFitWithError(df, FitConfig(direction="inhibition")).fit(valids=valids)
+    r_bad = SingleDrugFitWithError(df_bad, FitConfig(direction="inhibition")).fit(valids=valids)
+    r_drop = SingleDrugFitWithError(df_drop, FitConfig(direction="inhibition")).fit()
     for name in ("c50", "log_c50", "hill", "effect_0", "effect_inf"):
         np.testing.assert_allclose(
             getattr(r_ok, name), getattr(r_bad, name), rtol=1e-9, atol=1e-12,
@@ -746,7 +746,7 @@ def test_single_drug_fit_with_error_invalid_y_err_on_included_row_raises(bad_err
     df = pd.DataFrame({"concentration": conc, "y": y, "y_err": 0.02})
     df.loc[4, "y_err"] = bad_err
     with pytest.raises(ValueError, match="Invalid y_err on observations included"):
-        SingleDrugFitWithError(df).fit()
+        SingleDrugFitWithError(df, FitConfig(direction="inhibition")).fit()
 
 
 def test_single_drug_fit_with_error_likelihood_uses_weights():
@@ -754,7 +754,7 @@ def test_single_drug_fit_with_error_likelihood_uses_weights():
     rng = np.random.default_rng(6)
     y_noisy = y + rng.normal(0, 0.03, 13)
     df = pd.DataFrame({"concentration": conc, "y": y_noisy, "y_err": 0.02})
-    fitter = SingleDrugFitWithError(df)
+    fitter = SingleDrugFitWithError(df, FitConfig(direction="inhibition"))
     mask = effective_observation_mask(
         None, len(df), df["concentration"].values, df["y"].values,
     )
@@ -775,7 +775,7 @@ def test_single_drug_gaussian_linear_nan_concentration_rows_match_drop():
     rng = np.random.default_rng(7)
     y_noisy = y + rng.normal(0, 0.05, 13)
     df_base = pd.DataFrame({"concentration": conc, "y": y_noisy, "replicate": 0})
-    cfg = FitConfig(noise=GaussianLinear())
+    cfg = FitConfig(direction="inhibition", noise=GaussianLinear())
     extra = pd.DataFrame(
         {"concentration": [np.nan, np.nan], "y": [1e6, 2e6], "replicate": [0, 0]},
     )
@@ -823,10 +823,13 @@ def test_valids_outliers_match_dropped_rows(fitter_cls):
     if fitter_cls is SingleDrugFitWithError:
         frame = frame.assign(y_err=0.05)
     dropped = frame.loc[included].reset_index(drop=True)
-    masked_fit = fitter_cls(frame)
-    dropped_fit = fitter_cls(dropped)
+    masked_fit = fitter_cls(frame, FitConfig(direction="inhibition"))
+    dropped_fit = fitter_cls(dropped, FitConfig(direction="inhibition"))
     # Defaults are still resolved at construction, before valids exists.
-    assert abs(float(masked_fit.config.log_c50) - float(dropped_fit.config.log_c50)) > 0.1
+    if fitter_cls is SingleDrugFit:
+        assert abs(float(masked_fit.config.log_c50) - float(dropped_fit.config.log_c50)) > 0.1
+    else:
+        assert masked_fit.config.bounds != dropped_fit.config.bounds
     result_masked = masked_fit.fit(valids=included)
     result_dropped = dropped_fit.fit()
     _assert_curve_matches(result_masked, result_dropped)
@@ -850,8 +853,8 @@ def test_valids_heteroscedastic_scale_matches_dropped_rows():
     included = np.array([True] * 10 + [False, False])
     dropped = frame.loc[included].reset_index(drop=True)
     noise = GaussianLinear()
-    masked_fit = SingleDrugFit(frame, FitConfig(noise=noise))
-    dropped_fit = SingleDrugFit(dropped, FitConfig(noise=noise))
+    masked_fit = SingleDrugFit(frame, FitConfig(direction="inhibition", noise=noise))
+    dropped_fit = SingleDrugFit(dropped, FitConfig(direction="inhibition", noise=noise))
     result_masked = masked_fit.fit(valids=included)
     result_dropped = dropped_fit.fit()
     _assert_curve_matches(result_masked, result_dropped)
@@ -867,7 +870,7 @@ def test_valids_heteroscedastic_scale_matches_dropped_rows():
 
 def test_unmasked_fit_does_not_rewrite_automatic_config():
     data = _synthetic_data()
-    fitter = SingleDrugFit(data)
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition"))
     before = copy.deepcopy(fitter.config)
     fitter.fit()
     assert fitter.config.log_c50 == before.log_c50
@@ -879,7 +882,7 @@ def test_unmasked_fit_does_not_rewrite_automatic_config():
 
 def test_explicit_config_survives_valids_that_would_change_defaults():
     frame, included = _outlier_dose_response()
-    caller = FitConfig(
+    caller = FitConfig(direction="inhibition", 
         log_c50=-0.3,
         hill=1.4,
         effect_0=0.8,
@@ -907,11 +910,11 @@ def test_explicit_config_survives_valids_that_would_change_defaults():
 def test_post_construction_edits_survive_valids_and_other_defaults_follow_mask():
     frame, included = _outlier_dose_response()
     dropped = frame.loc[included].reset_index(drop=True)
-    fitter = SingleDrugFit(frame)
+    fitter = SingleDrugFit(frame, FitConfig(direction="inhibition"))
     fitter.config.log_c50 = -0.7
     fitter.config.bounds.hill = (0.5, 3.0)
     fitter.fit(valids=included)
-    dropped_fit = SingleDrugFit(dropped)
+    dropped_fit = SingleDrugFit(dropped, FitConfig(direction="inhibition"))
     assert fitter.config.log_c50 == -0.7
     assert fitter.config.bounds.hill == (0.5, 3.0)
     # Untouched asymptote bounds still follow the included rows.
@@ -925,10 +928,10 @@ def test_with_error_explicit_initial_kept_and_automatic_bounds_follow_mask():
     frame, included = _outlier_dose_response()
     frame = frame.assign(y_err=0.05)
     dropped = frame.loc[included].reset_index(drop=True)
-    caller = FitConfig(log_c50=-0.4)
+    caller = FitConfig(direction="inhibition", log_c50=-0.4)
     fitter = SingleDrugFitWithError(frame, caller)
     fitter.fit(valids=included)
-    dropped_fit = SingleDrugFitWithError(dropped, FitConfig(log_c50=-0.4))
+    dropped_fit = SingleDrugFitWithError(dropped, FitConfig(direction="inhibition", log_c50=-0.4))
     assert caller.log_c50 == -0.4
     assert caller.bounds is None
     assert fitter.config.log_c50 == -0.4
@@ -942,7 +945,7 @@ def test_explicit_variance_initial_not_reclamped_when_valids_changes_scale():
         "replicate": 0,
     })
     fitter = SingleDrugFit(
-        data, FitConfig(noise=GaussianLinear(a_init=1.5e-12, b_init=0.0)),
+        data, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=1.5e-12, b_init=0.0)),
     )
     a_init = fitter.config.noise.a_init
     b_init = fitter.config.noise.b_init
@@ -956,7 +959,7 @@ def test_explicit_variance_initial_not_reclamped_when_valids_changes_scale():
 
 def test_later_unmasked_fit_restores_defaults_from_all_finite_rows():
     frame, included = _outlier_dose_response()
-    fitter = SingleDrugFit(frame)
+    fitter = SingleDrugFit(frame, FitConfig(direction="inhibition"))
     original = fitter.config.log_c50
     fitter.fit(valids=included)
     assert abs(fitter.config.log_c50 - original) > 0.1
@@ -970,6 +973,9 @@ def test_valids_zero_response_range_raises_like_dropped_rows():
     frame = pd.DataFrame({"concentration": conc, "y": response, "replicate": 0})
     included = np.array([True] * 6 + [False, False])
     with pytest.raises(ValueError, match="too close together"):
-        SingleDrugFit(frame).fit(valids=included)
+        SingleDrugFit(frame, FitConfig(direction="inhibition")).fit(valids=included)
     with pytest.raises(ValueError, match="too close together"):
-        SingleDrugFit(frame.loc[included].reset_index(drop=True))
+        SingleDrugFit(
+            frame.loc[included].reset_index(drop=True),
+            FitConfig(direction="inhibition"),
+        )

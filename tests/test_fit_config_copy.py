@@ -34,7 +34,7 @@ def _caller_snapshot(cfg: FitConfig) -> FitConfig:
 
 def test_single_drug_caller_config_unchanged_after_construct_and_fit():
     data = _synthetic_data()
-    caller = FitConfig()
+    caller = FitConfig(direction="inhibition")
     before = _caller_snapshot(caller)
     fitter = SingleDrugFit(data, caller)
     fitter.fit()
@@ -44,7 +44,7 @@ def test_single_drug_caller_config_unchanged_after_construct_and_fit():
 
 def test_single_drug_with_error_caller_config_unchanged_after_construct_and_fit():
     data = _synthetic_data().assign(y_err=0.02)
-    caller = FitConfig()
+    caller = FitConfig(direction="inhibition")
     before = _caller_snapshot(caller)
     fitter = SingleDrugFitWithError(data, caller)
     fitter.fit()
@@ -55,14 +55,14 @@ def test_single_drug_with_error_caller_config_unchanged_after_construct_and_fit(
 def test_reused_fit_config_matches_fresh_on_rescaled_data():
     """Regression: bounds from the first dataset must not leak into the second fit."""
     data = _synthetic_data(c50=2.0)
-    caller = FitConfig()
+    caller = FitConfig(direction="inhibition")
     before = _caller_snapshot(caller)
 
     SingleDrugFit(data, caller).fit()
     assert _fit_config_equal(before, caller)
 
     scaled = data.assign(y=data["y"] * 1000.0)
-    r_fresh = SingleDrugFit(scaled, FitConfig()).fit()
+    r_fresh = SingleDrugFit(scaled, FitConfig(direction="inhibition")).fit()
     r_reuse = SingleDrugFit(scaled, caller).fit()
 
     assert r_fresh.success
@@ -74,7 +74,7 @@ def test_reused_fit_config_matches_fresh_on_rescaled_data():
 
 def test_fit_config_copy_preserves_removed_var_b():
     pin_b = 0.05
-    cfg = FitConfig(noise=GaussianLinear(a_init=0.001, b_init=pin_b))
+    cfg = FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=pin_b))
     cfg.fitting_parameters = [p for p in cfg.fitting_parameters if p != "var_b"]
     assert "var_b" not in cfg.fitting_parameters
 
@@ -82,7 +82,7 @@ def test_fit_config_copy_preserves_removed_var_b():
     assert "var_b" not in copied.fitting_parameters
 
     data = _synthetic_data()
-    caller = FitConfig(noise=GaussianLinear(a_init=0.001, b_init=pin_b))
+    caller = FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=pin_b))
     caller.fitting_parameters = [p for p in caller.fitting_parameters if p != "var_b"]
     fitter = SingleDrugFit(data, caller)
     assert "var_b" not in fitter.config.fitting_parameters
@@ -91,7 +91,7 @@ def test_fit_config_copy_preserves_removed_var_b():
 
 def test_heteroscedastic_caller_config_unchanged():
     data = _synthetic_data()
-    caller = FitConfig(variance_model="linear")
+    caller = FitConfig(direction="inhibition", variance_model="linear")
     before = _caller_snapshot(caller)
     SingleDrugFit(data, caller).fit()
     assert _fit_config_equal(before, caller)
@@ -99,7 +99,7 @@ def test_heteroscedastic_caller_config_unchanged():
 
 def test_post_construction_fitter_config_edits_apply():
     data = _synthetic_data()
-    caller = FitConfig()
+    caller = FitConfig(direction="inhibition")
     before = _caller_snapshot(caller)
 
     fitter = SingleDrugFit(data, caller)
@@ -117,7 +117,7 @@ def test_post_construction_fitter_config_edits_apply():
 
 def test_post_construction_pin_on_fitter_config_applies():
     data = _synthetic_data()
-    fitter = SingleDrugFit(data, FitConfig())
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition"))
     pin = 0.82
     fitter.config.fitting_parameters = [
         p for p in fitter.config.fitting_parameters if p != "effect_0"
@@ -139,7 +139,7 @@ def test_scaled_config_edits_and_refit(fitter_cls, noise, s):
     if fitter_cls is SingleDrugFitWithError:
         scaled = scaled.assign(y_err=base["y_err"] * s)
 
-    caller = FitConfig(
+    caller = FitConfig(direction="inhibition", 
         noise=noise,
         log_c50=0.3,
         hill=1.4,
@@ -169,7 +169,7 @@ def test_scaled_config_edits_and_refit(fitter_cls, noise, s):
 
 def test_post_construction_bounds_tuple_mutation_applies():
     data = _synthetic_data()
-    fitter = SingleDrugFit(data, FitConfig())
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition"))
     tight_hi = fitter.config.bounds.effect_inf[0] + 0.01
     fitter.config.bounds.effect_inf = (
         fitter.config.bounds.effect_inf[0],

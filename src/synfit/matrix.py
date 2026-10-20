@@ -87,10 +87,11 @@ class MatrixFit(FitBase):
         conc_horizontal: np.ndarray,
         conc_vertical: np.ndarray,
         valids: list[np.ndarray] | None = None,
+        *,
+        direction_horizontal: str,
+        direction_vertical: str,
         noise: NoiseSpec | dict | str | None = None,
         error_model: str | None = None,
-        direction_horizontal: str = "inhibition",
-        direction_vertical: str = "inhibition",
     ):
         if not replicates:
             raise ValueError("At least one replicate matrix is required")
@@ -121,7 +122,9 @@ class MatrixFit(FitBase):
         # parameter vector doesn't match the single-drug FitConfig schema, so —
         # like JointMarginalFit — we pass explicit _x0/_bounds to _run_minimize
         # and override _log_prob_data / _log_prior_prob below.
-        super().__init__(FitConfig(noise=self.noise))
+        super().__init__(
+            FitConfig(noise=self.noise, direction="inhibition"),  # unused; matrix params own asymptotes
+        )
         self.direction_horizontal = direction_horizontal
         self.direction_vertical = direction_vertical
 
