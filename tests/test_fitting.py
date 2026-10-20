@@ -58,6 +58,20 @@ def test_single_drug_fit_recovers_hill(noise_model, error_model):
     assert result.hill == pytest.approx(2.0, rel=0.6)
 
 
+def test_default_fit_recovers_steep_cooperative_hill():
+    data = _synthetic_data(
+        hill=7.0, noise_model="gaussian", noise_sigma=0.005, length=12,
+    )
+    result = SingleDrugFit(data, FitConfig(direction="inhibition")).fit()
+    assert result.success
+    assert result.hill == pytest.approx(7.0, rel=0.15)
+    cis = result.param_ci()
+    assert cis is not None
+    lo, hi = cis["hill"]
+    assert lo < 7.0 < hi
+    assert hi > lo
+
+
 def test_single_drug_fit_with_valids():
     data = _synthetic_data(c50=1.0)
     # mark all as valid

@@ -233,7 +233,7 @@ def _init_config_from_data(
     ) -> FitConfig:
         bounds_kwargs: dict = {
             "log_c50": log_c50_bounds,
-            "hill": (0.1, 4.0),
+            "hill": (0.1, 10.0),
             "effect_0": effect_0_bounds,
             "effect_inf": effect_inf_bounds,
         }

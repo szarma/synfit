@@ -23,6 +23,16 @@ heading.
   fit pinned at its bounds while reporting success. Add
   `direction="inhibition"` to keep the old behaviour. Fitted values are
   unchanged.
+- **The default Hill-slope upper bound is 10 (was 4).** Steep cooperative
+  curves no longer pin at 4.0 with a zero-width interval. Fits that used to
+  stop at 4.0 move substantially; other fits can shift in the last few
+  digits, because L-BFGS-B takes a slightly different path when its bounds
+  change (a **MINOR** change). To restore the old limit on a single-drug
+  fit, edit only the Hill bound of the data-derived config:
+  `fitter = SingleDrugFit(data, config)`, then
+  `fitter.config.bounds.hill = (0.1, 4.0)` before `fitter.fit()`. Passing
+  `FitBounds(hill=(0.1, 4.0))` does not do this: it replaces every
+  data-derived bound with the bare defaults (#48).
 
 ### Fixed
 - **Lognormal fits reject non-positive responses on every path.** When bounds

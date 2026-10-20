@@ -246,8 +246,8 @@ class MatrixFit(FitBase):
         self._bounds = [
             self.synfit_hor.config.bounds.log_c50,
             self.synfit_ver.config.bounds.log_c50,
-            (0.1, 4.0),
-            (0.1, 4.0),
+            (0.1, 10.0),
+            (0.1, 10.0),
             effect_0_bounds,
             effect_inf_bounds,
         ]
