@@ -16,6 +16,11 @@ heading.
 ## [Unreleased]
 
 ### Fixed
+- **Exported confidence intervals keep full precision.** `FitResult.to_dict()`
+  and the per-drug intervals of `JointMarginalResult.to_dict()` rounded
+  interval endpoints to 6 decimals, so intervals on small numbers serialised as
+  `[0, 0]` — for example every IC₅₀ interval when concentrations are entered
+  in molar. Fitted values are unchanged (#62).
 - **Points excluded with `fit(valids=...)` no longer set automatic single-drug
   defaults.** `SingleDrugFit` and `SingleDrugFitWithError` used to derive
   starting values, bounds, and (for heteroscedastic noise) the response scale

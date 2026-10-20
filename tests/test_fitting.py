@@ -1,4 +1,5 @@
 import copy
+import json
 
 import numpy as np
 import pandas as pd
@@ -15,7 +16,7 @@ from synfit.single import (
     _robust_response_extrema,
     default_fit_config,
 )
-from synfit.synthetic import generate_single_drug
+from synfit.synthetic import generate_single_drug, scenario_dir
 
 
 def _synthetic_data(c50=1.0, hill=1.5, effect_0=0.9, effect_inf=0.05,
@@ -145,6 +146,38 @@ def test_single_drug_fit_populates_sigma(noise_model, error_model, expected_sigm
     assert result.sigma == pytest.approx(expected_sigma, rel=0.4)
     # to_dict() must surface it for DB persistence.
     assert result.to_dict()["sigma"] == result.sigma
+
+
+def test_to_dict_ci_matches_param_ci_small_concentrations():
+    """Serialised CIs must not be rounded away for molar-scale concentrations."""
+    name = "single_drug_noisy"
+    d = pd.read_csv(scenario_dir(name) / f"{name}.csv")
+    result = SingleDrugFit(
+        d.assign(concentration=d.concentration * 1e-9), FitConfig(),
+    ).fit()
+    cis = result.param_ci()
+    assert cis is not None
+    exported = result.to_dict()["ci"]
+    for key, (lo, hi) in cis.items():
+        assert exported[key] == [lo, hi]
+    for key in ("c50", "kappa", "ic50"):
+        assert key in exported
+        assert exported[key][0] < exported[key][1]
+    json.dumps(result.to_dict())
+
+
+def test_to_dict_ci_matches_param_ci_small_responses():
+    """Serialised asymptote CIs must survive sub-nanomolar response scales."""
+    name = "single_drug_noisy"
+    d = pd.read_csv(scenario_dir(name) / f"{name}.csv")
+    result = SingleDrugFit(d.assign(y=d.y * 1e-9), FitConfig()).fit()
+    cis = result.param_ci()
+    assert cis is not None
+    exported = result.to_dict()["ci"]
+    for key in ("effect_0", "effect_inf"):
+        assert exported[key] == [cis[key][0], cis[key][1]]
+        assert exported[key][0] < exported[key][1]
+    json.dumps(result.to_dict())
 
 
 def test_to_dict_4p_kappa_equals_ic50():

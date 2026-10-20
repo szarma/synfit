@@ -256,10 +256,11 @@ class JointMarginalResult:
             joint_name = f"{base}_{suffix}"
             if joint_name in joint_ci:
                 lo, hi = joint_ci[joint_name]
-                out[base] = [round(float(lo), 6), round(float(hi), 6)]
-        if "log_c50" in out:
-            lo_log, hi_log = out["log_c50"]
-            out["c50"] = [round(10 ** lo_log, 6), round(10 ** hi_log, 6)]
+                out[base] = [float(lo), float(hi)]
+        log_name = f"log_c50_{suffix}"
+        if log_name in joint_ci:
+            lo_log, hi_log = joint_ci[log_name]
+            out["c50"] = [float(10 ** lo_log), float(10 ** hi_log)]
         return out
 
 

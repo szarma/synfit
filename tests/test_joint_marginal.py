@@ -1,4 +1,6 @@
 """Tests for JointMarginalFit — two drugs with shared top/bottom."""
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -422,6 +424,21 @@ def test_joint_fit_auto_skips_lognormal_under_non_constant_variance():
     result = fit_joint_marginal_auto(data_a, data_b, variance_model="linear")
     assert result.error_model == "gaussian"
     assert result.variance_model == "linear"
+
+
+def test_joint_fit_to_dict_ci_c50_from_unrounded_log_c50_small_concentrations():
+    """Per-drug c50 CIs must use full-precision log_c50 endpoints (molar scale)."""
+    data_a, data_b = _two_drug_data()
+    data_a = data_a.assign(concentration=data_a.concentration * 1e-9)
+    data_b = data_b.assign(concentration=data_b.concentration * 1e-9)
+    result = JointMarginalFit(data_a, data_b).fit()
+    joint_ci = result._compute_joint_param_cis()
+    d = result.to_dict()
+    h_ci = d["horizontal"]["ci"]
+    lo_log, hi_log = joint_ci["log_c50_a"]
+    assert h_ci["c50"] == [10 ** lo_log, 10 ** hi_log]
+    assert h_ci["c50"][0] < h_ci["c50"][1]
+    json.dumps(d)
 
 
 def test_joint_fit_to_dict_exposes_shared_and_per_drug_cis():
