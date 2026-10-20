@@ -348,8 +348,10 @@ class FitResult:
     def param_ci(self, alpha: float = 0.05) -> dict[str, tuple[float, float]] | None:
         """Return ``{name: (lo, hi)}`` for each fitted parameter at 1-alpha level.
 
-        For ``log_c50`` an additional ``c50`` key is added with the CI
-        propagated to linear space via the delta method (10**log_c50).
+        For ``log_c50`` an additional ``c50`` key is added by mapping the
+        ``log_c50`` endpoints through ``10**`` (exact monotonic transform).
+        The resulting interval is symmetric in fold terms (log space), not
+        symmetric on the linear c50 scale.
         """
         if self.param_cov is None or self.param_names is None:
             return None
@@ -549,17 +551,17 @@ class FitResult:
 
         cis = self.param_ci()
         if cis:
-            d["ci"] = {k: [round(float(lo), 6), round(float(hi), 6)] for k, (lo, hi) in cis.items()}
+            d["ci"] = {k: [float(lo), float(hi)] for k, (lo, hi) in cis.items()}
             # Mirror c50 CI under the kappa name so consumers who read by
             # the canonical parameter name find it.
             if "c50" in cis:
                 lo, hi = cis["c50"]
-                d["ci"]["kappa"] = [round(float(lo), 6), round(float(hi), 6)]
+                d["ci"]["kappa"] = [float(lo), float(hi)]
             half_ci = self._half_max_ci()
             if half_ci is not None:
                 lo, hi = half_ci
                 key = "ic50" if self.direction == "inhibition" else "ec50"
-                d["ci"][key] = [round(float(lo), 6), round(float(hi), 6)]
+                d["ci"][key] = [float(lo), float(hi)]
         if self.param_cov is not None:
             d["param_cov"] = self.param_cov.tolist()
         if self.param_names:

@@ -544,8 +544,8 @@ def compare_baseline_snapshots(reference: dict, current: dict) -> list[str]:
         if rc.get("fingerprint") != cc.get("fingerprint"):
             issues.append(prefix + "input fingerprint changed")
         issues.extend(
-            # atol: to_dict() rounds to 6 decimals (#62), so 1e-6 is its resolution.
-            _compare_nested(rc["to_dict"], cc["to_dict"], prefix + "to_dict.", rtol=5e-4, atol=1e-6)
+            # atol: last-bit float jitter across NumPy builds (see 8601b4f), not CI rounding.
+            _compare_nested(rc["to_dict"], cc["to_dict"], prefix + "to_dict.", rtol=5e-4, atol=1e-9)
         )
         pc_r, pc_c = rc.get("param_ci"), cc.get("param_ci")
         if (pc_r is None) ^ (pc_c is None):
