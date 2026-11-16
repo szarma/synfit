@@ -15,9 +15,9 @@ from tests.test_variance_anchor import _repro_data
 
 def test_gaussian_constant_log_likelihood_invariant_at_1e_9():
     data = single_drug_noisy_data()
-    native = SingleDrugFit(data, FitConfig()).fit()
+    native = SingleDrugFit(data, FitConfig(direction="inhibition")).fit()
     s_ext = 1e-9
-    scaled = SingleDrugFit(data.assign(y=data.y * s_ext), FitConfig()).fit()
+    scaled = SingleDrugFit(data.assign(y=data.y * s_ext), FitConfig(direction="inhibition")).fit()
     n = native.n_valid
     expected = native.log_likelihood - n * np.log(s_ext)
     assert scaled.log_likelihood == pytest.approx(expected, abs=1e-3)
@@ -26,11 +26,15 @@ def test_gaussian_constant_log_likelihood_invariant_at_1e_9():
 
 def test_fit_joint_marginal_auto_error_model_invariant_under_response_scale():
     data_a, data_b = _two_drug_frames()
-    native = fit_joint_marginal_auto(data_a, data_b)
+    native = fit_joint_marginal_auto(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
+    )
     s = 1e-9
     scaled_a = data_a.assign(y=data_a.y * s)
     scaled_b = data_b.assign(y=data_b.y * s)
-    scaled = fit_joint_marginal_auto(scaled_a, scaled_b)
+    scaled = fit_joint_marginal_auto(
+        scaled_a, scaled_b, direction_a="inhibition", direction_b="inhibition",
+    )
     assert scaled.error_model == native.error_model
 
 
@@ -40,9 +44,9 @@ def test_unset_variance_initials_normalise_from_their_public_values():
     from synfit.response_norm import normalized_fit_config
 
     data = single_drug_noisy_data().assign(y=lambda df: df.y * 1000.0)
-    bounds = SingleDrugFit(data, FitConfig(noise=GaussianLinear())).config.bounds
+    bounds = SingleDrugFit(data, FitConfig(direction="inhibition", noise=GaussianLinear())).config.bounds
     cfg = SingleDrugFit(
-        data, FitConfig(noise=GaussianLinear(a_init=None, b_init=10.0), bounds=bounds),
+        data, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=None, b_init=10.0), bounds=bounds),
     ).config
     assert cfg.noise.a_init is None
     s = 512.0
@@ -59,7 +63,7 @@ def _excluded_zero_fit(var_a_bounds, *, fit_var_a):
         "y": [0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0],
         "replicate": 0,
     })
-    fitter = SingleDrugFit(data, FitConfig(noise=GaussianLinear(a_init=1.5e-12, b_init=0.0)))
+    fitter = SingleDrugFit(data, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=1.5e-12, b_init=0.0)))
     fitter.config.bounds.var_a = var_a_bounds
     if not fit_var_a:
         fitter.config.fitting_parameters = [
@@ -82,13 +86,13 @@ def test_predict_variance_equivariant_below_the_absolute_floor():
     μ only: at the lower asymptote the fitted ``a`` sits on its bound and the
     value is dominated by rounding in μ − anchor."""
     data = single_drug_noisy_data()
-    native = SingleDrugFit(data, FitConfig(noise=GaussianLinear())).fit()
+    native = SingleDrugFit(data, FitConfig(direction="inhibition", noise=GaussianLinear())).fit()
     mu = native.effect_inf + np.array([0.25, 0.5, 0.75, 1.0]) * (
         native.effect_0 - native.effect_inf
     )
     s = 1e-9
     scaled = SingleDrugFit(
-        data.assign(y=data.y * s), FitConfig(noise=GaussianLinear()),
+        data.assign(y=data.y * s), FitConfig(direction="inhibition", noise=GaussianLinear()),
     ).fit()
     np.testing.assert_allclose(
         scaled.predict_variance(mu * s) / s**2, native.predict_variance(mu), rtol=1e-3,
@@ -102,7 +106,7 @@ def test_variance_retry_initials_independent_of_response_magnitude(scale):
     df = _repro_data()
     if scale != 1.0:
         df = df.assign(y=df.y * scale)
-    cfg = FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05))
+    cfg = FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05))
     fitter = SingleDrugFit(df, cfg)
     s = response_scale_from_y(df.y.values)
     work = normalized_fit_config(fitter.config, s)
@@ -123,7 +127,7 @@ def test_joint_drug_results_share_the_parent_variance_model():
     data_a, data_b = _two_drug_frames()
     s = 1e-9
     result = JointMarginalFit(
-        data_a.assign(y=data_a.y * s), data_b.assign(y=data_b.y * s), noise=GaussianLinear(),
+        data_a.assign(y=data_a.y * s), data_b.assign(y=data_b.y * s), direction_a="inhibition", direction_b="inhibition", noise=GaussianLinear(),
     ).fit()
     mu = 0.5 * (result.top + result.bottom)
     expected = result.predict_variance(mu)
@@ -134,7 +138,7 @@ def test_joint_drug_results_share_the_parent_variance_model():
 def test_to_dict_carries_the_response_scale():
     """``predict_variance`` depends on the scale, so serialised results keep it."""
     data = single_drug_noisy_data().assign(y=lambda df: df.y * 1e-9)
-    result = SingleDrugFit(data, FitConfig(noise=GaussianLinear())).fit()
+    result = SingleDrugFit(data, FitConfig(direction="inhibition", noise=GaussianLinear())).fit()
     assert result.response_scale != 1.0
     assert result.to_dict()["response_scale"] == result.response_scale
 
@@ -147,13 +151,13 @@ def test_every_fitter_reports_the_scale_it_used():
     s = 1e-9
     data = single_drug_noisy_data()
     weighted = SingleDrugFitWithError(
-        data.assign(y=data.y * s, y_err=0.1 * s), FitConfig(),
+        data.assign(y=data.y * s, y_err=0.1 * s), FitConfig(direction="inhibition"),
     ).fit()
     assert weighted.response_scale != 1.0
     assert weighted.to_dict()["response_scale"] == weighted.response_scale
 
     reps, ch, cv = matrix_from_config(seed=42, noise_model="lognormal")
-    matrix = MatrixFit([r * s for r in reps], ch, cv, error_model="lognormal").fit()
+    matrix = MatrixFit([r * s for r in reps], ch, cv, error_model="lognormal", direction_horizontal="inhibition", direction_vertical="inhibition").fit()
     assert matrix.horizontal.response_scale == matrix.vertical.response_scale != 1.0
     assert matrix.to_dict()["horizontal"]["response_scale"] == matrix.horizontal.response_scale
 
@@ -174,7 +178,7 @@ def test_unit_response_scale_still_normalises():
 
     fits = {}
     for f in (1.0, 2.0):
-        fitter = SingleDrugFit(data.assign(y=data.y * f), FitConfig(noise=GaussianLinear()))
+        fitter = SingleDrugFit(data.assign(y=data.y * f), FitConfig(direction="inhibition", noise=GaussianLinear()))
         fits[f] = fitter.fit(valids=valids)
     assert fits[1.0].response_scale == pytest.approx(1.0)
     assert fits[2.0].response_scale == pytest.approx(2.0)

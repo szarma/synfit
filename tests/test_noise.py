@@ -112,13 +112,13 @@ class TestWeightedLikelihood:
 
 class TestErrorModelEnum:
     def test_fitconfig_coerces_string(self):
-        cfg = FitConfig(error_model="gaussian")
+        cfg = FitConfig(direction="inhibition", error_model="gaussian")
         assert cfg.noise == GaussianConstant()
         assert cfg.error_model == "gaussian"
 
     def test_fitconfig_invalid_string_raises(self):
         with pytest.raises(ValueError):
-            FitConfig(error_model="banana")
+            FitConfig(direction="inhibition", error_model="banana")
 
     def test_lognormal_nonpositive_warns_and_drops(self):
         """Non-positive y under lognormal: warn (UserWarning), drop the point
@@ -294,14 +294,14 @@ class TestVarianceModelEnum:
         assert set(SUPPORTED_VARIANCE_MODELS) == {"constant", "linear", "quadratic"}
 
     def test_coerce_string(self):
-        assert FitConfig(variance_model="linear").noise == GaussianLinear()
-        assert FitConfig(variance_model="quadratic").noise == GaussianQuadratic()
+        assert FitConfig(direction="inhibition", variance_model="linear").noise == GaussianLinear()
+        assert FitConfig(direction="inhibition", variance_model="quadratic").noise == GaussianQuadratic()
 
     def test_coerce_invalid_raises(self):
         with pytest.raises(ValueError):
-            FitConfig(variance_model="cubic")
+            FitConfig(direction="inhibition", variance_model="cubic")
 
     def test_free_coefficients(self):
-        assert FitConfig().fitting_parameters == ["log_c50", "hill", "effect_0", "effect_inf"]
-        assert FitConfig(variance_model="linear").fitting_parameters[-2:] == ["var_a", "var_b"]
-        assert FitConfig(variance_model="quadratic").fitting_parameters[-3:] == ["var_a", "var_b", "var_c"]
+        assert FitConfig(direction="inhibition").fitting_parameters == ["log_c50", "hill", "effect_0", "effect_inf"]
+        assert FitConfig(direction="inhibition", variance_model="linear").fitting_parameters[-2:] == ["var_a", "var_b"]
+        assert FitConfig(direction="inhibition", variance_model="quadratic").fitting_parameters[-3:] == ["var_a", "var_b", "var_c"]

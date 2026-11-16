@@ -20,14 +20,14 @@ A single-drug inhibition fit. Data goes in as a tidy DataFrame of
 
 ```python
 import pandas as pd
-from synfit import SingleDrugFit
+from synfit import FitConfig, SingleDrugFit
 
 data = pd.DataFrame({
     "concentration": [0, 0.1, 1, 10, 100, 100],
     "y": [1.0, 0.95, 0.75, 0.35, 0.08, 0.05],
     "replicate": [0, 0, 0, 0, 0, 0],
 })
-result = SingleDrugFit(data).fit()
+result = SingleDrugFit(data, FitConfig(direction="inhibition")).fit()
 print(f"c50 (κ): {result.c50:.3g}")
 print(f"IC50:    {result.half_max:.3g}")
 print(f"Hill:    {result.hill:.3g}")
@@ -125,7 +125,7 @@ data = pd.read_csv(directory / f"{name}.csv")
 truth = scenario_config(name)["hill_params"]
 
 # fit
-result = SingleDrugFit(data, FitConfig(noise="lognormal")).fit()
+result = SingleDrugFit(data, FitConfig(direction="inhibition", noise="lognormal")).fit()
 
 # plot
 dose_response_plot(

@@ -47,7 +47,11 @@ replicates = [pd.read_csv(root / f"rep{i}.csv", sep="\t", header=None).to_numpy(
               for i in range(1, cfg["n_replicates"] + 1)]
 
 # Fit both single-drug curves from the zero-dose edges
-fit = JointMarginalFit.from_matrix(replicates, ch, cv, noise="lognormal").fit()
+fit = JointMarginalFit.from_matrix(
+    replicates, ch, cv,
+    direction_a="inhibition", direction_b="inhibition",
+    noise="lognormal",
+).fit()
 assert fit.success, fit.message
 
 # Score and plot the interactions on the replicate mean
@@ -165,10 +169,10 @@ observations = pd.DataFrame({"concentration": conc,
                              "y": mu + rng.normal(size=len(mu)) * sd,
                              "replicate": np.repeat(np.arange(3), 17)})
 weighted = observations.assign(y_err=sd)
-result = SingleDrugFitWithError(weighted, FitConfig(noise="gaussian_constant")).fit()
+result = SingleDrugFitWithError(weighted, FitConfig(direction="inhibition", noise="gaussian_constant")).fit()
 assert result.success, result.message
 # Alternative: estimate a response-dependent variance from the observations.
-linear = SingleDrugFit(observations, FitConfig(noise="gaussian_linear")).fit()
+linear = SingleDrugFit(observations, FitConfig(direction="inhibition", noise="gaussian_linear")).fit()
 assert linear.success, linear.message
 variance = linear.predict_variance(mu)
 assert variance is not None and np.all(np.isfinite(variance)) and np.all(variance > 0)

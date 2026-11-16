@@ -55,39 +55,39 @@ def _two_drug_data():
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_single_drug_fit_rejects_compound_noise(noise):
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
-        SingleDrugFit(_single_drug_df(), FitConfig(noise=noise))
+        SingleDrugFit(_single_drug_df(), FitConfig(direction="inhibition", noise=noise))
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_single_drug_fit_with_error_rejects_compound_noise(noise):
     with pytest.raises(ValueError, match=r"gaussian_constant and lognormal"):
-        SingleDrugFitWithError(_single_drug_with_error_df(), FitConfig(noise=noise))
+        SingleDrugFitWithError(_single_drug_with_error_df(), FitConfig(direction="inhibition", noise=noise))
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_default_fit_config_rejects_compound_noise(noise):
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
-        default_fit_config(_single_drug_df(), noise=noise)
+        default_fit_config(_single_drug_df(), direction="inhibition", noise=noise)
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_default_bounds_rejects_compound_noise(noise):
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
-        default_bounds(_single_drug_df(), noise=noise)
+        default_bounds(_single_drug_df(), direction="inhibition", noise=noise)
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_matrix_fit_rejects_compound_noise(noise):
     replicates, conc_h, conc_v = matrix_from_config()
     with pytest.raises(ValueError, match=r"constant gaussian/lognormal"):
-        MatrixFit(replicates, conc_h, conc_v, noise=noise)
+        MatrixFit(replicates, conc_h, conc_v, noise=noise, direction_horizontal="inhibition", direction_vertical="inhibition")
 
 
 @pytest.mark.parametrize("noise", _COMPOUND_NOISE_FORMS)
 def test_joint_marginal_fit_rejects_compound_noise(noise):
     data_a, data_b = _two_drug_data()
     with pytest.raises(ValueError, match=r"constant/linear/quadratic gaussian and lognormal"):
-        JointMarginalFit(data_a, data_b, noise=noise)
+        JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
 
 
 def test_compound_add_mult_noise_spec_still_round_trips():

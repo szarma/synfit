@@ -76,11 +76,11 @@ class ScaleFitCase:
             return copy.deepcopy(self.fit_config)
         if isinstance(self.noise, str):
             if self.noise in ("lognormal", "gaussian_constant"):
-                return FitConfig(noise=self.noise) if self.noise == "lognormal" else FitConfig()
-            return FitConfig(noise=self.noise)
+                return FitConfig(direction="inhibition", noise=self.noise) if self.noise == "lognormal" else FitConfig(direction="inhibition")
+            return FitConfig(direction="inhibition", noise=self.noise)
         if self.direction == "activation":
             return FitConfig(noise=self.noise, direction="activation")
-        return FitConfig(noise=self.noise)
+        return FitConfig(direction="inhibition", noise=self.noise)
 
 
 def _matrix_data():
@@ -164,11 +164,11 @@ def run_scale_case(case: ScaleFitCase) -> Any:
         result = SingleDrugFitWithError(data, cfg).fit()
     elif case.kind == "joint":
         data_a, data_b = data
-        result = JointMarginalFit(data_a, data_b, noise=case.noise).fit()
+        result = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=case.noise).fit()
     elif case.kind == "matrix":
         reps, ch, cv = data
         em = "lognormal" if case.noise == "lognormal" else "gaussian"
-        result = MatrixFit(reps, ch, cv, error_model=em).fit()
+        result = MatrixFit(reps, ch, cv, error_model=em, direction_horizontal="inhibition", direction_vertical="inhibition").fit()
     else:
         raise ValueError(f"unknown kind {case.kind}")
 
@@ -585,13 +585,18 @@ def fit_scaled_case(case: ScaleFitCase, s: float) -> Any:
     if case.kind == "joint":
         data_a, data_b = data
         return JointMarginalFit(
-            scale_dataframe(data_a, s), scale_dataframe(data_b, s), noise=case.noise,
+            scale_dataframe(data_a, s), scale_dataframe(data_b, s), direction_a="inhibition", direction_b="inhibition", noise=case.noise,
         ).fit()
     if case.kind == "matrix":
         reps, ch, cv = data
         em = "lognormal" if case.noise == "lognormal" else "gaussian"
         return MatrixFit(
-            scale_matrix_replicates(reps, s), ch, cv, error_model=em,
+            scale_matrix_replicates(reps, s),
+            ch,
+            cv,
+            direction_horizontal="inhibition",
+            direction_vertical="inhibition",
+            error_model=em,
         ).fit()
     raise ValueError(case.kind)
 

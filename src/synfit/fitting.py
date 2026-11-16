@@ -208,7 +208,9 @@ class FitBase:
     _VARIANCE_PARAM_NAMES = tuple(VARIANCE_PARAM_NAMES)
 
     def __init__(self, config: FitConfig | None = None):
-        self.config = config or FitConfig()
+        # Joint/matrix fitters pass a placeholder direction; single-drug fitters
+        # always supply a real config.
+        self.config = config or FitConfig(direction="inhibition")
 
     def _fit_runtime_config(self) -> FitConfig:
         """User config, or the private normalised copy active during ``fit()``."""

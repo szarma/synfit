@@ -61,7 +61,7 @@ def _classify(name: str) -> set[str]:
 def test_single_drug_param_names_each_have_at_most_one_role():
     from synfit.data import FitConfig
 
-    names = FitConfig().fitting_parameters  # log_c50, hill, effect_0, effect_inf
+    names = FitConfig(direction="inhibition").fitting_parameters  # log_c50, hill, effect_0, effect_inf
     assert is_log_param("log_c50")
     assert is_asymptote_param("effect_0") and is_asymptote_param("effect_inf")
     # hill is a shape exponent: no log/variance/asymptote role.
@@ -110,6 +110,7 @@ def _assert_exact_roles(param_names, expected):
 
 def test_single_drug_4p_params_have_expected_roles():
     """All param names produced by SingleDrugFit (4p) must match their expected roles."""
+    from synfit.data import FitConfig
     from synfit.single import SingleDrugFit
     from synfit.synthetic import generate_single_drug
 
@@ -125,7 +126,7 @@ def test_single_drug_4p_params_have_expected_roles():
         "noise_model": "gaussian", "noise_sigma": 0.02,
     }
     df = generate_single_drug(cfg)
-    fit = SingleDrugFit(df)
+    fit = SingleDrugFit(df, FitConfig(direction="inhibition"))
     result = fit.fit()
 
     # Verify every parameter name has the expected role
@@ -151,7 +152,7 @@ def test_single_drug_5p_params_have_expected_roles():
         "noise_model": "gaussian", "noise_sigma": 0.02,
     }
     df = generate_single_drug(cfg)
-    config = FitConfig(fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"])
+    config = FitConfig(direction="inhibition", fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"])
     fit = SingleDrugFit(df, config)
     result = fit.fit()
 
@@ -177,7 +178,7 @@ def test_single_drug_linear_gaussian_params_include_variance():
         "noise_model": "gaussian", "noise_var_a": 0.001, "noise_var_b": 0.05,
     }
     df = generate_single_drug(cfg)
-    config = FitConfig(noise="gaussian_linear")
+    config = FitConfig(direction="inhibition", noise="gaussian_linear")
     fit = SingleDrugFit(df, config)
     result = fit.fit()
 
@@ -206,7 +207,7 @@ def test_single_drug_quadratic_gaussian_params_include_variance():
         "noise_model": "gaussian", "noise_var_a": 0.001, "noise_var_b": 0.05, "noise_var_c": 0.001,
     }
     df = generate_single_drug(cfg)
-    config = FitConfig(noise="gaussian_quadratic")
+    config = FitConfig(direction="inhibition", noise="gaussian_quadratic")
     fit = SingleDrugFit(df, config)
     result = fit.fit()
 
@@ -239,9 +240,9 @@ def test_joint_marginal_params_have_expected_roles():
     data_a = generate_single_drug(cfg)
     data_b = generate_single_drug({**cfg, "seed": 43})
 
-    config = FitConfig(noise="gaussian_quadratic")
+    config = FitConfig(direction="inhibition", noise="gaussian_quadratic")
     fitter = JointMarginalFit(
-        data_a, data_b,
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
         model_a="4p", model_b="4p",
         noise=config.noise,
     )
@@ -257,7 +258,7 @@ def test_matrix_fit_params_have_expected_roles():
     from tests.helpers import matrix_from_config
 
     replicates, conc_h, conc_v = matrix_from_config(noise_model="gaussian")
-    fit = MatrixFit(replicates, conc_h, conc_v, noise="gaussian_constant")
+    fit = MatrixFit(replicates, conc_h, conc_v, noise="gaussian_constant", direction_horizontal="inhibition", direction_vertical="inhibition")
     result = fit.fit()
 
     assert result.param_names is not None

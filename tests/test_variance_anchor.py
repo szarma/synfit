@@ -82,7 +82,7 @@ def test_reproduction_linear_variance_matches_core_0_3_0():
     """The fixture that stalled at ABNORMAL under the un-anchored polynomial."""
     df = _repro_data()
     fitter = SingleDrugFit(
-        df, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05)),
+        df, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05)),
     )
     x0, _bounds = fitter._get_x0_and_bounds()
     names = list(fitter.config.fitting_parameters)
@@ -111,7 +111,7 @@ def _variance_curve(result, lo, hi, n=25):
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])
 def test_heteroscedastic_shift_invariance(variance_model):
     data = _hetero_curve(c=0.03 if variance_model == "quadratic" else 0.0)
-    r0 = SingleDrugFit(data, FitConfig(variance_model=variance_model)).fit()
+    r0 = SingleDrugFit(data, FitConfig(direction="inhibition", variance_model=variance_model)).fit()
     assert r0.success
     vp0 = r0.variance_params
     assert vp0 is not None
@@ -119,7 +119,7 @@ def test_heteroscedastic_shift_invariance(variance_model):
     for offset in (0.5, -0.1):
         shifted = data.copy()
         shifted["y"] = data["y"] + offset
-        rs = SingleDrugFit(shifted, FitConfig(variance_model=variance_model)).fit()
+        rs = SingleDrugFit(shifted, FitConfig(direction="inhibition", variance_model=variance_model)).fit()
         assert rs.success
         np.testing.assert_allclose(rs.hill, r0.hill, rtol=1e-3)
         np.testing.assert_allclose(rs.c50, r0.c50, rtol=1e-3)
@@ -138,7 +138,7 @@ def test_heteroscedastic_shift_invariance(variance_model):
 @pytest.mark.parametrize("variance_model", ["linear", "quadratic"])
 def test_heteroscedastic_scale_equivariance(variance_model):
     base = _hetero_curve(c=0.03 if variance_model == "quadratic" else 0.0)
-    r1 = SingleDrugFit(base, FitConfig(variance_model=variance_model)).fit()
+    r1 = SingleDrugFit(base, FitConfig(direction="inhibition", variance_model=variance_model)).fit()
     assert r1.success
     vp1 = r1.variance_params
     assert vp1 is not None
@@ -146,7 +146,7 @@ def test_heteroscedastic_scale_equivariance(variance_model):
     for s in (1e-3, 1.0, 1e3):
         scaled = base.copy()
         scaled["y"] = base["y"] * s
-        rs = SingleDrugFit(scaled, FitConfig(variance_model=variance_model)).fit()
+        rs = SingleDrugFit(scaled, FitConfig(direction="inhibition", variance_model=variance_model)).fit()
         assert rs.success
         np.testing.assert_allclose(rs.hill, r1.hill, rtol=1e-3)
         np.testing.assert_allclose(rs.c50, r1.c50, rtol=1e-3)
@@ -164,7 +164,7 @@ def test_heteroscedastic_scale_equivariance(variance_model):
 
 def test_swapped_asymptotes_finite_likelihood_single():
     df = _repro_data()
-    fitter = SingleDrugFit(df, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05)))
+    fitter = SingleDrugFit(df, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05)))
     x0, _bounds = fitter._get_x0_and_bounds()
     x = np.asarray(x0, dtype=float).copy()
     names = list(fitter.config.fitting_parameters)
@@ -181,7 +181,7 @@ def test_swapped_asymptotes_finite_likelihood_single():
 
 def test_swapped_asymptotes_finite_likelihood_joint():
     data_a, data_b = _two_drug_frames()
-    fitter = JointMarginalFit(data_a, data_b, noise=GaussianLinear())
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=GaussianLinear())
     x = np.asarray(fitter._x0, dtype=float).copy()
     i_top = fitter._param_names.index("top")
     i_bot = fitter._param_names.index("bottom")
@@ -205,7 +205,7 @@ def test_domain_clamp_negative_var_b_bounds_and_init():
     df = _repro_data()
     fitter = SingleDrugFit(
         df,
-        FitConfig(
+        FitConfig(direction="inhibition", 
             noise=GaussianLinear(a_init=0.001, b_init=-0.5),
             bounds=FitBounds(
                 log_c50=(-5.0, 5.0),
@@ -240,7 +240,7 @@ def test_retry_from_default_variance_initials_on_iteration_zero_stall(monkeypatc
 
     monkeypatch.setattr("synfit.fitting.minimize", fake_minimize)
     result = SingleDrugFit(
-        df, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05)),
+        df, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05)),
     ).fit()
     assert calls["n"] == 2
     assert result.success
@@ -262,7 +262,7 @@ def test_no_retry_when_first_attempt_iterates(monkeypatch):
 
     monkeypatch.setattr("synfit.fitting.minimize", fake_minimize)
     result = SingleDrugFit(
-        df, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05)),
+        df, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05)),
     ).fit()
     assert calls["n"] == 1
     assert not result.success
@@ -272,7 +272,7 @@ def test_no_retry_when_first_attempt_iterates(monkeypatch):
 @pytest.mark.parametrize("noise", [GaussianLinear(), GaussianQuadratic()])
 def test_joint_marginal_heteroscedastic_converges_with_anchor(noise):
     data_a, data_b = _two_drug_frames()
-    result = JointMarginalFit(data_a, data_b, noise=noise).fit()
+    result = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise).fit()
     assert result.success
     assert result.variance_params is not None
     mu = np.array([result.bottom, 0.5 * (result.top + result.bottom), result.top])
@@ -290,8 +290,12 @@ def test_default_joint_marginal_config_var_matches_fitter_at_scale(scale, noise)
         data_b = data_b.copy()
         data_a["y"] = data_a["y"] * scale
         data_b["y"] = data_b["y"] * scale
-    result = default_joint_marginal_config(data_a, data_b, noise=noise)
-    fitter = JointMarginalFit(data_a, data_b, noise=noise)
+    result = default_joint_marginal_config(
+        data_a, data_b,
+        direction_a="inhibition", direction_b="inhibition",
+        noise=noise,
+    )
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise)
     for name, init, (lo, hi) in zip(fitter._param_names, fitter._x0, fitter._bounds):
         if not name.startswith("var_"):
             continue
@@ -375,9 +379,9 @@ def test_heteroscedastic_fit_matches_native_after_response_downscale():
     """Internal normalisation keeps heteroscedastic fits equivariant to y → s·y."""
     data = _hetero_curve()
     noise = GaussianLinear()
-    native = SingleDrugFit(data, FitConfig(noise=noise)).fit()
+    native = SingleDrugFit(data, FitConfig(direction="inhibition", noise=noise)).fit()
     s = 1e-2
-    scaled = SingleDrugFit(data.assign(y=data.y * s), FitConfig(noise=noise)).fit()
+    scaled = SingleDrugFit(data.assign(y=data.y * s), FitConfig(direction="inhibition", noise=noise)).fit()
     assert scaled.c50 == pytest.approx(native.c50, rel=1e-3)
     assert scaled.hill == pytest.approx(native.hill, rel=1e-3)
 
@@ -386,7 +390,7 @@ def test_heteroscedastic_fit_matches_native_after_response_downscale():
 def test_joint_marginal_heteroscedastic_shift_invariance(variance_model):
     data_a, data_b = _two_drug_frames()
     noise = GaussianLinear() if variance_model == "linear" else GaussianQuadratic()
-    r0 = JointMarginalFit(data_a, data_b, noise=noise).fit()
+    r0 = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise).fit()
     assert r0.success
     vp0 = r0.variance_params
     assert vp0 is not None
@@ -395,7 +399,7 @@ def test_joint_marginal_heteroscedastic_shift_invariance(variance_model):
         shifted_a, shifted_b = data_a.copy(), data_b.copy()
         shifted_a["y"] = data_a["y"] + offset
         shifted_b["y"] = data_b["y"] + offset
-        rs = JointMarginalFit(shifted_a, shifted_b, noise=noise).fit()
+        rs = JointMarginalFit(shifted_a, shifted_b, direction_a="inhibition", direction_b="inhibition", noise=noise).fit()
         assert rs.success
         np.testing.assert_allclose(rs.drug_a.log_c50, r0.drug_a.log_c50, rtol=1e-3)
         np.testing.assert_allclose(rs.drug_b.log_c50, r0.drug_b.log_c50, rtol=1e-3)
@@ -417,7 +421,7 @@ def test_joint_marginal_heteroscedastic_shift_invariance(variance_model):
 def test_joint_marginal_heteroscedastic_scale_equivariance(variance_model):
     data_a, data_b = _two_drug_frames()
     noise = GaussianLinear() if variance_model == "linear" else GaussianQuadratic()
-    r1 = JointMarginalFit(data_a, data_b, noise=noise).fit()
+    r1 = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=noise).fit()
     assert r1.success
     vp1 = r1.variance_params
     assert vp1 is not None
@@ -426,7 +430,7 @@ def test_joint_marginal_heteroscedastic_scale_equivariance(variance_model):
         scaled_a, scaled_b = data_a.copy(), data_b.copy()
         scaled_a["y"] = data_a["y"] * s
         scaled_b["y"] = data_b["y"] * s
-        rs = JointMarginalFit(scaled_a, scaled_b, noise=noise).fit()
+        rs = JointMarginalFit(scaled_a, scaled_b, direction_a="inhibition", direction_b="inhibition", noise=noise).fit()
         assert rs.success
         np.testing.assert_allclose(rs.drug_a.log_c50, r1.drug_a.log_c50, rtol=1e-3)
         np.testing.assert_allclose(rs.drug_b.log_c50, r1.drug_b.log_c50, rtol=1e-3)
@@ -467,7 +471,7 @@ def test_heteroscedastic_shift_invariance_activation():
 
 def test_heteroscedastic_shift_invariance_5p():
     data = _5p_curve()
-    cfg = FitConfig(
+    cfg = FitConfig(direction="inhibition", 
         variance_model="linear",
         fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"],
     )
@@ -478,7 +482,7 @@ def test_heteroscedastic_shift_invariance_5p():
     for offset in (0.5, -0.1):
         shifted = data.copy()
         shifted["y"] = data["y"] + offset
-        rs = SingleDrugFit(shifted, FitConfig(
+        rs = SingleDrugFit(shifted, FitConfig(direction="inhibition", 
             variance_model="linear",
             fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "asymmetry"],
         )).fit()
@@ -496,7 +500,7 @@ def test_negative_var_a_bounds_are_clamped_and_fit_is_valid():
     df = _repro_data()
     fitter = SingleDrugFit(
         df,
-        FitConfig(
+        FitConfig(direction="inhibition", 
             noise=GaussianLinear(),
             bounds=_explicit_curve_bounds(var_a=(-2.0, 1.0)),
         ),
@@ -512,7 +516,7 @@ def test_all_negative_var_b_bounds_raise_clear_error():
     with pytest.raises(ValueError, match=r"var_b bounds \(-2.0, -1.0\).*b >= 0"):
         SingleDrugFit(
             df,
-            FitConfig(
+            FitConfig(direction="inhibition", 
                 noise=GaussianLinear(),
                 bounds=_explicit_curve_bounds(var_b=(-2.0, -1.0)),
             ),
@@ -522,7 +526,7 @@ def test_all_negative_var_b_bounds_raise_clear_error():
 def test_joint_negative_var_a_bounds_are_clamped_and_fit_is_valid():
     data_a, data_b = _two_drug_frames()
     fitter = JointMarginalFit(
-        data_a, data_b,
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
         noise=GaussianLinear(),
         param_config={"var_a": {"lo": -2.0, "hi": 1.0, "init": -1.0}},
     )
@@ -538,7 +542,7 @@ def test_joint_all_negative_var_b_bounds_raise_clear_error():
     data_a, data_b = _two_drug_frames()
     with pytest.raises(ValueError, match=r"var_b bounds \(-2.0, -1.0\).*b >= 0"):
         JointMarginalFit(
-            data_a, data_b,
+            data_a, data_b, direction_a="inhibition", direction_b="inhibition",
             noise=GaussianLinear(),
             param_config={"var_b": {"lo": -2.0, "hi": -1.0}},
         )
@@ -549,7 +553,7 @@ def test_explicit_a_init_is_preserved_when_response_scale_is_not_one():
     scaled = data.copy()
     scaled["y"] = data["y"] * 1e3
     fitter = SingleDrugFit(
-        scaled, FitConfig(noise=GaussianLinear(a_init=0.001, b_init=0.05)),
+        scaled, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05)),
     )
     assert fitter.config.noise.a_init == 0.001
     x0, _bounds = fitter._get_x0_and_bounds()
@@ -561,7 +565,7 @@ def test_omitted_a_init_becomes_response_scaled_default():
     data = _hetero_curve()
     scaled = data.copy()
     scaled["y"] = data["y"] * 1e3
-    fitter = SingleDrugFit(scaled, FitConfig(noise=GaussianLinear()))
+    fitter = SingleDrugFit(scaled, FitConfig(direction="inhibition", noise=GaussianLinear()))
     assert fitter.config.noise.a_init == pytest.approx(1e-3 * fitter._response_scale ** 2)
 
 
@@ -575,7 +579,7 @@ def test_one_row_fit_raises_fit_size_error_not_index_error():
     df = pd.DataFrame({"concentration": [1.0], "y": [0.5], "replicate": ["A"]})
     fitter = SingleDrugFit(
         df,
-        FitConfig(noise=GaussianLinear(), bounds=_explicit_curve_bounds()),
+        FitConfig(direction="inhibition", noise=GaussianLinear(), bounds=_explicit_curve_bounds()),
     )
     with pytest.raises(ValueError, match="valid data points"):
         fitter.fit()
@@ -617,7 +621,7 @@ def test_single_drug_likelihood_passes_lower_asymptote_anchor(e0, einf, monkeypa
         return real(*args, **kwargs)
 
     monkeypatch.setattr(single_mod, "noise_log_prob", spy)
-    fitter = SingleDrugFit(_hetero_curve(c=0.03), FitConfig(variance_model="quadratic"))
+    fitter = SingleDrugFit(_hetero_curve(c=0.03), FitConfig(direction="inhibition", variance_model="quadratic"))
     x0, _ = fitter._get_x0_and_bounds()
     names = list(fitter.config.fitting_parameters)
     x = np.array(x0, dtype=float)
@@ -641,7 +645,7 @@ def test_joint_marginal_likelihood_passes_lower_asymptote_anchor(top, bottom, mo
 
     monkeypatch.setattr(jm_mod, "noise_log_prob", spy)
     data_a, data_b = _two_drug_frames()
-    fitter = JointMarginalFit(data_a, data_b, noise=GaussianQuadratic())
+    fitter = JointMarginalFit(data_a, data_b, direction_a="inhibition", direction_b="inhibition", noise=GaussianQuadratic())
     x = np.array(fitter._x0, dtype=float)
     x[fitter._param_names.index("top")] = top
     x[fitter._param_names.index("bottom")] = bottom
