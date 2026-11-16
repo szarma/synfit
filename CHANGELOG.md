@@ -15,25 +15,36 @@ heading.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-11-16
+
+Removes the last two places where synfit assumed inhibition without being
+told; both were listed as known limitations in 0.11.0. `hsa_reference` now
+requires its asymptotes, an API change and so a **MINOR** release. Fitted values
+are unchanged.
+
 ### Added
-- **`JointMarginalResult.synergy_asymptotes` and
-  `synergy_asymptotes_from_payload`.** Direction-aware asymptotes for Bliss,
-  HSA, Loewe and ZIP scoring from a joint marginal fit or its serialised
-  payload; mixed directions raise.
-  ([#76](https://github.com/szarma/synfit/issues/76))
+- **`JointMarginalResult.synergy_asymptotes()` and
+  `synfit.joint_marginal.synergy_asymptotes_from_payload(payload)`.** Both
+  return `(effect_0, effect_inf)` oriented for Bliss, HSA, Loewe and ZIP:
+  `(top, bottom)` for inhibition and `(bottom, top)` for activation. They raise
+  for mixed directions, which those scores do not define, and the payload
+  helper raises for a saved result without `direction_horizontal` /
+  `direction_vertical` instead of guessing one (#76).
 
 ### Changed
-- **`hsa_reference` requires `effect_0` and `effect_inf` (MINOR).** Omitting
-  them no longer assumes inhibition and takes the lower response; callers must
-  pass asymptotes that match the curve direction, as with `hsa_deviation`.
-  ([#75](https://github.com/szarma/synfit/issues/75))
+- **`hsa_reference` requires `effect_0` and `effect_inf`.** Without them it used
+  to assume inhibition and take the lower response, which on activation data
+  is the weaker drug. Pass the asymptotes of the curves, as `hsa_deviation`
+  already required (#75).
 
 ### Deprecated
 - **Top-level `effect_0` / `effect_inf` in `JointMarginalResult.to_dict()`.**
-  They remain `top` / `bottom` in the inhibition orientation for stored-payload
-  compatibility; use `synergy_asymptotes` or `synergy_asymptotes_from_payload`
-  when scoring.
-  ([#76](https://github.com/szarma/synfit/issues/76))
+  They are always written as `top` / `bottom`, the inhibition orientation, so
+  for an activation pair they are the wrong way round: scoring with them
+  inverts the expected surface. They stay unchanged so stored payloads keep
+  their meaning. Score with `synergy_asymptotes()` or
+  `synergy_asymptotes_from_payload()` instead; the per-drug values were always
+  correctly oriented (#76).
 
 ## [0.11.0] — 2026-11-16
 
