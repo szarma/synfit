@@ -60,6 +60,13 @@ heading.
   them. Fits that exclude points and rely on automatic defaults move: a
   **MINOR** change (#24).
 
+### Documentation
+- **ZIP slice fits are unweighted, independent of the noise model.** The
+  module docstring, `zip_scores`, the README and `docs/api.md` now say that
+  ZIP follows the published unweighted least-squares definition on arithmetic
+  replicate means, whatever `FitConfig.noise` is, and when that is the
+  maximum-likelihood fit (#47).
+
 ## [0.10.0] — 2026-10-10
 
 Fits now normalise the response internally, so they no longer depend on the
