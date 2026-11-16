@@ -82,7 +82,7 @@ Bare `FitBounds()` has the following defaults; these are **not** data-derived:
 | Parameter | Bounds |
 |---|---|
 | `log_c50` | `(-5, 5)` |
-| `hill` | `(0.1, 4)` |
+| `hill` | `(0.1, 10)` |
 | `effect_0`, `effect_inf` | `(0, 2)` each |
 | `asymmetry` | `(0.1, 10)` |
 | `var_a` | `(1e-12, 1e4)` |

@@ -562,6 +562,30 @@ def test_default_joint_marginal_config_lognormal_floors_positive():
     assert result["bottom"]["lo"] > 0.0
 
 
+def test_joint_marginal_lognormal_nonpositive_included_raises():
+    data_a, data_b = _two_drug_data(noise_model="lognormal")
+    data_a = data_a.copy()
+    data_a.loc[0, "y"] = 0.0
+    with pytest.raises(ValueError, match=r"data_a.*y <= 0"):
+        JointMarginalFit(
+            data_a, data_b, noise="lognormal", direction_a="inhibition", direction_b="inhibition",
+        ).fit()
+
+
+def test_joint_marginal_lognormal_zero_excluded_via_valids_fits():
+    data_a, data_b = _two_drug_data(noise_model="lognormal")
+    data_a = data_a.copy()
+    bad_row = 0
+    data_a.loc[bad_row, "y"] = 0.0
+    valids_a = np.ones(len(data_a), dtype=bool)
+    valids_a[bad_row] = False
+    result = JointMarginalFit(
+        data_a, data_b, noise="lognormal", valids_a=valids_a,
+        direction_a="inhibition", direction_b="inhibition",
+    ).fit()
+    assert result.success
+
+
 def test_default_joint_marginal_config_4p_omits_asymmetry():
     """4p models must not include asymmetry keys."""
     data_a, data_b = _two_drug_data()

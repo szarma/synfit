@@ -5,7 +5,12 @@ from dataclasses import dataclass
 
 from .data import FitConfig, FitResult, validate_direction
 from .bliss import bliss_independence
-from .fitting import PRIOR_PENALTY_WEIGHT, FitBase, matrix_observation_masks
+from .fitting import (
+    PRIOR_PENALTY_WEIGHT,
+    FitBase,
+    matrix_observation_masks,
+    validate_lognormal_included_responses,
+)
 from .hill import log_wall
 from .param_roles import is_log_param
 from .noise import (
@@ -241,8 +246,8 @@ class MatrixFit(FitBase):
         self._bounds = [
             self.synfit_hor.config.bounds.log_c50,
             self.synfit_ver.config.bounds.log_c50,
-            (0.1, 4.0),
-            (0.1, 4.0),
+            (0.1, 10.0),
+            (0.1, 10.0),
             effect_0_bounds,
             effect_inf_bounds,
         ]
@@ -319,6 +324,15 @@ class MatrixFit(FitBase):
     def fit(self) -> MatrixFitResult:
         n_params = 6
         observation_masks = self._observation_masks
+        for i, (rep, obs_mask) in enumerate(
+            zip(self.replicates, observation_masks),
+        ):
+            validate_lognormal_included_responses(
+                self.noise,
+                np.asarray(rep),
+                obs_mask,
+                data_name=f"replicate {i}",
+            )
         n_data = int(sum(int(m.sum()) for m in observation_masks))
         if n_data < n_params + 1:
             raise ValueError(

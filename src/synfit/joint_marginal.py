@@ -17,7 +17,12 @@ import numpy as np
 import pandas as pd
 
 from .data import FitConfig, FitResult, validate_direction, variance_anchor_from_asymptotes
-from .fitting import FitBase, PRIOR_PENALTY_WEIGHT, effective_observation_mask
+from .fitting import (
+    FitBase,
+    PRIOR_PENALTY_WEIGHT,
+    effective_observation_mask,
+    validate_lognormal_included_responses,
+)
 from .hill import hill_curve, log_wall
 from .param_roles import is_variance_param
 from .noise import (
@@ -643,6 +648,18 @@ class JointMarginalFit(FitBase):
         return -penalty * PRIOR_PENALTY_WEIGHT
 
     def fit(self) -> JointMarginalResult:
+        validate_lognormal_included_responses(
+            self.noise,
+            self.data_a["y"].values,
+            self._mask_a,
+            data_name="data_a",
+        )
+        validate_lognormal_included_responses(
+            self.noise,
+            self.data_b["y"].values,
+            self._mask_b,
+            data_name="data_b",
+        )
         n_params = len(self._param_names)
         n_data = int(self._mask_a.sum() + self._mask_b.sum())
         if n_data < n_params + 1:

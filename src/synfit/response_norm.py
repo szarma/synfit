@@ -205,6 +205,6 @@ def count_admitted_likelihood(
     if mask is None:
         mask = np.ones(len(y), dtype=bool)
     mask = np.asarray(mask, dtype=bool)
-    y_t, y_pred_t = _transform(y, y_pred, spec)
+    y_t, y_pred_t = _transform(y, y_pred, spec, mask)
     residuals = (y_t - y_pred_t)[mask]
     return int(np.sum(np.isfinite(residuals)))

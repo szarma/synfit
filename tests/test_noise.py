@@ -1,3 +1,4 @@
+import warnings
 
 import numpy as np
 import pytest
@@ -137,6 +138,18 @@ class TestErrorModelEnum:
         # Dropping the bad point ≡ fitting only the good ones, so the
         # log-likelihood matches the clean call exactly.
         assert lp_with_zero == pytest.approx(lp_clean)
+
+    def test_lognormal_nonpositive_outside_mask_does_not_warn(self):
+        """A non-positive y the mask already excludes is not "dropped" — no warning."""
+        y = np.array([0.0, 0.5, 0.8])
+        y_pred = np.array([0.1, 0.5, 0.8])
+        mask = np.array([False, True, True])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            lp = log_prob(y, y_pred, error_model="lognormal", mask=mask)
+        assert lp == pytest.approx(
+            log_prob(y[1:], y_pred[1:], error_model="lognormal")
+        )
 
 
 class TestFitNoiseScale:

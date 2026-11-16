@@ -46,7 +46,7 @@ def validate_direction(direction: str, *, name: str = "direction") -> None:
 @dataclass
 class FitBounds:
     log_c50: tuple = (-5.0, 5.0)
-    hill: tuple = (0.1, 4.0)
+    hill: tuple = (0.1, 10.0)
     effect_0: tuple = (0.0, 2.0)
     effect_inf: tuple = (0.0, 2.0)
     asymmetry: tuple = (0.1, 10.0)
@@ -71,8 +71,8 @@ class FitConfig:
     the likelihood as a constant. A pin is used exactly as configured; it is
     *not* constrained by the corresponding ``FitBounds`` interval — bounds
     are optimiser constraints for estimated parameters only. Pinning
-    ``hill=9`` with bounds ``(0.1, 4.0)`` therefore fits successfully and
-    uses 9.
+    ``hill=12`` with bounds ``(0.1, 10.0)`` therefore fits successfully and
+    uses 12.
     """
     log_c50: float = 0.0
     hill: float = 1.0

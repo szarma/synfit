@@ -23,8 +23,29 @@ heading.
   fit pinned at its bounds while reporting success. Add
   `direction="inhibition"` to keep the old behaviour. Fitted values are
   unchanged.
+- **The default Hill-slope upper bound is 10 (was 4).** Steep cooperative
+  curves no longer pin at 4.0 with a zero-width interval. Fits that used to
+  stop at 4.0 move substantially; other fits can shift in the last few
+  digits, because L-BFGS-B takes a slightly different path when its bounds
+  change (a **MINOR** change). To restore the old limit on a single-drug
+  fit, edit only the Hill bound of the data-derived config:
+  `fitter = SingleDrugFit(data, config)`, then
+  `fitter.config.bounds.hill = (0.1, 4.0)` before `fitter.fit()`. Passing
+  `FitBounds(hill=(0.1, 4.0))` does not do this: it replaces every
+  data-derived bound with the bare defaults (#48).
 
 ### Fixed
+- **Lognormal fits reject non-positive responses on every path.** When bounds
+  were supplied explicitly, non-positive included responses were dropped from the
+  likelihood but still counted in `n_valid` and BIC. All lognormal fitters now
+  raise a `ValueError` when fitting if any included observation has `y <= 0`:
+  at `fit()` for `SingleDrugFit`, `SingleDrugFitWithError` and
+  `JointMarginalFit`, and already at construction for a `MatrixFit`
+  single-agent edge, because `MatrixFit` fits its edges when constructed.
+  Rows excluded with `valids` may be non-positive. Data-derived defaults use
+  the finite positive rows, which must still meet the usual count and
+  response-range requirements. Use Gaussian noise if zeros or negatives should
+  enter the fit (#59).
 - **Exported confidence intervals keep full precision.** `FitResult.to_dict()`
   and the per-drug intervals of `JointMarginalResult.to_dict()` rounded
   interval endpoints to 6 decimals, so intervals on small numbers serialised as

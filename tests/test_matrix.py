@@ -163,6 +163,53 @@ def test_matrix_fit_valids_wrong_replicate_count_raises():
 
 
 class TestMatrixFitEdgeCases:
+    def test_lognormal_nonpositive_included_raises(self):
+        replicates, conc_hor, conc_ver = matrix_from_config()
+        replicates = [np.array(r, copy=True) for r in replicates]
+        replicates[0][1, 1] = 0.0
+        fitter = MatrixFit(
+            replicates, conc_hor, conc_ver, error_model="lognormal", direction_horizontal="inhibition", direction_vertical="inhibition",
+        )
+        with pytest.raises(ValueError, match=r"replicate 0.*y <= 0"):
+            fitter.fit()
+
+    def test_lognormal_zero_excluded_via_valids_fits(self):
+        replicates, conc_hor, conc_ver = matrix_from_config()
+        replicates = [np.array(r, copy=True) for r in replicates]
+        bad = (1, 1)
+        replicates[0][bad] = 0.0
+        valids = [np.ones(r.shape, dtype=bool) for r in replicates]
+        valids[0][bad] = False
+        result = MatrixFit(
+            replicates, conc_hor, conc_ver, valids=valids, error_model="lognormal",
+            direction_horizontal="inhibition", direction_vertical="inhibition",
+        ).fit()
+        assert result.success
+
+    def test_lognormal_nonpositive_edge_raises_at_construction(self):
+        """MatrixFit fits its single-agent edges when constructed, so an
+        included non-positive edge cell is rejected there (CHANGELOG #59)."""
+        replicates, conc_hor, conc_ver = matrix_from_config()
+        replicates = [np.array(r, copy=True) for r in replicates]
+        replicates[0][0, 2] = 0.0  # first row: no vertical drug
+        with pytest.raises(ValueError, match=r"y <= 0"):
+            MatrixFit(
+                replicates, conc_hor, conc_ver, error_model="lognormal", direction_horizontal="inhibition", direction_vertical="inhibition",
+            )
+
+    def test_lognormal_zero_edge_excluded_via_valids_fits(self):
+        replicates, conc_hor, conc_ver = matrix_from_config()
+        replicates = [np.array(r, copy=True) for r in replicates]
+        bad = (0, 2)
+        replicates[0][bad] = 0.0
+        valids = [np.ones(r.shape, dtype=bool) for r in replicates]
+        valids[0][bad] = False
+        result = MatrixFit(
+            replicates, conc_hor, conc_ver, valids=valids, error_model="lognormal",
+            direction_horizontal="inhibition", direction_vertical="inhibition",
+        ).fit()
+        assert result.success
+
     def test_with_valids(self):
         replicates, conc_hor, conc_ver = matrix_from_config()
         valids = [np.ones(r.shape, dtype=bool) for r in replicates]
