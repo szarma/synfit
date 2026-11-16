@@ -321,7 +321,7 @@ Reference helpers are top-level; deviation helpers live in `synfit.bliss`.
 
 ```text
 bliss_reference(resp_horizontal, resp_vertical, effect_0, effect_inf)
-hsa_reference(resp_horizontal, resp_vertical, *, effect_0=None, effect_inf=None)
+hsa_reference(resp_horizontal, resp_vertical, *, effect_0, effect_inf)
 bliss_independence(conc_hor, conc_ver, c50_hor, c50_ver, hill_hor=1.0,
                    hill_ver=1.0, effect_0=1.0, effect_inf=0.0,
                    asymmetry_hor=1.0, asymmetry_ver=1.0)
@@ -334,8 +334,7 @@ The first two use observed 1D single-agent response arrays, typically matrix
 edges. `bliss_independence` evaluates fitted Hill marginals instead. They return
 expected **responses**, not scores. Bliss clips normalized marginal responses
 to `[0, 1]` before multiplication. HSA selects the lower response for inhibition
-or higher for activation; supply both asymptotes for direction-aware behavior.
-Omitting both retains the inhibition convention.
+or higher for activation; both asymptotes are required so orientation is explicit.
 
 Deviation helpers compute `(observed - reference) / (effect_0 - effect_inf)`:
 **negative = synergy** in either direction. With both concentration arrays

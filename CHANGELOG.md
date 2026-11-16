@@ -15,6 +15,12 @@ heading.
 
 ## [Unreleased]
 
+### Changed
+- **`hsa_reference` requires `effect_0` and `effect_inf` (MINOR).** Omitting
+  them no longer assumes inhibition and takes the lower response; callers must
+  pass asymptotes that match the curve direction, as with `hsa_deviation`.
+  ([#75](https://github.com/szarma/synfit/issues/75))
+
 ## [0.11.0] — 2026-11-16
 
 Fits now require an explicit curve direction, and noise coefficients can no

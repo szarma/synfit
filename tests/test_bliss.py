@@ -85,7 +85,7 @@ def test_hsa_deviation_invalid_scale():
 def test_hsa_reference_min_of_marginals():
     resp_hor = np.array([0.8, 0.4, 0.1])
     resp_ver = np.array([0.6, 0.2])
-    ref = hsa_reference(resp_hor, resp_ver)
+    ref = hsa_reference(resp_hor, resp_ver, effect_0=1.0, effect_inf=0.0)
     assert ref.shape == (2, 3)
     expected = np.array([[0.6, 0.4, 0.1], [0.2, 0.2, 0.1]])
     assert np.allclose(ref, expected)
@@ -188,7 +188,7 @@ def test_hsa_deviation_uses_reference():
     resp_hor = np.array([0.7, 0.3])
     resp_ver = np.array([0.5, 0.2])
     mean = np.array([[0.4, 0.25], [0.18, 0.15]])
-    ref = hsa_reference(resp_hor, resp_ver)
+    ref = hsa_reference(resp_hor, resp_ver, effect_0=1.0, effect_inf=0.0)
     dev = hsa_deviation(mean, resp_hor, resp_ver, effect_0=1.0, effect_inf=0.0)
     assert np.allclose(dev, mean - ref)
 
@@ -228,8 +228,12 @@ def test_hsa_reference_activation_takes_higher_response():
 
 
 def test_hsa_reference_requires_both_asymptotes():
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
+        hsa_reference(np.ones(2), np.ones(2))
+    with pytest.raises(TypeError):
         hsa_reference(np.ones(2), np.ones(2), effect_0=1.0)
+    with pytest.raises(ValueError):
+        hsa_reference(np.ones(2), np.ones(2), effect_0=1.0, effect_inf=1.0)
 
 
 def test_hsa_deviation_activation_matching_stronger_agent_is_zero():
