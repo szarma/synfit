@@ -16,6 +16,17 @@ heading.
 ## [Unreleased]
 
 ### Changed
+- **Noise coefficients (`var_*`) are no longer pinnable (MINOR).** Partial or
+  pinned selections in `fitting_parameters`, or `fit: False` on a `var_*` entry
+  in joint `param_config`, now raise `ValueError` with a pointer to
+  `SingleDrugFitWithError` for known per-point noise on single-drug fits.
+  Listing `var_*` names the noise model does not use — including stale names
+  left in `fitting_parameters` after changing `config.noise` — now raises
+  instead of fitting a dead parameter with `param_cov=None`. Equal lower and
+  upper bounds on a required noise coefficient (including via joint
+  `param_config`) are rejected the same way. Configs that omit every `var_*`
+  name still auto-extend as before; fitted values for valid configs are
+  unchanged.
 - **`direction` is now required.** `FitConfig`, `default_fit_config`,
   `default_bounds`, `JointMarginalFit` and `MatrixFit` no longer default to
   inhibition, and `SingleDrugFit` / `SingleDrugFitWithError` require a config.

@@ -63,7 +63,12 @@ default_bounds(data, *, direction, noise=None) -> FitBounds
 Omitted Hill parameters are pinned at their configured values. Bounds apply
 only to estimated parameters: a pin is not clipped to its corresponding bounds.
 At least one free parameter is required. Gaussian variance coefficients are
-added automatically when the selected noise model requires them.
+added automatically when the selected noise model requires them, and cannot be
+pinned or partially selected via ``fitting_parameters``; the noise model alone
+decides which are fitted. ``var_*`` names not used by the current noise model
+(including stale names after switching ``noise``) must be removed from
+``fitting_parameters``. Equal lower and upper bounds on a required noise
+coefficient cannot fix it either.
 
 `direction` is required and must be exactly `"inhibition"` or `"activation"`.
 It controls default

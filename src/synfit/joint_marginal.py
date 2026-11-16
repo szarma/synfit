@@ -36,6 +36,9 @@ from .noise import (
     error_model_name,
     fit_noise_scale,
     free_coefficients,
+    validate_joint_noise_coefficients_fitted,
+    validate_joint_optimized_noise_bounds,
+    validate_joint_param_config_variance_coefficients,
     from_dict as noise_from_dict,
     is_heteroscedastic_gaussian,
     require_supported_joint_marginal_fitting_noise,
@@ -450,6 +453,7 @@ class JointMarginalFit(FitBase):
                 self.noise = noise_spec_with_variance_initials(self.noise, var_defaults)
 
         cfg = param_config or {}
+        validate_joint_param_config_variance_coefficients(cfg, self.noise)
 
         optimized_names: list[str] = []
         optimized_x0: list[float] = []
@@ -474,6 +478,11 @@ class JointMarginalFit(FitBase):
                 optimized_bounds.append((lo, hi))
             else:
                 fixed_values[name] = init
+
+        validate_joint_optimized_noise_bounds(
+            optimized_names, optimized_bounds, self.noise,
+            response_scale=self._response_scale,
+        )
 
         if not optimized_names:
             raise ValueError(
@@ -648,6 +657,11 @@ class JointMarginalFit(FitBase):
         return -penalty * PRIOR_PENALTY_WEIGHT
 
     def fit(self) -> JointMarginalResult:
+        validate_joint_noise_coefficients_fitted(self._param_names, self.noise)
+        validate_joint_optimized_noise_bounds(
+            self._param_names, self._bounds, self.noise,
+            response_scale=self._response_scale,
+        )
         validate_lognormal_included_responses(
             self.noise,
             self.data_a["y"].values,
@@ -846,6 +860,7 @@ def fit_joint_marginal_auto(
     validate_direction(direction_a, name="direction_a")
     validate_direction(direction_b, name="direction_b")
     base_noise = legacy_to_noise_spec("gaussian", variance_model)
+    validate_joint_param_config_variance_coefficients(param_config, base_noise)
     error_models = ("gaussian",) if not isinstance(base_noise, GaussianConstant) else ("gaussian", "lognormal")
     results: dict[str, JointMarginalResult] = {}
     for em in error_models:
