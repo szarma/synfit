@@ -23,6 +23,17 @@ this reduces to exactly when s = 1. The fitted combination surface averages succ
 predictions (a single direction when the other failed; NaN when both failed).
 δ compares that surface to ``f_zip``. synfit sign convention: **negative = synergy**
 (``delta = -(f_c - f_zip)`` in fraction-affected terms).
+
+Slice fits are unweighted least squares on the fraction-affected scale, as in
+the published method and SynergyFinder, whatever noise model was used for the
+marginal curve fits (``FitConfig.noise`` plays no part here). For constant
+Gaussian noise with equal replicate counts per well this is the
+maximum-likelihood fit, because fraction affected is a linear rescaling of the
+response; with unequal counts (e.g. after masking) the well means have
+different variances and the unweighted fit is no longer the ML fit. Under
+lognormal noise ZIP, like Bliss, HSA and Loewe, still scores the *arithmetic*
+replicate means, unweighted, although the lognormal curve fits describe the
+median. A noise-weighted variant is tracked in synfit issue #68.
 """
 import warnings
 from dataclasses import dataclass
@@ -312,7 +323,12 @@ def zip_scores(
     asymmetry_hor: float | None = None,
     asymmetry_ver: float | None = None,
 ) -> ZipResult:
-    """Full ZIP result: reference, fitted surface, δ, and slice-failure metadata."""
+    """Full ZIP result: reference, fitted surface, δ, and slice-failure metadata.
+
+    The row/column slice fits are unweighted least squares on the
+    fraction-affected scale (the published ZIP definition), independent of the
+    noise model used for the marginal fits; see the module docstring.
+    """
     if effect_0 == effect_inf:
         raise ValueError("effect_0 and effect_inf must differ")
     _, _, ch, cv = _validate_matrix_shape(mean_matrix, conc_hor, conc_ver)

@@ -382,6 +382,13 @@ doses, column indices horizontal doses. If one slice direction fails, the other
 is used; both failing leaves the interior cell unscored. Delta is also NaN on
 zero-dose edges. Inspect failure metadata before taking summaries.
 
+Slice fits are unweighted least squares on the fraction-affected scale, as in
+the published method and SynergyFinder, independent of `FitConfig.noise`. For
+constant Gaussian noise with equal replicate counts per well this is the
+maximum-likelihood fit. Under lognormal noise, ZIP (like Bliss, HSA and Loewe)
+still scores the arithmetic replicate means, although the lognormal curve fits
+describe the median.
+
 The 5p slice-asymmetry treatment is an extension of the published 4p method.
 These helpers do not return confidence intervals on the interaction scores.
 
