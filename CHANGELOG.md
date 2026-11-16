@@ -15,6 +15,13 @@ heading.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-11-16
+
+Fits now require an explicit curve direction, and noise coefficients can no
+longer be pinned. Both are API breaks. The release also moves fitted values:
+the default Hill-slope bound widens to 10, and automatic defaults follow the
+rows that `fit(valids=...)` keeps. That makes it a **MINOR** change.
+
 ### Changed
 - **Noise coefficients (`var_*`) are no longer pinnable (MINOR).** Partial or
   pinned selections in `fitting_parameters`, or `fit: False` on a `var_*` entry
