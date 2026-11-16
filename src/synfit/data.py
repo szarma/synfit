@@ -13,7 +13,8 @@ from .noise import (
     clamp_noise_spec_initials,
     default_for_kind,
     error_model_name,
-    free_coefficients,
+    reconcile_noise_coefficients_in_fitting_parameters,
+    validate_noise_coefficient_bounds_for_noise,
     from_dict as noise_from_dict,
     historical_variance_init,
     is_heteroscedastic_gaussian,
@@ -152,13 +153,21 @@ class FitConfig:
     def __post_init__(self) -> None:
         object.__setattr__(self, "noise", noise_from_dict(self.noise))
 
-        # Auto-extend the optimiser parameter list with the variance
-        # coefficients this model needs. Idempotent — only adds names that
-        # aren't already there, so a user who hand-crafts ``fitting_parameters``
-        # to fix a coefficient still wins.
-        for name in free_coefficients(self.noise):
-            if name not in self.fitting_parameters:
-                self.fitting_parameters.append(name)
+        # Append every ``var_*`` coefficient the noise model requires when the
+        # caller did not list any; partial or pinned selections are rejected.
+        reconcile_noise_coefficients_in_fitting_parameters(
+            self.fitting_parameters, self.noise, extend=True,
+        )
+        if (
+            self.bounds is not None
+            and is_heteroscedastic_gaussian(self.noise)
+        ):
+            validate_noise_coefficient_bounds_for_noise(
+                self.bounds,
+                self.noise,
+                fitting_parameters=self.fitting_parameters,
+                apply_domain=False,
+            )
 
     @classmethod
     def from_legacy(
@@ -251,6 +260,13 @@ def apply_variance_coefficient_domain(
         return
     if config.bounds is not None:
         clamp_fit_bounds_variance(config.bounds, response_scale=response_scale)
+        validate_noise_coefficient_bounds_for_noise(
+            config.bounds,
+            config.noise,
+            response_scale=response_scale,
+            fitting_parameters=config.fitting_parameters,
+            apply_domain=False,
+        )
     config.noise = clamp_noise_spec_initials(
         config.noise, response_scale=response_scale,
     )

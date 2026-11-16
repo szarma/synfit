@@ -367,6 +367,176 @@ def free_coefficients(noise: NoiseSpec) -> tuple[str, ...]:
     raise TypeError(f"Unknown NoiseSpec variant: {noise!r}")
 
 
+_VARIANCE_COEFF_PIN_MSG = (
+    "Noise coefficients (var_*) cannot be pinned or partially selected; "
+    "they are always fitted as required by the noise model. "
+    "For a single-drug fit with known per-point noise, use SingleDrugFitWithError."
+)
+
+_VARIANCE_COEFF_ZERO_WIDTH_MSG = (
+    "Noise coefficients (var_*) cannot be fixed, including by setting equal "
+    "lower and upper bounds. For a single-drug fit with known per-point noise, "
+    "use SingleDrugFitWithError."
+)
+
+
+def _raise_noise_coefficient_zero_width(name: str, lo: float, hi: float) -> None:
+    raise ValueError(
+        f"{_VARIANCE_COEFF_ZERO_WIDTH_MSG} "
+        f"({name} effective bounds are ({lo:g}, {hi:g}))."
+    )
+
+
+def _variance_coefficients_in_fitting_parameters(fitting_parameters: list[str]) -> set[str]:
+    from .param_roles import is_variance_param
+
+    return {p for p in fitting_parameters if is_variance_param(p)}
+
+
+def _noise_coefficient_extras_message(extras: list[str], noise: NoiseSpec) -> str:
+    kind = to_dict(noise)["kind"]
+    names = ", ".join(extras)
+    return (
+        f"Noise coefficient(s) {names} are not part of the {kind!r} noise model; "
+        "remove them from fitting_parameters (after switching noise, drop stale "
+        "var_* names or rebuild the config with default_fit_config)."
+    )
+
+
+def _raise_noise_coefficient_fitting_parameters_error(
+    mentioned: set[str],
+    required: set[str],
+    noise: NoiseSpec,
+) -> None:
+    if mentioned == required:
+        return
+    missing = sorted(required - mentioned)
+    extras = sorted(mentioned - required)
+    parts: list[str] = []
+    if extras:
+        parts.append(_noise_coefficient_extras_message(extras, noise))
+    if missing:
+        parts.append(f"{_VARIANCE_COEFF_PIN_MSG} (missing required {missing}).")
+    raise ValueError(" ".join(parts))
+
+
+def reconcile_noise_coefficients_in_fitting_parameters(
+    fitting_parameters: list[str],
+    noise: NoiseSpec,
+    *,
+    extend: bool,
+) -> None:
+    """Ensure ``fitting_parameters`` lists exactly the ``var_*`` coeffs for ``noise``.
+
+    When ``extend`` is true (``FitConfig`` construction), append required names if
+    the caller did not mention any ``var_*``. At ``fit()`` time (``extend`` false),
+    raise if any required name is missing or any listed ``var_*`` does not match.
+    """
+    required = set(free_coefficients(noise))
+    mentioned = _variance_coefficients_in_fitting_parameters(fitting_parameters)
+    if not mentioned:
+        if extend:
+            for name in free_coefficients(noise):
+                if name not in fitting_parameters:
+                    fitting_parameters.append(name)
+            return
+        missing = sorted(required - set(fitting_parameters))
+        if missing:
+            raise ValueError(
+                f"{_VARIANCE_COEFF_PIN_MSG} (missing required {missing})."
+            )
+        return
+    _raise_noise_coefficient_fitting_parameters_error(mentioned, required, noise)
+
+
+def validate_noise_coefficient_bounds_for_noise(
+    bounds: object,
+    noise: NoiseSpec,
+    *,
+    response_scale: float | None = None,
+    fitting_parameters: list[str] | None = None,
+    apply_domain: bool = True,
+) -> None:
+    """Reject equal ``lo``/``hi`` intervals for every fitted ``var_*`` coefficient."""
+    allowed = set(fitting_parameters) if fitting_parameters is not None else None
+    for name in free_coefficients(noise):
+        if allowed is not None and name not in allowed:
+            continue
+        lo, hi = getattr(bounds, name)
+        if apply_domain:
+            lo, hi, _ = apply_variance_param_domain(
+                name, lo, hi, response_scale=response_scale,
+            )
+        else:
+            lo, hi = float(lo), float(hi)
+        if lo == hi:
+            _raise_noise_coefficient_zero_width(name, lo, hi)
+
+
+def validate_joint_optimized_noise_bounds(
+    param_names: list[str],
+    bounds: list[tuple[float, float]],
+    noise: NoiseSpec,
+    *,
+    response_scale: float | None = None,
+) -> None:
+    """Reject zero-width ``var_*`` bounds on a joint fitter's optimiser list."""
+    free = set(free_coefficients(noise))
+    for name, pair in zip(param_names, bounds):
+        if name not in free:
+            continue
+        lo, hi = pair
+        lo, hi, _ = apply_variance_param_domain(
+            name, float(lo), float(hi), response_scale=response_scale,
+        )
+        if lo == hi:
+            _raise_noise_coefficient_zero_width(name, lo, hi)
+
+
+def validate_joint_param_config_variance_coefficients(
+    param_config: dict | None,
+    noise: NoiseSpec,
+) -> None:
+    """Reject pinned or zero-width noise coefficients in joint ``param_config``."""
+    if not param_config:
+        return
+    from .param_roles import is_variance_param
+
+    for name, entry in param_config.items():
+        if not is_variance_param(name):
+            continue
+        if entry is not None and not bool(entry.get("fit", True)):
+            raise ValueError(_VARIANCE_COEFF_PIN_MSG)
+        if entry is None:
+            continue
+        lo = entry.get("lo")
+        hi = entry.get("hi")
+        if lo is None or hi is None:
+            continue
+        lo, hi = float(lo), float(hi)
+        if name in ("var_b", "var_c"):
+            # Their domain floor does not depend on the response scale, so the
+            # clamped interval is known here (e.g. (-1, 0) collapses to (0, 0)).
+            lo = max(lo, variance_coefficient_floor(name))
+        if lo == hi:
+            _raise_noise_coefficient_zero_width(name, lo, hi)
+
+
+def validate_joint_noise_coefficients_fitted(
+    optimized_names: list[str],
+    noise: NoiseSpec,
+) -> None:
+    """At ``fit()`` time, every noise coefficient required by ``noise`` must be optimised."""
+    required = set(free_coefficients(noise))
+    if not required:
+        return
+    missing = sorted(required - set(optimized_names))
+    if missing:
+        raise ValueError(
+            f"{_VARIANCE_COEFF_PIN_MSG} (missing required {missing})."
+        )
+
+
 def error_model_name(noise: NoiseSpec) -> str:
     """Legacy display family for fit result payloads."""
     match noise:

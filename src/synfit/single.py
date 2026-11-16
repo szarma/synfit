@@ -22,6 +22,8 @@ from .noise import (
     error_model_name,
     fit_noise_scale,
     free_coefficients,
+    reconcile_noise_coefficients_in_fitting_parameters,
+    validate_noise_coefficient_bounds_for_noise,
     from_dict as noise_from_dict,
     is_heteroscedastic_gaussian,
     log_prob as noise_log_prob,
@@ -686,6 +688,9 @@ class SingleDrugFit(FitBase):
             mask,
             data_name="data",
         )
+        reconcile_noise_coefficients_in_fitting_parameters(
+            self.config.fitting_parameters, self.config.noise, extend=False,
+        )
         n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
         if n_valid < n_params + 1:
@@ -700,7 +705,23 @@ class SingleDrugFit(FitBase):
         s = getattr(self, "_forced_response_scale", None)
         if s is None:
             s = response_scale_from_y(self.data["y"].values, mask)
+        if self.config.bounds is not None and is_heteroscedastic_gaussian(self.config.noise):
+            validate_noise_coefficient_bounds_for_noise(
+                self.config.bounds,
+                self.config.noise,
+                fitting_parameters=self.config.fitting_parameters,
+                apply_domain=False,
+            )
         work = normalized_fit_config(self.config, s)
+        # Validate the working bounds before entering normalisation, so a
+        # rejection cannot leave the fitter in its normalised state.
+        if is_heteroscedastic_gaussian(work.noise) and work.bounds is not None:
+            validate_noise_coefficient_bounds_for_noise(
+                work.bounds,
+                work.noise,
+                fitting_parameters=self.config.fitting_parameters,
+                apply_domain=False,
+            )
         self._enter_response_normalization(s, work_config=work)
         ll_norm: float | None = None
         try:
@@ -835,6 +856,9 @@ class SingleDrugFitWithError(FitBase):
             data_name="data",
         )
         validate_included_y_err(self.data["y_err"].values, mask)
+        reconcile_noise_coefficients_in_fitting_parameters(
+            self.config.fitting_parameters, self.config.noise, extend=False,
+        )
         self._likelihood_mask = mask
         n_valid = int(mask.sum())
         n_params = len(self.config.fitting_parameters)
@@ -850,7 +874,23 @@ class SingleDrugFitWithError(FitBase):
         s = getattr(self, "_forced_response_scale", None)
         if s is None:
             s = response_scale_from_y(self.data["y"].values, mask)
+        if self.config.bounds is not None and is_heteroscedastic_gaussian(self.config.noise):
+            validate_noise_coefficient_bounds_for_noise(
+                self.config.bounds,
+                self.config.noise,
+                fitting_parameters=self.config.fitting_parameters,
+                apply_domain=False,
+            )
         work = normalized_fit_config(self.config, s)
+        # Validate the working bounds before entering normalisation, so a
+        # rejection cannot leave the fitter in its normalised state.
+        if is_heteroscedastic_gaussian(work.noise) and work.bounds is not None:
+            validate_noise_coefficient_bounds_for_noise(
+                work.bounds,
+                work.noise,
+                fitting_parameters=self.config.fitting_parameters,
+                apply_domain=False,
+            )
         self._enter_response_normalization(s, work_config=work)
         try:
             x0, bounds = self._get_x0_and_bounds()

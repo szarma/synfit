@@ -3,9 +3,9 @@ import copy
 
 import pytest
 
-from synfit.data import FitConfig
-from synfit.noise import GaussianLinear
-from synfit.single import SingleDrugFit, SingleDrugFitWithError
+from synfit.data import FitBounds, FitConfig
+from synfit.noise import GaussianConstant, GaussianLinear
+from synfit.single import SingleDrugFit, SingleDrugFitWithError, default_fit_config
 from tests.test_fitting import _synthetic_data
 
 
@@ -72,21 +72,116 @@ def test_reused_fit_config_matches_fresh_on_rescaled_data():
     assert r_reuse.r2 is not None and r_reuse.r2 > 0.9
 
 
-def test_fit_config_copy_preserves_removed_var_b():
-    pin_b = 0.05
-    cfg = FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=pin_b))
-    cfg.fitting_parameters = [p for p in cfg.fitting_parameters if p != "var_b"]
-    assert "var_b" not in cfg.fitting_parameters
+_VAR_PIN_MSG = "cannot be pinned or partially selected"
+_VAR_EXTRAS_MSG = "not part of the 'gaussian_linear'"
+_VAR_ZERO_WIDTH_MSG = "cannot be fixed, including by setting equal"
+
+
+def test_fit_config_rejects_partial_variance_selection_at_constructor():
+    with pytest.raises(ValueError, match=_VAR_PIN_MSG):
+        FitConfig(
+            direction="inhibition",
+            noise=GaussianLinear(a_init=0.001, b_init=10.0),
+            fitting_parameters=["log_c50", "hill", "effect_0", "effect_inf", "var_b"],
+        )
+
+
+def test_fit_config_rejects_extra_variance_coefficients_for_constant_noise():
+    with pytest.raises(ValueError, match="not part of the 'gaussian_constant'"):
+        FitConfig(
+            direction="inhibition",
+            noise=GaussianConstant(),
+            fitting_parameters=[
+                "log_c50", "hill", "effect_0", "effect_inf", "var_a", "var_b",
+            ],
+        )
+
+
+def test_fit_config_rejects_unknown_variance_coefficient_for_noise_model():
+    with pytest.raises(ValueError, match=_VAR_EXTRAS_MSG):
+        FitConfig(
+            direction="inhibition",
+            noise=GaussianLinear(),
+            fitting_parameters=[
+                "log_c50", "hill", "effect_0", "effect_inf", "var_a", "var_b", "var_c",
+            ],
+        )
+
+
+def test_single_drug_fit_rejects_stale_variance_after_noise_switch():
+    data = _synthetic_data()
+    fitter = SingleDrugFit(
+        data, default_fit_config(data, direction="inhibition", noise=GaussianLinear()),
+    )
+    fitter.config.noise = GaussianConstant()
+    with pytest.raises(ValueError, match="not part of the 'gaussian_constant'"):
+        fitter.fit()
+
+
+def test_fit_config_rejects_equal_variance_bounds_at_constructor():
+    with pytest.raises(ValueError, match=_VAR_ZERO_WIDTH_MSG):
+        FitConfig(
+            direction="inhibition",
+            noise=GaussianLinear(a_init=0.001),
+            bounds=FitBounds(var_a=(0.001, 0.001)),
+        )
+
+
+def test_single_drug_fit_rejects_equal_variance_bounds_after_edit():
+    data = _synthetic_data()
+    fitter = SingleDrugFit(
+        data, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001)),
+    )
+    fitter.config.bounds.var_a = (0.001, 0.001)
+    with pytest.raises(ValueError, match=_VAR_ZERO_WIDTH_MSG):
+        fitter.fit()
+
+
+def test_single_drug_with_error_rejects_equal_variance_bounds_at_fit():
+    data = _synthetic_data().assign(y_err=0.02)
+    fitter = SingleDrugFitWithError(data, FitConfig(direction="inhibition"))
+    fitter.config.noise = GaussianLinear(a_init=0.001, b_init=0.05)
+    fitter.config.fitting_parameters = [
+        *fitter.config.fitting_parameters, "var_a", "var_b",
+    ]
+    fitter.config.bounds.var_a = (0.001, 0.001)
+    with pytest.raises(ValueError, match=_VAR_ZERO_WIDTH_MSG):
+        fitter.fit()
+
+
+def test_single_drug_fit_rejects_post_construction_variance_pin():
+    data = _synthetic_data()
+    fitter = SingleDrugFit(
+        data,
+        FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=0.05)),
+    )
+    fitter.config.fitting_parameters = [
+        p for p in fitter.config.fitting_parameters if p != "var_b"
+    ]
+    with pytest.raises(ValueError, match=_VAR_PIN_MSG):
+        fitter.fit()
+
+
+def test_heteroscedastic_explicit_all_variance_coefficients_ok():
+    cfg = FitConfig(
+        direction="inhibition",
+        noise=GaussianLinear(),
+        fitting_parameters=[
+            "log_c50", "hill", "effect_0", "effect_inf", "var_a", "var_b",
+        ],
+    )
+    assert cfg.fitting_parameters[-2:] == ["var_a", "var_b"]
+
+
+def test_heteroscedastic_auto_extend_without_variance_names_still_works():
+    data = _synthetic_data()
+    cfg = FitConfig(direction="inhibition", variance_model="linear")
+    assert "var_a" in cfg.fitting_parameters and "var_b" in cfg.fitting_parameters
+    result = SingleDrugFit(data, cfg).fit()
+    assert result.success
 
     copied = cfg.copy()
-    assert "var_b" not in copied.fitting_parameters
-
-    data = _synthetic_data()
-    caller = FitConfig(direction="inhibition", noise=GaussianLinear(a_init=0.001, b_init=pin_b))
-    caller.fitting_parameters = [p for p in caller.fitting_parameters if p != "var_b"]
-    fitter = SingleDrugFit(data, caller)
-    assert "var_b" not in fitter.config.fitting_parameters
-    assert "var_b" not in caller.fitting_parameters
+    assert copied.fitting_parameters == cfg.fitting_parameters
 
 
 def test_heteroscedastic_caller_config_unchanged():
@@ -180,3 +275,17 @@ def test_post_construction_bounds_tuple_mutation_applies():
 
     assert r_tight.success
     assert lo <= r_tight.effect_inf <= tight_hi
+
+
+def test_zero_width_after_normalisation_leaves_normalisation_inactive():
+    """Distinct user-unit bounds that round to equality once normalised are
+    rejected before the fitter enters its normalised working state."""
+    data = _synthetic_data()
+    fitter = SingleDrugFit(
+        data, default_fit_config(data, direction="inhibition", noise=GaussianLinear()),
+    )
+    fitter.config.bounds.var_a = (0.00010990990990990992, 0.00010990990990990993)
+    with pytest.raises(ValueError, match=_VAR_ZERO_WIDTH_MSG):
+        fitter.fit()
+    assert getattr(fitter, "_work_config", None) is None
+    assert fitter._response_norm_factor() == 1.0

@@ -784,3 +784,110 @@ def test_joint_marginal_valids_mask_excluded_like_nan():
 
     assert r_mask.drug_a.n_valid == len(data_a) - 1
     assert r_mask.aic == pytest.approx(r_drop.aic, rel=1e-9, abs=1e-12)
+
+
+_VAR_PIN_MSG = "cannot be pinned or partially selected"
+
+
+def test_joint_marginal_rejects_equal_variance_bounds_in_param_config():
+    data_a, data_b = _two_drug_data()
+    pin = 0.001
+    with pytest.raises(ValueError, match="cannot be fixed"):
+        JointMarginalFit(
+            data_a,
+            data_b,
+            direction_a="inhibition",
+            direction_b="inhibition",
+            noise=GaussianLinear(),
+            param_config={"var_a": {"init": pin, "lo": pin, "hi": pin}},
+        )
+
+
+def test_fit_joint_marginal_auto_rejects_equal_variance_bounds():
+    data_a, data_b = _two_drug_data()
+    pin = 0.001
+    with pytest.raises(ValueError, match="cannot be fixed"):
+        fit_joint_marginal_auto(
+            data_a,
+            data_b,
+            direction_a="inhibition",
+            direction_b="inhibition",
+            variance_model="linear",
+            param_config={"var_a": {"init": pin, "lo": pin, "hi": pin}},
+        )
+
+
+def test_joint_marginal_rejects_pinned_variance_in_param_config():
+    data_a, data_b = _two_drug_data()
+    with pytest.raises(ValueError, match=_VAR_PIN_MSG):
+        JointMarginalFit(
+            data_a,
+            data_b,
+            direction_a="inhibition",
+            direction_b="inhibition",
+            noise=GaussianLinear(),
+            param_config={"var_a": {"init": 0.001, "fit": False}},
+        )
+
+
+def test_fit_joint_marginal_auto_rejects_pinned_variance():
+    data_a, data_b = _two_drug_data()
+    with pytest.raises(ValueError, match=_VAR_PIN_MSG):
+        fit_joint_marginal_auto(
+            data_a,
+            data_b,
+            direction_a="inhibition",
+            direction_b="inhibition",
+            variance_model="linear",
+            param_config={"var_b": {"fit": False}},
+        )
+
+
+def test_joint_marginal_fit_rejects_post_construction_variance_removal():
+    data_a, data_b = _two_drug_data()
+    fitter = JointMarginalFit(
+        data_a,
+        data_b,
+        direction_a="inhibition",
+        direction_b="inhibition",
+        noise=GaussianQuadratic(),
+    )
+    fitter._param_names = [n for n in fitter._param_names if n != "var_c"]
+    with pytest.raises(ValueError, match=_VAR_PIN_MSG):
+        fitter.fit()
+
+
+def test_default_joint_marginal_config_heteroscedastic_still_includes_all_variance():
+    data_a, data_b = _two_drug_data()
+    cfg = default_joint_marginal_config(
+        data_a,
+        data_b,
+        direction_a="inhibition",
+        direction_b="inhibition",
+        noise=GaussianLinear(),
+    )
+    assert "var_a" in cfg and "var_b" in cfg
+    assert cfg["var_a"].get("fit", True) is not False
+    result = fit_joint_marginal_auto(
+        data_a,
+        data_b,
+        direction_a="inhibition",
+        direction_b="inhibition",
+        variance_model="linear",
+    )
+    assert result.drug_a.success and result.drug_b.success
+
+
+def test_fit_joint_marginal_auto_reports_domain_collapsed_variance_bounds():
+    """(-1, 0) for var_b clamps to (0, 0); Auto must surface the specific error
+    rather than its generic candidate-failure message."""
+    data_a, data_b = _two_drug_data()
+    with pytest.raises(ValueError, match="cannot be fixed"):
+        fit_joint_marginal_auto(
+            data_a,
+            data_b,
+            direction_a="inhibition",
+            direction_b="inhibition",
+            variance_model="linear",
+            param_config={"var_b": {"lo": -1.0, "hi": 0.0}},
+        )

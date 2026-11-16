@@ -55,7 +55,7 @@ def test_unset_variance_initials_normalise_from_their_public_values():
     assert work.var_b == pytest.approx(cfg.var_b / s)
 
 
-def _excluded_zero_fit(var_a_bounds, *, fit_var_a):
+def _excluded_zero_fit(var_a_bounds):
     """Excluding the first zero changes the robust range (1 → 2), so the
     working scale differs from the one the user-unit domain was checked at."""
     data = pd.DataFrame({
@@ -65,10 +65,6 @@ def _excluded_zero_fit(var_a_bounds, *, fit_var_a):
     })
     fitter = SingleDrugFit(data, FitConfig(direction="inhibition", noise=GaussianLinear(a_init=1.5e-12, b_init=0.0)))
     fitter.config.bounds.var_a = var_a_bounds
-    if not fit_var_a:
-        fitter.config.fitting_parameters = [
-            p for p in fitter.config.fitting_parameters if p != "var_a"
-        ]
     valids = np.ones(len(data), dtype=bool)
     valids[0] = False
     return fitter.fit(valids=valids)
@@ -76,7 +72,7 @@ def _excluded_zero_fit(var_a_bounds, *, fit_var_a):
 
 def test_valid_user_variance_domain_is_not_re_clamped_in_working_units():
     """Bounds valid in user units must not become empty after normalisation."""
-    result = _excluded_zero_fit((1e-12, 2e-12), fit_var_a=True)
+    result = _excluded_zero_fit((1e-12, 2e-12))
     assert 1e-12 <= result.variance_params["a"] <= 2e-12
 
 
