@@ -11,8 +11,8 @@ authors:
   - family-names: Sarikas
     given-names: Srdjan
     email: develop@synfit.app
-version: 0.10.0
-date-released: "2026-10-10"
+version: 0.11.0
+date-released: "2026-11-16"
 license: MIT
 repository-code: "https://github.com/szarma/synfit"
 url: "https://synfit.app"
