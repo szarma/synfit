@@ -189,5 +189,5 @@ def test_joint_result_plot_uses_5p_curves_and_direction(direction, monkeypatch):
     np.testing.assert_allclose(scores[3], 0, atol=1e-4)  # ZIP null, with 5p slices
 
     result.drug_b.direction = "activation" if direction == "inhibition" else "inhibition"
-    with pytest.raises(ValueError, match="same direction"):
+    with pytest.raises(ValueError, match="Synergy scoring"):
         result.plot_synergy(matrix, ch, cv)

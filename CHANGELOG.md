@@ -15,6 +15,26 @@ heading.
 
 ## [Unreleased]
 
+### Added
+- **`JointMarginalResult.synergy_asymptotes` and
+  `synergy_asymptotes_from_payload`.** Direction-aware asymptotes for Bliss,
+  HSA, Loewe and ZIP scoring from a joint marginal fit or its serialised
+  payload; mixed directions raise.
+  ([#76](https://github.com/szarma/synfit/issues/76))
+
+### Changed
+- **`hsa_reference` requires `effect_0` and `effect_inf` (MINOR).** Omitting
+  them no longer assumes inhibition and takes the lower response; callers must
+  pass asymptotes that match the curve direction, as with `hsa_deviation`.
+  ([#75](https://github.com/szarma/synfit/issues/75))
+
+### Deprecated
+- **Top-level `effect_0` / `effect_inf` in `JointMarginalResult.to_dict()`.**
+  They remain `top` / `bottom` in the inhibition orientation for stored-payload
+  compatibility; use `synergy_asymptotes` or `synergy_asymptotes_from_payload`
+  when scoring.
+  ([#76](https://github.com/szarma/synfit/issues/76))
+
 ## [0.11.0] — 2026-11-16
 
 Fits now require an explicit curve direction, and noise coefficients can no

@@ -5,7 +5,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from synfit.joint_marginal import JointMarginalFit, fit_joint_marginal_auto, default_joint_marginal_config
+from synfit.bliss import bliss_independence
+from synfit.joint_marginal import (
+    JointMarginalFit,
+    default_joint_marginal_config,
+    fit_joint_marginal_auto,
+    synergy_asymptotes_from_payload,
+)
 from synfit.noise import CompoundAddMult, GaussianLinear, GaussianQuadratic
 from synfit.synthetic import generate_single_drug
 from tests.helpers import matrix_from_config
@@ -891,3 +897,143 @@ def test_fit_joint_marginal_auto_reports_domain_collapsed_variance_bounds():
             variance_model="linear",
             param_config={"var_b": {"lo": -1.0, "hi": 0.0}},
         )
+
+
+def _activation_pair_data(low=10.0, high=100.0, c50_a=2.0, c50_b=8.0):
+    def cfg(c50, hill, seed):
+        return {
+            "seed": seed,
+            "hill_params": {
+                "c50": c50, "hill": hill, "effect_0": low, "effect_inf": high,
+            },
+            "concentration_series": {
+                "initial_conc": 100.0, "fold_dilutions": 10 ** (2 / 7),
+                "length": 8, "has_zero": False,
+            },
+            "n_replicates": 3,
+            "noise_model": "gaussian", "noise_sigma": 1.0,
+            "noise_sigma_log": 0.02,
+        }
+
+    return (
+        generate_single_drug(cfg(c50_a, 1.5, 51)),
+        generate_single_drug(cfg(c50_b, 1.0, 52)),
+    )
+
+
+def test_synergy_asymptotes_inhibition_returns_top_bottom():
+    data_a, data_b = _two_drug_data()
+    result = JointMarginalFit(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
+    ).fit()
+    assert result.synergy_asymptotes() == (result.top, result.bottom)
+    d = result.to_dict()
+    assert d["effect_0"] == result.top
+    assert d["effect_inf"] == result.bottom
+    assert synergy_asymptotes_from_payload(d) == result.synergy_asymptotes()
+
+
+def test_synergy_asymptotes_activation_oriented_for_bliss_scoring():
+    data_a, data_b = _activation_pair_data()
+    result = JointMarginalFit(
+        data_a, data_b, direction_a="activation", direction_b="activation",
+    ).fit()
+    e0, einf = result.synergy_asymptotes()
+    assert e0 == pytest.approx(result.bottom, rel=0.15)
+    assert einf == pytest.approx(result.top, rel=0.15)
+    assert e0 < einf
+
+    conc = np.logspace(-1, 2, 5)
+    ch = np.concatenate([[0.0], conc])
+    cv = np.concatenate([[0.0], conc])
+    kwargs = dict(
+        c50_hor=result.drug_a.c50, c50_ver=result.drug_b.c50,
+        hill_hor=result.drug_a.hill, hill_ver=result.drug_b.hill,
+    )
+    ref_oriented = bliss_independence(
+        ch, cv, **kwargs, effect_0=e0, effect_inf=einf,
+    )
+    ref_per_drug = bliss_independence(
+        ch, cv, **kwargs,
+        effect_0=result.drug_a.effect_0, effect_inf=result.drug_a.effect_inf,
+    )
+    np.testing.assert_allclose(ref_oriented, ref_per_drug, rtol=1e-12)
+
+    d = result.to_dict()
+    ref_payload_aliases = bliss_independence(
+        ch, cv, **kwargs, effect_0=d["effect_0"], effect_inf=d["effect_inf"],
+    )
+    assert ref_oriented[0, 0] == pytest.approx(e0, rel=0.02)
+    assert ref_payload_aliases[0, 0] == pytest.approx(einf, rel=0.02)
+    assert synergy_asymptotes_from_payload(d) == (e0, einf)
+
+
+def test_synergy_asymptotes_mixed_directions_raise():
+    data_a, data_b = _two_drug_data()
+    inh_act = JointMarginalFit(
+        data_a, data_b, direction_a="inhibition", direction_b="activation",
+    ).fit()
+    with pytest.raises(ValueError, match="same direction"):
+        inh_act.synergy_asymptotes()
+    with pytest.raises(ValueError, match="same direction"):
+        synergy_asymptotes_from_payload(inh_act.to_dict())
+
+
+def test_plot_synergy_passes_synergy_asymptotes_to_heatmaps(monkeypatch):
+    from synfit import plotting
+
+    data_a, data_b = _two_drug_data()
+    result = JointMarginalFit(
+        data_a, data_b, direction_a="inhibition", direction_b="inhibition",
+    ).fit()
+    reps, ch, cv = matrix_from_config()
+    mean = np.mean(np.asarray(reps), axis=0)
+    captured: list[dict] = []
+    real = plotting.synergy_heatmaps
+
+    def spy(*args, **kwargs):
+        captured.append(dict(kwargs))
+        return b"\x89PNG\r\n"
+
+    monkeypatch.setattr(plotting, "synergy_heatmaps", spy)
+    result.plot_synergy(mean, ch, cv)
+    assert len(captured) == 1
+    e0, einf = result.synergy_asymptotes()
+    assert captured[0]["effect_0"] == e0
+    assert captured[0]["effect_inf"] == einf
+    assert e0 == result.drug_a.effect_0
+    assert einf == result.drug_a.effect_inf
+
+    expected_png = real(
+        mean, ch, cv,
+        c50_hor=result.drug_a.c50, c50_ver=result.drug_b.c50,
+        hill_hor=result.drug_a.hill, hill_ver=result.drug_b.hill,
+        effect_0=e0, effect_inf=einf,
+        asymmetry_hor=result.drug_a.asymmetry, asymmetry_ver=result.drug_b.asymmetry,
+    )
+    monkeypatch.setattr(plotting, "synergy_heatmaps", real)
+    assert result.plot_synergy(mean, ch, cv) == expected_png
+
+
+@pytest.mark.parametrize("missing", ["top", "bottom", "direction_horizontal", "direction_vertical"])
+def test_synergy_asymptotes_from_payload_rejects_missing_keys(missing):
+    from synfit.joint_marginal import synergy_asymptotes_from_payload
+
+    payload = {
+        "top": 1.0, "bottom": 0.0,
+        "direction_horizontal": "inhibition", "direction_vertical": "inhibition",
+    }
+    del payload[missing]
+    with pytest.raises(ValueError, match="payload must include"):
+        synergy_asymptotes_from_payload(payload)
+
+
+def test_synergy_asymptotes_from_payload_rejects_invalid_direction():
+    from synfit.joint_marginal import synergy_asymptotes_from_payload
+
+    payload = {
+        "top": 1.0, "bottom": 0.0,
+        "direction_horizontal": "sideways", "direction_vertical": "sideways",
+    }
+    with pytest.raises(ValueError, match="sideways"):
+        synergy_asymptotes_from_payload(payload)

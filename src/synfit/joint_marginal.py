@@ -53,6 +53,42 @@ from .noise import (
 from .single import _coerce_noise, _init_config_from_data, _robust_response_range
 
 
+def synergy_asymptotes_from_payload(payload: dict) -> tuple[float, float]:
+    """Oriented ``(effect_0, effect_inf)`` for Bliss/HSA/Loewe/ZIP from ``to_dict()`` output.
+
+    Uses ``top``, ``bottom``, ``direction_horizontal`` and ``direction_vertical``.
+    Inhibition pairs return ``(top, bottom)``; activation pairs return
+    ``(bottom, top)``. Mixed directions raise because the score functions assume
+    one shared oriented asymptote pair.
+    """
+    try:
+        dir_h = payload["direction_horizontal"]
+        dir_v = payload["direction_vertical"]
+        top = float(payload["top"])
+        bottom = float(payload["bottom"])
+    except KeyError as exc:
+        raise ValueError(
+            "payload must include top, bottom, direction_horizontal and "
+            "direction_vertical"
+        ) from exc
+    if dir_h != dir_v:
+        raise ValueError(
+            "Synergy scoring requires both drugs to have the same direction"
+        )
+    return _synergy_asymptotes_from_plate(top, bottom, dir_h)
+
+
+def _synergy_asymptotes_from_plate(
+    top: float,
+    bottom: float,
+    direction: str,
+) -> tuple[float, float]:
+    validate_direction(direction, name="direction")
+    if direction == "activation":
+        return bottom, top
+    return top, bottom
+
+
 @dataclass
 class JointMarginalResult:
     """Result of a joint two-drug fit with shared top/bottom.
@@ -110,17 +146,26 @@ class JointMarginalResult:
         asymptotes are supplied automatically. Both drugs must have the same
         direction. Returns PNG bytes.
         """
-        if self.drug_a.direction != self.drug_b.direction:
-            raise ValueError("Synergy plotting requires both drugs to have the same direction")
+        effect_0, effect_inf = self.synergy_asymptotes()
         from .plotting import synergy_heatmaps
 
         return synergy_heatmaps(
             mean_matrix, conc_horizontal, conc_vertical,
             c50_hor=self.drug_a.c50, c50_ver=self.drug_b.c50,
             hill_hor=self.drug_a.hill, hill_ver=self.drug_b.hill,
-            effect_0=self.drug_a.effect_0, effect_inf=self.drug_a.effect_inf,
+            effect_0=effect_0, effect_inf=effect_inf,
             asymmetry_hor=self.drug_a.asymmetry, asymmetry_ver=self.drug_b.asymmetry,
             x_label=x_label, y_label=y_label, title=title,
+        )
+
+    def synergy_asymptotes(self) -> tuple[float, float]:
+        """Return ``(effect_0, effect_inf)`` oriented for Bliss/HSA/Loewe/ZIP scoring."""
+        if self.drug_a.direction != self.drug_b.direction:
+            raise ValueError(
+                "Synergy scoring requires both drugs to have the same direction"
+            )
+        return _synergy_asymptotes_from_plate(
+            self.top, self.bottom, self.drug_a.direction,
         )
 
     def predict_variance(self, mu: np.ndarray | float) -> np.ndarray | None:
@@ -161,10 +206,13 @@ class JointMarginalResult:
 
         ``horizontal`` / ``vertical`` mirror the matrix axes (drug_a is fed as
         the horizontal drug, drug_b as the vertical — the sole context this
-        class is used in). Top-level ``effect_0`` / ``effect_inf`` follow the
-        inhibition convention (``effect_0 = top``) so that downstream synergy
-        calculators (bliss_independence, HSA, Loewe, ZIP) see canonical values
-        without extra remapping.
+        class is used in). Top-level ``effect_0`` / ``effect_inf`` are always
+        written as ``effect_0 = top`` and ``effect_inf = bottom`` (the inhibition
+        orientation), regardless of direction. They exist only for backward
+        compatibility with stored payloads and are deprecated — do not pass them
+        to Bliss, HSA, Loewe or ZIP for activation pairs. Use
+        :meth:`synergy_asymptotes` or :func:`synergy_asymptotes_from_payload`
+        for direction-aware asymptotes.
 
         Confidence intervals are derived from the *joint* parameter covariance
         and surfaced in two places: a top-level ``ci`` dict for the shared

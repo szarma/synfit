@@ -219,20 +219,33 @@ the shared noise model. Per-drug results do not carry their own covariance;
 `horizontal["ci"]`, `vertical["ci"]` and the shared `ci` dictionary.
 
 ```text
+result.synergy_asymptotes() -> tuple[float, float]
+synergy_asymptotes_from_payload(payload: dict) -> tuple[float, float]
 result.plot_synergy(mean_matrix, conc_horizontal, conc_vertical, *,
                     x_label=None, y_label=None, title=None) -> bytes
 ```
 
-This result method delegates to `synergy_heatmaps`, supplying its fitted
-potencies, slopes, asymmetries and direction-appropriate asymptotes. It returns
-PNG bytes for the four score panels. Both drugs must have the same direction;
-mixed-direction results raise `ValueError`.
+Import `synergy_asymptotes_from_payload` from `synfit.joint_marginal`. The
+payload must contain `top`, `bottom`, `direction_horizontal` and
+`direction_vertical`; otherwise it raises `ValueError` rather than guessing a
+direction (supply directions from your own metadata for older payloads).
+`synergy_asymptotes` and `synergy_asymptotes_from_payload` return
+`(effect_0, effect_inf)` oriented for Bliss, HSA, Loewe and ZIP:
+`(top, bottom)` for inhibition pairs and `(bottom, top)` for activation pairs.
+Mixed directions raise `ValueError` because those score functions assume one
+shared oriented asymptote pair.
 
-Directions remap each drug's asymptotes. For activation, use the drug result's
-`effect_0`/`effect_inf` when calling synergy helpers: the serialized top-level
-`effect_0`/`effect_inf` remain `top`/`bottom`, following the inhibition convention.
-Mixed-direction marginal fits are supported, but that does not make the
-same-direction synergy references valid for an inhibitor/activator pair.
+`plot_synergy` delegates to `synergy_heatmaps`, supplying fitted potencies,
+slopes, asymmetries and the oriented asymptotes from `synergy_asymptotes`. It
+returns PNG bytes for the four score panels.
+
+Serialized `to_dict()` payloads keep `top`/`bottom` as the shared plate limits.
+Top-level `effect_0`/`effect_inf` are always `top`/`bottom` (inhibition
+orientation) for backward compatibility with stored payloads; they are
+deprecated and must not be passed to synergy score functions for activation
+pairs. Per-drug `horizontal`/`vertical` entries carry each drug's correctly
+oriented asymptotes. Mixed-direction marginal fits remain supported, but
+synergy scoring still requires both drugs to share a direction.
 
 `fit_joint_marginal_auto` accepts the model/direction settings above,
 `variance_model="constant"` and `param_config`. It compares Gaussian and
@@ -321,7 +334,7 @@ Reference helpers are top-level; deviation helpers live in `synfit.bliss`.
 
 ```text
 bliss_reference(resp_horizontal, resp_vertical, effect_0, effect_inf)
-hsa_reference(resp_horizontal, resp_vertical, *, effect_0=None, effect_inf=None)
+hsa_reference(resp_horizontal, resp_vertical, *, effect_0, effect_inf)
 bliss_independence(conc_hor, conc_ver, c50_hor, c50_ver, hill_hor=1.0,
                    hill_ver=1.0, effect_0=1.0, effect_inf=0.0,
                    asymmetry_hor=1.0, asymmetry_ver=1.0)
@@ -334,8 +347,7 @@ The first two use observed 1D single-agent response arrays, typically matrix
 edges. `bliss_independence` evaluates fitted Hill marginals instead. They return
 expected **responses**, not scores. Bliss clips normalized marginal responses
 to `[0, 1]` before multiplication. HSA selects the lower response for inhibition
-or higher for activation; supply both asymptotes for direction-aware behavior.
-Omitting both retains the inhibition convention.
+or higher for activation; both asymptotes are required so orientation is explicit.
 
 Deviation helpers compute `(observed - reference) / (effect_0 - effect_inf)`:
 **negative = synergy** in either direction. With both concentration arrays
